@@ -1,0 +1,298 @@
+// 경량 i18n — 외부 의존성 없이 사전 + 보간만 제공한다.
+//
+// 언어 상태는 useUiSettings 가 들고 있고(localStorage 저장), 여기서는
+// 사전과 useT() 훅만 노출한다. 키는 점(.) 구분 평면 키, 값은 문자열.
+// 보간은 {name} 형태의 단순 치환만 지원한다.
+
+import { useUiSettings } from "./useUiSettings";
+
+export type Lang = "en" | "ko";
+
+// 영어 사전이 키의 원천(소스 오브 트루스). 다른 언어는 같은 키 집합을 채운다.
+const en = {
+  "app.title": "pi-web",
+  "nav.settings": "Settings",
+  "nav.sessions": "Sessions",
+  "nav.back": "Back to sessions",
+
+  "sessions.heading": "Sessions",
+  "sessions.description": "View and chat across multiple directories and sessions",
+  "sessions.refresh": "Refresh",
+  "sessions.directories": "Directories",
+  "sessions.loadingDirectories": "Loading directories…",
+  "sessions.noDirectories": "No directories yet.",
+  "sessions.pickDirectory": "Pick a directory to see its sessions.",
+  "sessions.emptyHint": "Select a session on the left to open it in a tab.",
+  "sessions.loadingSessions": "Loading sessions…",
+  "sessions.noSessions": "No sessions in this directory.",
+  "sessions.sessionCount_one": "{count} session",
+  "sessions.sessionCount_other": "{count} sessions",
+  "sessions.live": "live",
+  "sessions.closeSession": "Close session",
+  "sessions.untitled": "Untitled session",
+
+  "session.noMessages": "No messages yet. Send a prompt to start.",
+  "session.placeholder": "Send a message to this session…",
+  "session.send": "Send",
+  "session.streaming": "streaming",
+  "session.liveLockHeld": "live (lock held)",
+  "session.idle": "idle",
+  "session.lockedHeader": "Session is locked elsewhere",
+  "session.revokedHeader": "Lock was taken over",
+  "session.forceTakeover": "Force takeover",
+  "session.lockBody":
+    "This session is currently held by {who}. You can view it, but sending requires the lock. Forcing takeover will demote the other side to read-only.",
+  "session.anotherClient": "another client",
+
+  "message.you": "You",
+  "message.assistant": "Assistant",
+  "message.assistantModel": "Assistant · {model}",
+  "message.thinking": "thinking",
+  "message.streaming": "streaming",
+  "message.running": "running",
+  "message.error": "error",
+  "message.done": "done",
+
+  "info.title": "Session info",
+  "info.model": "Model",
+  "info.efficiency": "Efficiency",
+  "info.context": "Context",
+  "info.contextUsage": "{used} / {total} tokens ({percent}%)",
+  "info.contextUnknown": "Not available yet",
+  "info.rawData": "Raw data",
+  "info.cost": "Cost",
+  "info.tokens": "Tokens",
+  "info.messages": "Messages",
+  "info.toolCalls": "Tool calls",
+  "info.notLive": "Send a message to start a runtime and see live model, context, and stats.",
+  "info.rename": "Rename session",
+  "info.renamePlaceholder": "Session name",
+  "info.save": "Save",
+  "info.cancel": "Cancel",
+  "info.changeModel": "Change model",
+
+  "composer.attach": "Attach file",
+  "composer.attached": "{count} file(s) attached",
+  "composer.removeAttachment": "Remove",
+
+  "settings.heading": "Settings",
+  "settings.close": "Close",
+  "settings.trueDark": "True dark",
+  "settings.trueDarkDesc": "Dark theme with pure black surfaces (OLED-friendly).",
+  "settings.fonts": "Fonts",
+  "settings.fontSans": "UI font",
+  "settings.fontSansDesc": "CSS font-family for body text.",
+  "settings.fontMono": "Monospace font",
+  "settings.fontMonoDesc": "CSS font-family for code and raw data.",
+  "settings.resetDefault": "Reset to default",
+  "settings.description": "Browser-side appearance plus a read-only view of server state",
+  "settings.refresh": "Refresh",
+  "settings.appearance": "Appearance",
+  "settings.appearanceDesc": "Stored in your browser only",
+  "settings.language": "Language",
+  "settings.languageDesc": "Interface language.",
+  "settings.theme": "Theme",
+  "settings.themeDesc": "Light or dark color mode.",
+  "settings.light": "Light",
+  "settings.dark": "Dark",
+  "settings.density": "Density",
+  "settings.densityDesc": "Comfortable spacing or a compact layout.",
+  "settings.comfortable": "Comfortable",
+  "settings.compact": "Compact",
+  "settings.motion": "Motion",
+  "settings.motionDesc": "Disable animations and transitions.",
+  "settings.reduceMotion": "Reduce motion",
+
+  "settings.models": "Available models",
+  "settings.modelsDesc": "Models pi can use, from your pi auth/models config (read-only here)",
+  "settings.loadingModels": "Loading models…",
+  "settings.noModels": "No models available",
+  "settings.colProvider": "Provider",
+  "settings.colName": "Name",
+  "settings.colId": "ID",
+
+  "settings.locks": "Active locks",
+  "settings.locksDesc": "Who currently holds a write lock — across pi TUI and pi-web",
+  "settings.loadingLocks": "Loading locks…",
+  "settings.noLocks": "No active locks",
+  "settings.colOwner": "Owner",
+  "settings.colLabel": "Label",
+  "settings.colPid": "PID",
+  "settings.colSession": "Session",
+  "settings.ownerPi": "pi (TUI/CLI)",
+  "settings.ownerPiWeb": "pi-web",
+  "settings.ownerUnknown": "unknown",
+
+  "settings.live": "Live runtimes",
+  "settings.liveDesc": "Runtimes pi-web currently owns (reaped after 5 min idle)",
+  "settings.loadingLive": "Loading live runtimes…",
+  "settings.noLive": "No live runtimes",
+  "settings.colDirectory": "Directory",
+  "settings.colStatus": "Status",
+  "settings.colLock": "Lock",
+  "settings.statusStreaming": "streaming",
+  "settings.statusIdle": "idle",
+  "settings.lockHeld": "held",
+  "settings.lockLost": "lost",
+  "settings.loadError": "Failed to load server state: {error}",
+} as const;
+
+export type I18nKey = keyof typeof en;
+
+const ko: Record<I18nKey, string> = {
+  "app.title": "pi-web",
+  "nav.settings": "설정",
+  "nav.sessions": "세션",
+  "nav.back": "세션 목록으로",
+
+  "sessions.heading": "세션",
+  "sessions.description": "여러 디렉터리와 세션을 한 곳에서 보고 대화합니다",
+  "sessions.refresh": "새로고침",
+  "sessions.directories": "디렉터리",
+  "sessions.loadingDirectories": "디렉터리 불러오는 중…",
+  "sessions.noDirectories": "디렉터리가 없습니다.",
+  "sessions.pickDirectory": "디렉터리를 선택하면 세션 목록이 보입니다.",
+  "sessions.emptyHint": "왼쪽에서 세션을 선택하면 탭으로 열립니다.",
+  "sessions.loadingSessions": "세션 불러오는 중…",
+  "sessions.noSessions": "이 디렉터리에 세션이 없습니다.",
+  "sessions.sessionCount_one": "세션 {count}개",
+  "sessions.sessionCount_other": "세션 {count}개",
+  "sessions.live": "라이브",
+  "sessions.closeSession": "세션 닫기",
+  "sessions.untitled": "제목 없는 세션",
+
+  "session.noMessages": "아직 메시지가 없습니다. 프롬프트를 보내 시작하세요.",
+  "session.placeholder": "이 세션에 메시지 보내기…",
+  "session.send": "보내기",
+  "session.streaming": "스트리밍 중",
+  "session.liveLockHeld": "라이브 (락 보유)",
+  "session.idle": "대기 중",
+  "session.lockedHeader": "다른 곳에서 이 세션을 점유 중입니다",
+  "session.revokedHeader": "락을 빼앗겼습니다",
+  "session.forceTakeover": "강제로 가져오기",
+  "session.lockBody":
+    "이 세션은 현재 {who} 이(가) 점유 중입니다. 보기는 가능하지만 메시지를 보내려면 락이 필요합니다. 강제로 가져오면 상대는 읽기 전용으로 강등됩니다.",
+  "session.anotherClient": "다른 클라이언트",
+
+  "message.you": "나",
+  "message.assistant": "어시스턴트",
+  "message.assistantModel": "어시스턴트 · {model}",
+  "message.thinking": "생각 중",
+  "message.streaming": "스트리밍 중",
+  "message.running": "실행 중",
+  "message.error": "오류",
+  "message.done": "완료",
+
+  "info.title": "세션 정보",
+  "info.model": "모델",
+  "info.efficiency": "효율(Efficiency)",
+  "info.context": "컨텍스트",
+  "info.contextUsage": "{used} / {total} 토큰 ({percent}%)",
+  "info.contextUnknown": "아직 없음",
+  "info.rawData": "원본 데이터",
+  "info.cost": "비용",
+  "info.tokens": "토큰",
+  "info.messages": "메시지",
+  "info.toolCalls": "툴 호출",
+  "info.notLive": "메시지를 보내 런타임을 시작하면 모델·컨텍스트·통계가 보입니다.",
+  "info.rename": "세션 이름 변경",
+  "info.renamePlaceholder": "세션 이름",
+  "info.save": "저장",
+  "info.cancel": "취소",
+  "info.changeModel": "모델 변경",
+
+  "composer.attach": "파일 첨부",
+  "composer.attached": "파일 {count}개 첨부됨",
+  "composer.removeAttachment": "제거",
+
+  "settings.heading": "설정",
+  "settings.close": "닫기",
+  "settings.trueDark": "트루 다크",
+  "settings.trueDarkDesc": "순수 검정 배경의 다크 테마 (OLED 친화).",
+  "settings.fonts": "폰트",
+  "settings.fontSans": "UI 폰트",
+  "settings.fontSansDesc": "본문 텍스트의 CSS font-family.",
+  "settings.fontMono": "고정폭 폰트",
+  "settings.fontMonoDesc": "코드와 원본 데이터의 CSS font-family.",
+  "settings.resetDefault": "기본값으로",
+  "settings.description": "브라우저 화면 설정과 서버 상태 보기(읽기 전용)",
+  "settings.refresh": "새로고침",
+  "settings.appearance": "화면",
+  "settings.appearanceDesc": "이 브라우저에만 저장됩니다",
+  "settings.language": "언어",
+  "settings.languageDesc": "인터페이스 언어.",
+  "settings.theme": "테마",
+  "settings.themeDesc": "라이트 또는 다크 모드.",
+  "settings.light": "라이트",
+  "settings.dark": "다크",
+  "settings.density": "밀도",
+  "settings.densityDesc": "여유로운 간격 또는 조밀한 배치.",
+  "settings.comfortable": "여유롭게",
+  "settings.compact": "조밀하게",
+  "settings.motion": "모션",
+  "settings.motionDesc": "애니메이션과 전환 효과를 끕니다.",
+  "settings.reduceMotion": "모션 줄이기",
+
+  "settings.models": "사용 가능한 모델",
+  "settings.modelsDesc": "pi가 쓸 수 있는 모델 — pi의 auth/models 설정 기준 (여기선 읽기 전용)",
+  "settings.loadingModels": "모델 불러오는 중…",
+  "settings.noModels": "사용 가능한 모델이 없습니다",
+  "settings.colProvider": "제공자",
+  "settings.colName": "이름",
+  "settings.colId": "ID",
+
+  "settings.locks": "활성 락",
+  "settings.locksDesc": "지금 누가 쓰기 락을 점유 중인가 — pi TUI와 pi-web 전체",
+  "settings.loadingLocks": "락 불러오는 중…",
+  "settings.noLocks": "활성 락이 없습니다",
+  "settings.colOwner": "점유자",
+  "settings.colLabel": "라벨",
+  "settings.colPid": "PID",
+  "settings.colSession": "세션",
+  "settings.ownerPi": "pi (TUI/CLI)",
+  "settings.ownerPiWeb": "pi-web",
+  "settings.ownerUnknown": "알 수 없음",
+
+  "settings.live": "라이브 런타임",
+  "settings.liveDesc": "pi-web이 현재 점유 중인 런타임 (5분간 활동 없으면 정리됨)",
+  "settings.loadingLive": "라이브 런타임 불러오는 중…",
+  "settings.noLive": "라이브 런타임이 없습니다",
+  "settings.colDirectory": "디렉터리",
+  "settings.colStatus": "상태",
+  "settings.colLock": "락",
+  "settings.statusStreaming": "스트리밍 중",
+  "settings.statusIdle": "대기 중",
+  "settings.lockHeld": "보유",
+  "settings.lockLost": "잃음",
+  "settings.loadError": "서버 상태를 불러오지 못했습니다: {error}",
+};
+
+const dictionaries: Record<Lang, Record<I18nKey, string>> = { en, ko };
+
+// {name} 형태 보간.
+function interpolate(template: string, params?: Record<string, string | number>): string {
+  if (!params) return template;
+  return template.replace(/\{(\w+)\}/g, (_, k) =>
+    k in params ? String(params[k]) : `{${k}}`,
+  );
+}
+
+export function translate(
+  lang: Lang,
+  key: I18nKey,
+  params?: Record<string, string | number>,
+): string {
+  const dict = dictionaries[lang] ?? en;
+  const template = dict[key] ?? en[key] ?? key;
+  return interpolate(template, params);
+}
+
+export type TFunc = (key: I18nKey, params?: Record<string, string | number>) => string;
+
+// 현재 언어에 묶인 t() 를 돌려준다. 언어가 바뀌면 자동 리렌더된다.
+export function useT(): { t: TFunc; lang: Lang } {
+  const { settings } = useUiSettings();
+  const lang = settings.lang;
+  const t: TFunc = (key, params) => translate(lang, key, params);
+  return { t, lang };
+}

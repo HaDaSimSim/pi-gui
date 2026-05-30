@@ -1,0 +1,31 @@
+{
+  "name": "pi-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "dependencies": {
+    "@cloudscape-design/collection-hooks": "^1.0.96",
+    "@cloudscape-design/components": "^3.0.1304",
+    "@cloudscape-design/global-styles": "^1.0.59",
+    "@earendil-works/pi-coding-agent": "link:/Users/mingeon/.nvm/versions/node/v24.14.0/lib/node_modules/@earendil-works/pi-coding-agent",
+    "@hono/node-server": "^2.0.4",
+    "hono": "^4.12.23",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.16.0"
+  },
+  "scripts": {
+    "dev:server": "node server/index.ts",
+    "dev:web": "vite",
+    "build:web": "vite build",
+    "dev": "node server/index.ts & vite"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
+  }
+}

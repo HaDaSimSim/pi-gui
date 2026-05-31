@@ -1,4 +1,4 @@
-// pi-web 백엔드 API 클라이언트.
+// pi-gui 백엔드 API 클라이언트.
 // 모든 호출은 Vite 프록시(dev) 또는 같은 오리진(prod)의 /api 로 간다.
 
 export interface DirectoryInfo {
@@ -110,6 +110,29 @@ export interface GitStatus {
   untracked: GitFileChange[];
   branches: GitBranch[];
   commits: GitCommit[];
+}
+
+export interface GitCommitFile {
+  path: string;
+  added: number;
+  deleted: number;
+  status: string;
+}
+
+export interface GitCommitDetail {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  body: string;
+  author: string;
+  authorEmail: string;
+  authorDate: string;
+  relTime: string;
+  parents: string[];
+  refs: string;
+  files: GitCommitFile[];
+  insertions: number;
+  deletions: number;
 }
 
 export interface SessionStats {
@@ -242,6 +265,16 @@ export const api = {
 
   // git 상태 (브랜치/변경파일/커밋그래프). 읽기 전용.
   git: (cwd: string) => getJSON<GitStatus>(`/api/git?cwd=${encodeURIComponent(cwd)}`),
+
+  // git 단일 커밋 상세. 읽기 전용.
+  gitCommit: (cwd: string, hash: string) =>
+    getJSON<GitCommitDetail>(`/api/git/commit?cwd=${encodeURIComponent(cwd)}&hash=${encodeURIComponent(hash)}`),
+
+  // 디렉터리 브라우저 (새 세션 폴더 선택용). path 없으면 홈에서 시작.
+  fsList: (path?: string) =>
+    getJSON<{ path: string; parent: string | null; dirs: string[] }>(
+      `/api/fs/list${path ? `?path=${encodeURIComponent(path)}` : ""}`,
+    ),
 
   // 모델 변경. 409 면 ApiError.
   setModel: (path: string, provider: string, id: string, force = false) =>

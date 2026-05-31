@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { api, type DirectoryInfo, type SessionInfo } from "./api";
 import { SessionTab } from "./session-tab";
 import { Sidebar, sessionLabel } from "./sidebar";
+import { DirectoryPicker } from "./directory-picker";
 import { Toaster } from "@/components/ui/sonner";
 import { useT } from "./i18n";
 
@@ -131,11 +132,9 @@ export default function App() {
     [t],
   );
 
-  // 새 디렉터리: 경로를 입력받아 그 cwd 에서 새 세션을 시작.
-  const newDirectory = useCallback(() => {
-    const cwd = window.prompt(t("sessions.newDirectoryPrompt"));
-    if (cwd && cwd.trim()) newSession(cwd.trim());
-  }, [newSession, t]);
+  // 새 디렉터리: 폴더 선택 모달로 서버 파일시스템을 탐색(또는 절대경로 입력) → 그 cwd 에서 새 세션.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const newDirectory = useCallback(() => setPickerOpen(true), []);
 
   // 세션 삭제: 확인 → API → 열린 탭 닫기 + 목록 갱신.
   const deleteSession = useCallback(
@@ -270,6 +269,16 @@ export default function App() {
       ) : null}
 
       <Toaster position="bottom-right" />
+
+      {pickerOpen ? (
+        <DirectoryPicker
+          onClose={() => setPickerOpen(false)}
+          onPick={(dir) => {
+            setPickerOpen(false);
+            newSession(dir);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

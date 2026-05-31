@@ -151,7 +151,7 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
 
         {/* 메시지 스크롤 영역 */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-4 py-6">
+          <div className="mx-auto max-w-7xl px-4 py-6">
             {state.loading ? (
               <div className="flex justify-center p-6">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />

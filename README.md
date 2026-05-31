@@ -1,4 +1,4 @@
-# pi-web
+# pi-gui
 
 A web UI for [pi](https://github.com/earendil-works/pi) that lets you browse and
 chat across **multiple directories and multiple sessions at once** — something
@@ -12,10 +12,10 @@ It's a thin host layer on top of pi's SDK (`@earendil-works/pi-coding-agent`):
   a prompt to a session. Many sessions can be live at once, each streaming
   independently over SSE.
 - **One writer per session.** A session file has no OS lock in pi, so concurrent
-  writes would corrupt it. pi-web and the pi TUI share an advisory lock protocol
+  writes would corrupt it. pi-gui and the pi TUI share an advisory lock protocol
   (`session-lock`) so a given session is only ever *written* from one place.
   Viewing is always allowed; only sending requires the lock.
-- **The web mirrors the TUI.** pi-web reads whatever TUI extensions leave in the
+- **The web mirrors the TUI.** pi-gui reads whatever TUI extensions leave in the
   session file (turn timing, token/cost, slash commands, skills) and renders it
   itself. Extensions stay TUI-only; the web adapts to them.
 
@@ -38,7 +38,7 @@ server/ (Hono, 127.0.0.1 only)
 The lock protocol lives in **pi-skills**
 (`pi-skills/extensions/session-lock/shared/session-lock.ts`) and is consumed two
 ways: the pi-skills `session-lock` extension claims it when the TUI/CLI opens a
-session, and pi-web symlinks the same file so both speak the exact same protocol
+session, and pi-gui symlinks the same file so both speak the exact same protocol
 and can see each other's claims.
 
 ## Cost model (why it scales)
@@ -64,7 +64,7 @@ runtime.
   **force-takes** it.
 - `state()` is `free` / `mine` / `lost`. "lost" = you held it but the on-disk
   token changed (someone took over) or the lock vanished.
-- pi-web re-checks ownership **before every prompt** (`isMine()`); if taken, the
+- pi-gui re-checks ownership **before every prompt** (`isMine()`); if taken, the
   prompt is rejected (`409 revoked`) and the runtime dropped.
 - Opening a locked session returns `409 locked` with the current holder; the UI
   offers a **Force takeover** button (demotes the other side to read-only).
@@ -133,7 +133,7 @@ pnpm build:web       # production bundle → dist-web/
 - `shared/session-lock.ts` is a symlink into the pi-skills repo. If that repo
   moves, re-point the symlink.
 - Model keys / auth come from pi's own `~/.pi/agent/auth.json` + `models.json`
-  via `AuthStorage`/`ModelRegistry`. pi-web doesn't manage credentials.
+  via `AuthStorage`/`ModelRegistry`. pi-gui doesn't manage credentials.
 
 ## Layout
 
@@ -167,7 +167,7 @@ not part of the suite.
 ## Known rough edges
 
 - Live activity from *another* process (the TUI) is not streamed in real time —
-  pi-web only streams runtimes it owns. A foreign session's live writes would
+  pi-gui only streams runtimes it owns. A foreign session's live writes would
   need a jsonl file watcher (deliberately out of scope).
 - Extension `ctx.ui.custom` (arbitrary terminal component) has no generic web
   mapping. The generic bridge covers confirm/select/input/editor/notify;

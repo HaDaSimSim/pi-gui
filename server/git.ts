@@ -177,3 +177,84 @@ export async function getGitStatus(cwd: string, logLimit = 40): Promise<GitStatu
     commits,
   };
 }
+
+export interface GitCommitFile {
+  path: string;
+  added: number; // 추가된 줄 (-) 면 binary
+  deleted: number;
+  status: string; // A/M/D/R 등
+}
+
+export interface GitCommitDetail {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  body: string;
+  author: string;
+  authorEmail: string;
+  authorDate: string; // 절대 시각 (ISO-스러운 포맷)
+  relTime: string;
+  parents: string[];
+  refs: string;
+  files: GitCommitFile[];
+  insertions: number;
+  deletions: number;
+}
+
+// 해시 검증: git 해시(40 hex 또는 축약)만 허용. 인자 주입 방지.
+function isValidHash(h: string): boolean {
+  return /^[0-9a-fA-F]{4,40}$/.test(h);
+}
+
+export async function getCommitDetail(cwd: string, hash: string): Promise<GitCommitDetail | null> {
+  if (!cwd || !existsSync(cwd) || !isValidHash(hash)) return null;
+  const inside = (await git(cwd, ["rev-parse", "--is-inside-work-tree"])).trim();
+  if (inside !== "true") return null;
+
+  // 메타 + 파일별 numstat 을 한 번에. %x1f 구분, 메타와 numstat 은 %x1e 로 분리.
+  const SEP = "%x1f";
+  const fmt = ["%H", "%h", "%s", "%b", "%an", "%ae", "%cI", "%cr", "%P", "%D"].join(SEP);
+  const out = await git(cwd, ["show", "--no-color", "--numstat", `--format=${fmt}%x1e`, hash]);
+  if (!out) return null;
+
+  const [metaPart, statPart = ""] = out.split("\x1e");
+  const f = metaPart.split("\x1f");
+  if (f.length < 10) return null;
+
+  const files: GitCommitFile[] = [];
+  let insertions = 0;
+  let deletions = 0;
+  for (const line of statPart.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const cols = trimmed.split("\t");
+    if (cols.length < 3) continue;
+    const added = cols[0] === "-" ? 0 : Number(cols[0]) || 0;
+    const deleted = cols[1] === "-" ? 0 : Number(cols[1]) || 0;
+    let p = cols[2];
+    const arrow = p.indexOf(" => ");
+    if (arrow >= 0) {
+      // rename: "old => new" 또는 "dir/{old => new}/x" — 간단히 new 쪽을 보여준다.
+      p = p.replace(/\{.*? => (.*?)\}/, "$1").replace(/.*? => /, "");
+    }
+    files.push({ path: p, added, deleted, status: cols[0] === "-" ? "B" : "M" });
+    insertions += added;
+    deletions += deleted;
+  }
+
+  return {
+    hash: f[0],
+    shortHash: f[1],
+    subject: f[2],
+    body: f[3].trim(),
+    author: f[4],
+    authorEmail: f[5],
+    authorDate: f[6],
+    relTime: f[7],
+    parents: f[8] ? f[8].split(" ").filter(Boolean) : [],
+    refs: f[9] || "",
+    files,
+    insertions,
+    deletions,
+  };
+}

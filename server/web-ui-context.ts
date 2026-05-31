@@ -1,4 +1,4 @@
-// pi-web 용 ExtensionUIContext 구현.
+// pi-gui 용 ExtensionUIContext 구현.
 //
 // 터미널이 없으므로 인터랙티브 UI(select/confirm/input/editor)는 SSE 로 브라우저에
 // "ui_request" 이벤트를 보내고, 브라우저가 shadcn 다이얼로그로 받아 응답하면

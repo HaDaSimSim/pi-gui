@@ -18,7 +18,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     // 콘솔에 남겨 디버깅 (서버 전송은 하지 않음 — 로컬 도구).
-    console.error("[pi-web] render error:", error, info.componentStack);
+    console.error("[pi-gui] render error:", error, info.componentStack);
   }
 
   render() {

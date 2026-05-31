@@ -75,8 +75,11 @@ function ToolCall({ tc }: { tc: ToolCallView }) {
       <CollapsibleTrigger
         className={cn(
           "group flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors",
-          "border-border/60 bg-muted/30 hover:bg-muted/60",
-          error && "border-destructive/40 bg-destructive/5",
+          running
+            ? "border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10"
+            : error
+              ? "border-destructive/30 bg-destructive/5 hover:bg-destructive/10"
+              : "border-emerald-500/25 bg-emerald-500/5 hover:bg-emerald-500/10",
         )}
       >
         <span

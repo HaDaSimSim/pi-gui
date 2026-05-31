@@ -1,6 +1,6 @@
 # AGENTS.md
 
-How-to-work-here for **pi-web**. Read `README.md` for what/why.
+How-to-work-here for **pi-gui**. Read `README.md` for what/why.
 
 ## Hard rules (load-bearing, not discoverable)
 
@@ -25,7 +25,12 @@ How-to-work-here for **pi-web**. Read `README.md` for what/why.
   forever-pending promise.
 - **`shared/session-lock.ts` is a symlink, not a copy.** Source of truth is
   `pi-skills/extensions/session-lock/shared/session-lock.ts`. Edit the protocol
-  *there* — the pi TUI extension and pi-web must stay byte-identical.
+  *there* — the pi TUI extension and pi-gui must stay byte-identical.
+- **The lock owner identifier stays `"pi-web"`.** Although the project/repo is now
+  pi-gui, the SessionLock owner string (in `runtime-manager.ts`), the `owner`
+  union type, and the on-disk folder are intentionally still `pi-web` — they're
+  protocol/identity values the pi TUI matches against. Only display names,
+  comments, and the repo name changed to pi-gui.
 
 ## Runtime / TypeScript gotchas
 
@@ -65,7 +70,7 @@ How-to-work-here for **pi-web**. Read `README.md` for what/why.
 
 ## Mirroring the TUI
 
-pi-web reads what TUI extensions leave in the session file and renders it itself;
+pi-gui reads what TUI extensions leave in the session file and renders it itself;
 extensions never need to know about web. Already wired:
 - `turn-meta` custom entries (ui-cosmetics) → per-message elapsed time.
 - `subagent-run` custom entries (subagents) → inline collapsible run blocks.
@@ -101,7 +106,7 @@ collides with a user's dev server. Use the PORT=4318 nohup pattern instead.
 
 ## Scope discipline
 
-- pi-web is host + UI. Agent behavior, tools, per-session policy belong in
+- pi-gui is host + UI. Agent behavior, tools, per-session policy belong in
   **pi-skills extensions**, not here.
 - "Watch another process's live writes" (jsonl file watcher) is intentionally
-  out of scope — pi-web only streams runtimes it owns.
+  out of scope — pi-gui only streams runtimes it owns.

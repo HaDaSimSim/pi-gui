@@ -2,15 +2,21 @@
 // 브랜치 목록, 변경 파일(staged/unstaged/untracked), 최근 커밋 그래프.
 
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, GitBranch as GitBranchIcon, Check } from "lucide-react";
+import { RefreshCw, GitBranch as GitBranchIcon, Check, GitCommit as GitCommitIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { api, type GitStatus, type GitFileChange, type GitCommit } from "./api";
+import { api, type GitStatus, type GitFileChange, type GitCommit, type GitCommitDetail } from "./api";
 import { useT } from "./i18n";
 
 // status 코드 → 색상/라벨. (M 수정, A 추가, D 삭제, R 이름변경, ? 미추적)
@@ -72,14 +78,22 @@ function FileGroup({
   );
 }
 
-// 단순 커밋 그래프: 각 커밋 앞에 점 + 세로 연결선. (선형 위주, 머지는 점만 강조)
-function CommitRow({ commit, isLast }: { commit: GitCommit; isLast: boolean }) {
+// 단순 커밋 그래프: 각 커밋 앞에 점 + 세로 연결선. 클릭하면 상세를 연다.
+function CommitRow({
+  commit,
+  isLast,
+  onSelect,
+}: {
+  commit: GitCommit;
+  isLast: boolean;
+  onSelect: (hash: string) => void;
+}) {
   const isMerge = commit.parents.length > 1;
   const refs = commit.refs
     ? commit.refs.split(",").map((r) => r.trim().replace(/^HEAD -> /, "")).filter(Boolean)
     : [];
   return (
-    <div className="flex gap-2.5">
+    <button type="button" onClick={() => onSelect(commit.hash)} className="flex gap-2.5 text-left">
       {/* 그래프 레인 */}
       <div className="relative flex w-3 shrink-0 flex-col items-center">
         <span
@@ -91,7 +105,7 @@ function CommitRow({ commit, isLast }: { commit: GitCommit; isLast: boolean }) {
         {!isLast ? <span className="w-px flex-1 bg-border" /> : null}
       </div>
       {/* 커밋 내용 */}
-      <div className="min-w-0 flex-1 pb-3">
+      <div className="-mx-1 min-w-0 flex-1 rounded px-1 pb-3 hover:bg-accent">
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 truncate text-sm">{commit.subject}</span>
         </div>
@@ -106,7 +120,106 @@ function CommitRow({ commit, isLast }: { commit: GitCommit; isLast: boolean }) {
           ))}
         </div>
       </div>
-    </div>
+    </button>
+  );
+}
+
+// 커밋 상세 다이얼로그: 메시지 전문 + 변경 파일(numstat).
+function CommitDetailDialog({
+  cwd,
+  hash,
+  onClose,
+}: {
+  cwd: string;
+  hash: string;
+  onClose: () => void;
+}) {
+  const { t } = useT();
+  const [detail, setDetail] = useState<GitCommitDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api
+      .gitCommit(cwd, hash)
+      .then((d) => alive && setDetail(d))
+      .catch(() => alive && setDetail(null))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [cwd, hash]);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[80vh] gap-0 overflow-hidden sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 pr-6 text-base">
+            <GitCommitIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">{detail?.subject ?? t("git.loading")}</span>
+          </DialogTitle>
+        </DialogHeader>
+        {loading ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">{t("git.loading")}</div>
+        ) : !detail ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">{t("git.error")}</div>
+        ) : (
+          <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pt-2">
+            {/* 메타 */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="font-mono text-foreground/80">{detail.shortHash}</span>
+              <span>·</span>
+              <span>{detail.author}</span>
+              {detail.authorEmail ? <span className="font-mono">&lt;{detail.authorEmail}&gt;</span> : null}
+              <span>·</span>
+              <span>{detail.relTime}</span>
+            </div>
+            {detail.parents.length ? (
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{t("git.parents")}:</span>
+                {detail.parents.map((p) => (
+                  <span key={p} className="rounded bg-muted px-1.5 font-mono text-[11px]">{p.slice(0, 7)}</span>
+                ))}
+              </div>
+            ) : null}
+
+            {/* 메시지 본문 */}
+            {detail.body ? (
+              <pre className="m-0 whitespace-pre-wrap rounded-md bg-muted/50 p-3 font-mono text-xs leading-relaxed text-foreground/80">
+                {detail.body}
+              </pre>
+            ) : null}
+
+            {/* 변경 파일 */}
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <span>{t("git.filesChanged", { count: detail.files.length })}</span>
+                {detail.insertions > 0 ? <span className="text-emerald-500">+{detail.insertions}</span> : null}
+                {detail.deletions > 0 ? <span className="text-destructive">−{detail.deletions}</span> : null}
+              </div>
+              <div className="flex flex-col">
+                {detail.files.map((fl) => {
+                  const slash = fl.path.lastIndexOf("/");
+                  const dir = slash >= 0 ? fl.path.slice(0, slash + 1) : "";
+                  const name = slash >= 0 ? fl.path.slice(slash + 1) : fl.path;
+                  return (
+                    <div key={fl.path} className="flex items-center gap-2 py-0.5 text-sm">
+                      <span className="min-w-0 flex-1 truncate">
+                        {dir ? <span className="text-muted-foreground">{dir}</span> : null}
+                        <span>{name}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-[11px] text-emerald-500">+{fl.added}</span>
+                      <span className="shrink-0 font-mono text-[11px] text-destructive">−{fl.deleted}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -114,9 +227,13 @@ export function GitPanel({ path, cwd }: { path: string; cwd?: string }) {
   const { t } = useT();
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [resolvedCwd, setResolvedCwd] = useState<string | null>(cwd ?? null);
+  const [selectedHash, setSelectedHash] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       // cwd 가 안 주어지면 footer 로 세션의 cwd 를 먼저 알아낸다.
       let dir = cwd;
@@ -125,14 +242,20 @@ export function GitPanel({ path, cwd }: { path: string; cwd?: string }) {
         dir = f?.cwd || undefined;
       }
       if (!dir) {
+        setError(t("git.noCwd"));
         setStatus(null);
         return;
       }
+      setResolvedCwd(dir);
       setStatus(await api.git(dir));
+    } catch (e) {
+      // 라우트 없음(구버전 서버)/네트워크 오류 등 — "repo 아님"과 구분해 표시.
+      setError(e instanceof Error ? e.message : String(e));
+      setStatus(null);
     } finally {
       setLoading(false);
     }
-  }, [path, cwd]);
+  }, [path, cwd, t]);
 
   useEffect(() => {
     load();
@@ -140,6 +263,17 @@ export function GitPanel({ path, cwd }: { path: string; cwd?: string }) {
 
   if (loading && !status) {
     return <div className="p-4 text-sm text-muted-foreground">{t("git.loading")}</div>;
+  }
+  if (error) {
+    return (
+      <div className="flex flex-col items-start gap-2 p-4 text-sm text-muted-foreground">
+        <div>{t("git.error")}</div>
+        <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground/70">{error}</code>
+        <Button variant="outline" size="sm" className="mt-1 gap-1.5" onClick={load}>
+          <RefreshCw className="size-3.5" /> {t("git.refresh")}
+        </Button>
+      </div>
+    );
   }
   if (!status || !status.isRepo) {
     return <div className="p-4 text-sm text-muted-foreground">{t("git.notRepo")}</div>;
@@ -207,11 +341,21 @@ export function GitPanel({ path, cwd }: { path: string; cwd?: string }) {
             <div className="px-1 text-sm text-muted-foreground">{t("git.noCommits")}</div>
           ) : (
             status.commits.map((cm, i) => (
-              <CommitRow key={cm.hash} commit={cm} isLast={i === status.commits.length - 1} />
+              <CommitRow
+                key={cm.hash}
+                commit={cm}
+                isLast={i === status.commits.length - 1}
+                onSelect={setSelectedHash}
+              />
             ))
           )}
         </div>
       </div>
+
+      {/* 커밋 상세 다이얼로그 */}
+      {selectedHash && resolvedCwd ? (
+        <CommitDetailDialog cwd={resolvedCwd} hash={selectedHash} onClose={() => setSelectedHash(null)} />
+      ) : null}
     </div>
   );
 }

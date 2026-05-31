@@ -21,6 +21,23 @@ import { getGitStatus, getCommitDetail } from "./git.ts";
 const app = new Hono();
 const runtimes = new RuntimeManager();
 
+// ── CORS: 로컬 origin 만 허용 ────────────────────────────────
+// Tauri 프로덕션 빌드는 WebView 가 tauri://localhost 에서 로드되어
+// 127.0.0.1:4317 로 크로스오리진 요청을 보낸다. 그걸 허용하되,
+// 외부 origin 은 차단해 로컬 전용 모델을 유지한다 (외부 노출=RCE 위험).
+const ALLOWED_ORIGIN = /^(tauri:\/\/localhost|https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
+app.use("*", async (c, next) => {
+  const origin = c.req.header("origin");
+  if (origin && ALLOWED_ORIGIN.test(origin)) {
+    c.header("Access-Control-Allow-Origin", origin);
+    c.header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    c.header("Access-Control-Allow-Headers", "content-type");
+    c.header("Vary", "Origin");
+  }
+  if (c.req.method === "OPTIONS") return c.body(null, 204);
+  return next();
+});
+
 // ── 디렉터리 목록 (listAll → cwd 그룹) : 런타임 0개 ────────────────────
 app.get("/api/directories", async (c) => {
   const all = await SessionManager.listAll();

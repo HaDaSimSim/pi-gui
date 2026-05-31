@@ -7,6 +7,7 @@
 //   4. 스트리밍 델타(text/thinking/tool)를 누적해 화면 메시지로 합성
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   api,
   subscribeEvents,
@@ -64,6 +65,16 @@ export interface SessionState {
   loading: boolean;
   controls: SessionControls | null; // 모델/효율/컨텍스트/이름 스냅샷 (info 패널용)
   name: string | null; // 세션 이름 (스크롤백 + rename + 라이브 반영)
+  uiRequest: UiRequest | null; // extension 의 ctx.ui.confirm/select/input 요청 (브릿지)
+}
+
+export interface UiRequest {
+  id: string;
+  kind: "select" | "confirm" | "input" | "editor";
+  title: string;
+  message?: string;
+  placeholder?: string;
+  options?: string[];
 }
 
 // 세션 파일 엔트리(스크롤백)를 화면 메시지로 변환.
@@ -188,6 +199,7 @@ export function useSession(path: string, cwd?: string) {
     loading: true,
     controls: null,
     name: null,
+    uiRequest: null,
   });
 
   // 스트리밍 중 누적 중인 assistant 메시지 (이벤트로 갱신)
@@ -257,6 +269,21 @@ export function useSession(path: string, cwd?: string) {
       switch (ev.type) {
         case "_connected":
           patch({ live: ev.live, streaming: ev.streaming });
+          break;
+        case "ui_request":
+          patch({
+            uiRequest: {
+              id: ev.id,
+              kind: ev.kind,
+              title: ev.title,
+              message: ev.message,
+              placeholder: ev.placeholder,
+              options: ev.options,
+            },
+          });
+          break;
+        case "ui_notify":
+          toast[ev.level === "error" ? "error" : ev.level === "warning" ? "warning" : "info"](ev.message);
           break;
         case "agent_start":
           patch({ streaming: true });
@@ -428,5 +455,14 @@ export function useSession(path: string, cwd?: string) {
     api.abort(path).catch(() => undefined);
   }, [path]);
 
-  return { state, send, takeover, clearError, setModel, setThinking, rename, refreshControls, abort };
+  // UI 브릿지 응답 (confirm/select/input 다이얼로그의 결과를 백엔드로).
+  const respondUi = useCallback(
+    (id: string, value: unknown) => {
+      patch({ uiRequest: null });
+      api.uiResponse(path, id, value).catch(() => undefined);
+    },
+    [path, patch],
+  );
+
+  return { state, send, takeover, clearError, setModel, setThinking, rename, refreshControls, abort, respondUi };
 }

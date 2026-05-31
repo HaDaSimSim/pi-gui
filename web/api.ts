@@ -176,6 +176,10 @@ export const api = {
   // 진행 중인 응답 중단.
   abort: (path: string) => postJSON<{ aborted: boolean }>("/api/session/abort", { path }),
 
+  // UI 브릿지 응답 (confirm/select/input 다이얼로그 결과).
+  uiResponse: (path: string, id: string, value: unknown) =>
+    postJSON<{ ok: boolean }>("/api/session/ui-response", { path, id, value }),
+
   // 세션 삭제 (jsonl 제거). 라이브/락 점유 중이면 409.
   deleteSession: (path: string) =>
     fetch(`/api/session?path=${encodeURIComponent(path)}`, { method: "DELETE" }),

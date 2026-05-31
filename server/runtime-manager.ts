@@ -27,6 +27,7 @@ export interface ImageContent {
   mimeType: string;
 }
 import { SessionLock, type LockRecord } from "../shared/session-lock.ts";
+import { WebUIContext } from "./web-ui-context.ts";
 
 export type Subscriber = (event: unknown) => void;
 
@@ -56,6 +57,7 @@ export interface LiveRuntime {
   lock: SessionLock;
   lastActivity: number;
   unsubscribe: () => void;
+  ui: WebUIContext; // 인터랙티브 UI 브릿지 (select/confirm/input/notify)
 }
 
 export class LockedError extends Error {
@@ -176,6 +178,11 @@ export class RuntimeManager {
       this.broadcast(sessionPath, event);
     });
 
+    // 인터랙티브 UI 브릿지: extension 의 ctx.ui.confirm/select/input/notify 를
+    // SSE 로 브라우저에 전달한다 (같은 채널로 broadcast).
+    const ui = new WebUIContext((event) => this.broadcast(sessionPath, event));
+    await session.bindExtensions({ uiContext: ui as never });
+
     const runtime: LiveRuntime = {
       key: sessionPath,
       session,
@@ -183,6 +190,7 @@ export class RuntimeManager {
       lock,
       lastActivity: Date.now(),
       unsubscribe,
+      ui,
     };
     this.runtimes.set(sessionPath, runtime);
     return runtime;
@@ -358,10 +366,18 @@ export class RuntimeManager {
     return this.runtimes.get(sessionPath);
   }
 
+  /** 브라우저의 UI 응답을 해당 세션의 보류 Promise 로 전달. */
+  respondUi(sessionPath: string, id: string, value: unknown): boolean {
+    const rt = this.runtimes.get(sessionPath);
+    if (!rt) return false;
+    return rt.ui.respond(id, value);
+  }
+
   /** 런타임을 내린다. keepLock=true 면 락 파일은 건드리지 않는다(이미 남의 것일 때). */
   async dispose(sessionPath: string, opts: { keepLock?: boolean } = {}): Promise<void> {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return;
+    rt.ui.cancelAll(); // 보류 중인 UI 요청을 취소로 정리
     rt.unsubscribe();
     try {
       await rt.session.abort();

@@ -11,6 +11,7 @@ import { useSession } from "./use-session";
 import { MessageView } from "./message-view";
 import { InfoPanel } from "./info-panel";
 import { Footer } from "./footer";
+import { UiRequestDialog } from "./ui-request-dialog";
 import { useT } from "./i18n";
 
 // File → data URL (백엔드가 data:<mime>;base64,<data> 를 파싱).
@@ -25,7 +26,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string; onTitle?: (name: string) => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort } = useSession(path, cwd);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, respondUi } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -327,6 +328,9 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
           />
         </div>
       ) : null}
+
+      {/* extension UI 브릿지 (confirm/select/input/editor) */}
+      {state.uiRequest ? <UiRequestDialog request={state.uiRequest} onRespond={respondUi} /> : null}
     </div>
   );
 }

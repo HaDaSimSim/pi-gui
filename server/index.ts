@@ -253,6 +253,14 @@ app.post("/api/session/abort", async (c) => {
   return c.json(await runtimes.abort(body.path));
 });
 
+// ── UI 브릿지 응답: 브라우저가 confirm/select/input 다이얼로그에 답한 결과 ──
+app.post("/api/session/ui-response", async (c) => {
+  const body = await c.req.json<{ path: string; id: string; value: unknown }>();
+  if (!body?.path || !body?.id) return c.json({ error: "path and id required" }, 400);
+  const ok = runtimes.respondUi(body.path, body.id, body.value);
+  return c.json({ ok });
+});
+
 // ── 슬래시 커맨드 목록 (extension 등록). 라이브 런타임 있을 때만 채워짐.
 app.get("/api/session/commands", (c) => {
   const path = c.req.query("path");

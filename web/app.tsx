@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { api, type DirectoryInfo, type SessionInfo } from "./api";
 import { SessionTab } from "./session-tab";
 import { Sidebar, sessionLabel } from "./sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { useT } from "./i18n";
 
 // 설정 모달은 열 때만 필요 — lazy 로 분리해 초기 번들에서 제외.
@@ -267,6 +268,8 @@ export default function App() {
           <SettingsModal visible={settingsOpen} onDismiss={() => setSettingsOpen(false)} />
         </Suspense>
       ) : null}
+
+      <Toaster position="bottom-right" />
     </div>
   );
 }

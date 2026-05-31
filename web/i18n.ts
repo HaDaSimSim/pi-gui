@@ -53,6 +53,7 @@ const en = {
 
   "session.noMessages": "No messages yet. Send a prompt to start.",
   "session.loadEarlier": "Load {count} earlier messages",
+  "session.loadingEarlier": "Loading earlier messages…",
   "session.placeholder": "Send a message to this session…",
   "session.send": "Send",
   "session.stop": "Stop",
@@ -74,6 +75,7 @@ const en = {
   "message.running": "running",
   "message.error": "error",
   "message.done": "done",
+  "message.interrupted": "Interrupted by you",
 
   "info.title": "Session info",
   "info.subagents": "Subagents",
@@ -249,6 +251,7 @@ const ko: Record<I18nKey, string> = {
 
   "session.noMessages": "아직 메시지가 없습니다. 프롬프트를 보내 시작하세요.",
   "session.loadEarlier": "이전 메시지 {count}개 더 보기",
+  "session.loadingEarlier": "이전 메시지 불러오는 중…",
   "session.placeholder": "이 세션에 메시지 보내기…",
   "session.send": "보내기",
   "session.stop": "중단",
@@ -270,6 +273,7 @@ const ko: Record<I18nKey, string> = {
   "message.running": "실행 중",
   "message.error": "오류",
   "message.done": "완료",
+  "message.interrupted": "사용자가 중단함",
 
   "info.title": "세션 정보",
   "info.subagents": "서브에이전트",

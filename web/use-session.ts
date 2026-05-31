@@ -50,6 +50,7 @@ export interface ChatMessage {
   model?: string;
   time?: string; // ISO timestamp (메타 표시용)
   elapsedMs?: number; // 응답 소요 시간 (agent_start → message_end)
+  interrupted?: boolean; // 사용자가 중단(abort)한 턴인지
   subagentRun?: SubagentRunView; // subagents extension 의 subagent-run 엔트리
 }
 
@@ -208,6 +209,8 @@ export function useSession(path: string, cwd?: string) {
   const streamingRef = useRef<ChatMessage | null>(null);
   // 턴 시작 시각 (agent_start) — message_end 에서 소요 시간 계산용 (ui-cosmetics 방식)
   const turnStartRef = useRef<number>(0);
+  // 사용자 중단(abort) 플래그 — abort 호출 시 set, 다음 agent_end 에서 소비해 마지막 메시지를 interrupted 로 표시.
+  const interruptedRef = useRef(false);
 
   // 첫 메시지 전 draft 모델/효율 (런타임이 없어 API 로 못 바꾸므로 로컬에 들고 있다가
   // 첫 prompt 에 함께 보낸다). 런타임이 생기면 controls 가 진짜 값을 들고 온다.
@@ -415,17 +418,20 @@ export function useSession(path: string, cwd?: string) {
           }
           setState((s) => {
             const msgs = [...s.messages];
+            const wasInterrupted = interruptedRef.current;
             for (let i = msgs.length - 1; i >= 0; i--) {
               if (msgs[i].role === "assistant") {
                 msgs[i] = {
                   ...msgs[i],
                   elapsedMs: turnStartRef.current > 0 ? Date.now() - turnStartRef.current : msgs[i].elapsedMs,
+                  ...(wasInterrupted ? { interrupted: true } : {}),
                 };
                 break;
               }
             }
             return { ...s, streaming: false, messages: msgs };
           });
+          interruptedRef.current = false;
           streamingRef.current = null;
           refreshControls(); // 턴 끝난 뒤 컨텍스트/비용 갱신
           break;
@@ -522,6 +528,7 @@ export function useSession(path: string, cwd?: string) {
 
   // 진행 중인 응답 중단.
   const abort = useCallback(() => {
+    interruptedRef.current = true;
     api.abort(path).catch(() => undefined);
   }, [path]);
 

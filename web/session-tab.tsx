@@ -119,11 +119,30 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
     }
   }, [state.live]);
 
-  // 새 메시지/스트리밍 시 맨 아래로 (스크롤 컨테이너 내부에서만)
+  // 새 메시지/스트리밍 시 맨 아래로 — 단, 사용자가 이미 하단 근처에 있을 때만.
+  // (위로 스크롤해 히스토리 볼 때 확 끝으로 이동되는 거 방지)
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [state.messages]);
+
+  // 히스토리 자동 로드: 위로 스크롤해 상단 근처면 visibleCount 를 늘린다.
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollTop < 120 && visibleCount < state.messages.length) {
+      // 늘리기 전 높이를 기억해 점프 방지 (렌더 후 보정).
+      const prevH = el.scrollHeight;
+      const prevTop = el.scrollTop;
+      setVisibleCount((n) => Math.min(state.messages.length, n + MSG_WINDOW));
+      requestAnimationFrame(() => {
+        const el2 = scrollRef.current;
+        if (el2) el2.scrollTop = prevTop + (el2.scrollHeight - prevH);
+      });
+    }
+  };
 
   // 푸터 갱신 키: 스트리밍 끝날 때(false 로 전환) + 메시지 수 변화 시 다시 집계.
   const footerKey = (state.streaming ? 1 : 0) + state.messages.length;
@@ -181,7 +200,7 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
         </div>
 
         {/* 메시지 스크롤 영역 */}
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-4 py-6">
             {state.loading ? (
               <div className="flex justify-center p-6">
@@ -192,12 +211,9 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
             ) : (
               <div className="flex w-full flex-col gap-7">
                 {state.messages.length > visibleCount ? (
-                  <button
-                    onClick={() => setVisibleCount((n) => n + MSG_WINDOW)}
-                    className="mx-auto rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
-                  >
-                    {t("session.loadEarlier", { count: state.messages.length - visibleCount })}
-                  </button>
+                  <div className="py-2 text-center text-xs text-muted-foreground/60">
+                    {t("session.loadingEarlier")}
+                  </div>
                 ) : null}
                 {(visibleCount >= state.messages.length
                   ? state.messages

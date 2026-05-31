@@ -3,7 +3,7 @@
 // user: 우측 정렬 강조 버블(최대 60%). assistant: 버블 없이 평문 + 하단 메타(모델·시간).
 // thinking: 헤더 없이 작은 회색 미리보기 expandable. tool call: 컴팩트 한 줄 요약.
 
-import { Loader2, ChevronRight, FileText, FilePen, Terminal, Search, Globe, Wrench, FolderTree, Check, X as XIcon, ListTodo } from "lucide-react";
+import { Loader2, ChevronRight, FileText, FilePen, Terminal, Search, Globe, Wrench, FolderTree, Check, X as XIcon, ListTodo, Ban } from "lucide-react";
 import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -190,6 +190,11 @@ function MessageViewImpl({ msg }: { msg: ChatMessage }) {
         ) : null}
         {msg.toolCalls?.map((tc) => <ToolCall key={tc.id} tc={tc} />)}
       </div>
+      {msg.interrupted ? (
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-500">
+          <Ban className="size-3.5" /> {t("message.interrupted")}
+        </div>
+      ) : null}
       {showMeta || msg.streaming ? (
         <div className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground/70">
           {showMeta ? <span>{meta}</span> : null}
@@ -214,6 +219,7 @@ export const MessageView = memo(MessageViewImpl, (a, b) => {
     x.text === y.text &&
     x.thinking === y.thinking &&
     x.streaming === y.streaming &&
+    x.interrupted === y.interrupted &&
     x.model === y.model &&
     x.elapsedMs === y.elapsedMs &&
     x.time === y.time &&

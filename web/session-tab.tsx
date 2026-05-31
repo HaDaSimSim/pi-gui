@@ -151,7 +151,7 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
 
         {/* 메시지 스크롤 영역 */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl px-8 py-6">
+          <div className="mx-auto max-w-3xl px-4 py-6">
             {state.loading ? (
               <div className="flex justify-center p-6">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -170,7 +170,7 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
 
         {/* 락 충돌 배너 */}
         {state.conflict ? (
-          <div className="mx-8 mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <div className="mx-4 mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
             <div className="mb-1 font-medium">
               {state.conflict.kind === "revoked" ? t("session.revokedHeader") : t("session.lockedHeader")}
             </div>
@@ -182,7 +182,7 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
         ) : null}
 
         {state.error ? (
-          <div className="mx-8 mt-2 flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <div className="mx-4 mt-2 flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
             <span>{state.error}</span>
             <button onClick={clearError} aria-label="dismiss" className="text-muted-foreground hover:text-foreground">
               <X className="size-4" />
@@ -191,10 +191,10 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
         ) : null}
 
         {/* 컴포저 */}
-        <div className="relative shrink-0 px-8 py-4">
+        <div className="relative shrink-0 px-4 py-4">
           {/* 슬래시 커맨드 메뉴 ("/" 입력 시) */}
           {commandMenu ? (
-            <div className="absolute bottom-full left-8 right-8 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
+            <div className="absolute bottom-full left-4 right-4 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
               {commandMenu.map((c, i) => (
                 <button
                   key={c.name}

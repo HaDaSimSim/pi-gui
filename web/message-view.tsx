@@ -3,7 +3,7 @@
 // user: 우측 정렬 강조 버블(최대 60%). assistant: 버블 없이 평문 + 하단 메타(모델·시간).
 // thinking: 헤더 없이 작은 회색 미리보기 expandable. tool call: 컴팩트 한 줄 요약.
 
-import { Loader2, ChevronRight } from "lucide-react";
+import { Loader2, ChevronRight, FileText, FilePen, Terminal, Search, Globe, Wrench, FolderTree, Check, X as XIcon, ListTodo } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -48,36 +48,78 @@ function formatElapsed(ms: number): string {
   return `${m}m ${s}s`;
 }
 
+// 툴 이름 → 아이콘. 알려진 툴은 전용 아이콘, 아니면 Wrench.
+function toolIcon(name: string) {
+  const n = name.toLowerCase();
+  if (/(^|_)(read|view|cat|open)/.test(n)) return FileText;
+  if (/(write|edit|patch|apply|create|append|replace)/.test(n)) return FilePen;
+  if (/(bash|shell|exec|run|command|terminal)/.test(n)) return Terminal;
+  if (/(grep|search|find|ripgrep|rg)/.test(n)) return Search;
+  if (/(fetch|http|web|url|browse|curl)/.test(n)) return Globe;
+  if (/(ls|list|tree|glob|dir)/.test(n)) return FolderTree;
+  if (/(todo|task|plan)/.test(n)) return ListTodo;
+  return Wrench;
+}
+
 function ToolCall({ tc }: { tc: ToolCallView }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
-  const dotColor =
-    tc.status === "running" ? "bg-amber-500" : tc.status === "error" ? "bg-destructive" : "bg-emerald-500";
+  const Icon = toolIcon(tc.name);
   const argStr = typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args ?? {}, null, 2);
   const summary = oneLine(summarizeArgs(tc.args));
+  const running = tc.status === "running";
+  const error = tc.status === "error";
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="mt-1 border-l-2 border-border/60 pl-2">
-      <CollapsibleTrigger className="flex w-full min-w-0 items-center gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-accent">
-        <span className={cn("size-1.5 shrink-0 rounded-full", dotColor)} />
-        <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">tool</span>
-        <span className="font-mono font-semibold">{tc.name}</span>
-        {summary ? <span className="truncate font-mono text-muted-foreground">{summary}</span> : null}
+    <Collapsible open={open} onOpenChange={setOpen} className="my-1">
+      <CollapsibleTrigger
+        className={cn(
+          "group flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors",
+          "border-border/60 bg-muted/30 hover:bg-muted/60",
+          error && "border-destructive/40 bg-destructive/5",
+        )}
+      >
+        <span
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center rounded",
+            running ? "text-amber-500" : error ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {running ? <Loader2 className="size-3.5 animate-spin" /> : <Icon className="size-3.5" />}
+        </span>
+        <span className="shrink-0 font-mono font-semibold text-foreground">{tc.name}</span>
+        {summary ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{summary}</span>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {!running ? (
+          <span
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center rounded-full",
+              error ? "bg-destructive/15 text-destructive" : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+            )}
+          >
+            {error ? <XIcon className="size-2.5" /> : <Check className="size-2.5" />}
+          </span>
+        ) : null}
         <ChevronRight
-          className={cn("ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+          className={cn("size-3.5 shrink-0 text-muted-foreground/60 transition-transform", open && "rotate-90")}
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-1 pl-1">
-          <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">args</div>
-          <pre className="m-0 overflow-x-auto rounded bg-muted/50 p-2 whitespace-pre-wrap font-mono text-[11px] text-foreground/80">
+        <div className="mt-1 ml-2.5 border-l border-border/60 pl-3">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">args</div>
+          <pre className="m-0 overflow-x-auto rounded-md bg-muted/50 p-2.5 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/80">
             {argStr.slice(0, 2000)}
           </pre>
           {tc.resultText ? (
             <>
-              <div className="mb-0.5 mt-2 text-[11px] font-medium text-muted-foreground">{t("message.done")}</div>
-              <pre className="m-0 overflow-x-auto rounded bg-muted/50 p-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
-                {tc.resultText.slice(0, 2000)}
+              <div className="mt-2.5 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                {t("message.done")}
+              </div>
+              <pre className="m-0 max-h-72 overflow-auto rounded-md bg-muted/50 p-2.5 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {tc.resultText.slice(0, 4000)}
               </pre>
             </>
           ) : null}

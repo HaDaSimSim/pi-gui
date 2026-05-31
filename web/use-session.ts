@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { reportStreaming } from "./config";
 import {
   api,
   subscribeEvents,
@@ -242,6 +243,13 @@ export function useSession(path: string, cwd?: string) {
       .catch(() => undefined);
   }, [path, patch]);
 
+  // 스트리밍 상태를 Tauri 에 보고 (quit 확인용 busy 카운트). 언마운트 시 감소.
+  useEffect(() => {
+    if (!state.streaming) return;
+    reportStreaming(true);
+    return () => reportStreaming(false);
+  }, [state.streaming]);
+
   // 초기 로드 + SSE 구독
   useEffect(() => {
     let closed = false;
@@ -257,7 +265,9 @@ export function useSession(path: string, cwd?: string) {
           name: detail.name ?? null,
           loading: false,
         });
-        if (detail.live) refreshControls();
+        // 라이브가 아니어도 controls 를 불러온다 — 비-라이브엔 마지막/기본 모델을
+        // input default 로 내려주므로, 모델 셀렉터가 비어보이지 않게 한다.
+        refreshControls();
       })
       .catch((e) => !closed && patch({ error: String(e), loading: false }));
 

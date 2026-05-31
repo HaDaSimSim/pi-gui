@@ -46,3 +46,15 @@ export function waitForBackendPort(timeoutMs = 10000): Promise<void> {
     }, 50);
   });
 }
+
+// 진행 중(스트리밍) 세션 카운트 — Tauri 의 quit 확인에 쓰인다.
+// 여러 세션이 각자 스트리밍할 수 있으므로 카운트로 집계해 busy 를 정한다.
+let activeStreams = 0;
+export function reportStreaming(streaming: boolean): void {
+  if (!IS_TAURI) return;
+  activeStreams = Math.max(0, activeStreams + (streaming ? 1 : -1));
+  const busy = activeStreams > 0;
+  import("@tauri-apps/api/core")
+    .then(({ invoke }) => invoke("set_busy", { busy }))
+    .catch(() => undefined);
+}

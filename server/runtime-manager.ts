@@ -287,13 +287,53 @@ export class RuntimeManager {
     return { provider: m.provider ?? "", id: m.id ?? "", name: m.name ?? m.id ?? "" };
   }
 
+  // 라이브 아닌 세션의 "input default 모델"을 정한다:
+  //  1) 세션 파일의 마지막 assistant 응답 provider+model (이어서 쓸 때 그 모델로 열림)
+  //  2) 없으면(새 세션) 레지스트리의 첫 가용 모델(기본)
+  private resolveModelForView(
+    sessionPath: string,
+  ): { provider: string; id: string; name: string } | null {
+    // 1) 파일에서 마지막 assistant 모델.
+    try {
+      if (existsSync(sessionPath)) {
+        const sm = SessionManager.open(sessionPath);
+        const entries = sm.getEntries();
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const e = entries[i] as { type: string; message?: { role?: string; provider?: string; model?: string } };
+          if (e.type === "message" && e.message?.role === "assistant" && e.message.model) {
+            const found = this.registry.find(e.message.provider ?? "", e.message.model);
+            if (found) return { provider: found.provider, id: found.id, name: found.name };
+            return {
+              provider: e.message.provider ?? "",
+              id: e.message.model,
+              name: e.message.model,
+            };
+          }
+        }
+      }
+    } catch {
+      /* 파일 읽기 실패는 기본으로 폴백 */
+    }
+    // 2) 기본: 첫 가용 모델.
+    try {
+      const first = this.registry.getAvailable()[0];
+      if (first) return { provider: first.provider, id: first.id, name: first.name };
+    } catch {
+      /* 모델 목록 없음 */
+    }
+    return null;
+  }
+
   /** 세션 컨트롤/통계 스냅샷. 런타임 없으면 live:false 만. */
   controls(sessionPath: string): SessionControls {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) {
+      // 라이브 아니면: 세션 파일의 마지막 assistant 응답 모델(없으면 기본 모델)을
+      // input default 로 내려준다 (런타임 안 띄우고 파일만 읽음).
+      const model = this.resolveModelForView(sessionPath);
       return {
         live: false,
-        model: null,
+        model,
         thinkingLevel: null,
         availableThinkingLevels: [],
         supportsThinking: false,

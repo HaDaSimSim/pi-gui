@@ -139,7 +139,9 @@ export function Sidebar(props: SidebarProps) {
                       key={s.path}
                       className={cn(
                         "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-sidebar-accent",
-                        active && "bg-sidebar-accent font-medium",
+                        active
+                          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--color-primary)]"
+                          : "text-sidebar-foreground/80",
                       )}
                     >
                       <button onClick={() => props.onOpenSession(s)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left">

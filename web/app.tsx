@@ -43,8 +43,24 @@ export default function App() {
   const [sessionsByDir, setSessionsByDir] = useState<Record<string, SessionInfo[]>>({});
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [selectedDir, setSelectedDir] = useState<string | null>(null);
-  const [tabs, setTabs] = useState<OpenTab[]>([]);
-  const [activeTab, setActiveTab] = useState<string | undefined>();
+  // 열린 탭/활성 탭을 localStorage 에 영속화 — 앜 닫았다 다시 열어도 복원.
+  const TABS_KEY = "pi-gui.open-tabs";
+  const [tabs, setTabs] = useState<OpenTab[]>(() => {
+    try {
+      const raw = localStorage.getItem(TABS_KEY);
+      return raw ? (JSON.parse(raw).tabs ?? []) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [activeTab, setActiveTab] = useState<string | undefined>(() => {
+    try {
+      const raw = localStorage.getItem(TABS_KEY);
+      return raw ? (JSON.parse(raw).active ?? undefined) : undefined;
+    } catch {
+      return undefined;
+    }
+  });
 
   const loadDirs = useCallback(() => {
     setDirsLoading(true);
@@ -55,6 +71,15 @@ export default function App() {
       .finally(() => setDirsLoading(false));
   }, []);
   useEffect(loadDirs, [loadDirs]);
+
+  // 탭 바뀜 때마다 localStorage 에 저장 (완전 종료 후 재실행 복원용).
+  useEffect(() => {
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify({ tabs, active: activeTab }));
+    } catch {
+      /* 저장 실패 무시 */
+    }
+  }, [tabs, activeTab]);
 
   // 디렉터리의 세션 목록 lazy 로드 (한 번만)
   const ensureSessions = useCallback(

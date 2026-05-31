@@ -12,12 +12,19 @@
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 // 자식 백엔드 프로세스 핸들 (종료 시 kill 용).
 struct Backend(Mutex<Option<Child>>);
+
+// 진행 중(스트리밍/라이브) 세션이 있는지 — 프론트에서 갱신. quit 확인용.
+struct Busy(Arc<AtomicBool>);
+
+// 실제로 종료 진행 중인지 (확인 통과 후 재진입 방지).
+static QUITTING: AtomicBool = AtomicBool::new(false);
 
 fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     if std::env::var("PI_GUI_NO_SPAWN").is_ok() {
@@ -85,27 +92,79 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     Some(child)
 }
 
+// 프론트가 진행 중(스트리밍/라이브) 세션 여부를 알려준다. quit 확인용.
+#[tauri::command]
+fn set_busy(busy: bool, state: tauri::State<Busy>) {
+    state.0.store(busy, Ordering::SeqCst);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let busy = Arc::new(AtomicBool::new(false));
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Backend(Mutex::new(None)))
+        .manage(Busy(busy.clone()))
+        .invoke_handler(tauri::generate_handler![set_busy])
         .setup(|app| {
             let handle = app.handle();
             let child = spawn_backend(handle);
             let state = app.state::<Backend>();
             *state.0.lock().unwrap() = child;
+
+            // 창 X 닫기 → 종료 아닌 백그라운드로 hide. 탭/세션 상태가 메모리에 유지된다.
+            // 실제 종료는 dock 우클릭→Quit (또는 Cmd+Q) → ExitRequested 에서만.
+            if let Some(win) = app.get_webview_window("main") {
+                let w = win.clone();
+                win.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        if !QUITTING.load(Ordering::SeqCst) {
+                            api.prevent_close();
+                            let _ = w.hide();
+                        }
+                    }
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while running pi-gui")
-        .run(|app_handle, event| {
-            if let RunEvent::ExitRequested { .. } = event {
-                // 앱이 닫히면 백엔드 자식도 내린다.
-                if let Some(state) = app_handle.try_state::<Backend>() {
-                    if let Some(mut child) = state.0.lock().unwrap().take() {
-                        let _ = child.kill();
+        .run(move |app_handle, event| {
+            if let RunEvent::ExitRequested { api, .. } = event {
+                // 이미 확인 통과해 종료 중이면 그대로 진행.
+                if QUITTING.load(Ordering::SeqCst) {
+                    if let Some(state) = app_handle.try_state::<Backend>() {
+                        if let Some(mut child) = state.0.lock().unwrap().take() {
+                            let _ = child.kill();
+                        }
+                    }
+                    return;
+                }
+                // 진행 중인 세션이 있으면 네이티브 확인 다이얼로그.
+                if busy.load(Ordering::SeqCst) {
+                    api.prevent_exit();
+                    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+                    let h = app_handle.clone();
+                    app_handle
+                        .dialog()
+                        .message("There are running sessions. Quit anyway?")
+                        .title("Quit pi-gui?")
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()))
+                        .show(move |confirmed| {
+                            if confirmed {
+                                QUITTING.store(true, Ordering::SeqCst);
+                                h.exit(0);
+                            }
+                        });
+                } else {
+                    // 진행 중 세션 없음 → 그대로 종료 + 백엔드 kill.
+                    QUITTING.store(true, Ordering::SeqCst);
+                    if let Some(state) = app_handle.try_state::<Backend>() {
+                        if let Some(mut child) = state.0.lock().unwrap().take() {
+                            let _ = child.kill();
+                        }
                     }
                 }
             }

@@ -48,6 +48,7 @@ const en = {
   "picker.useThis": "Use this folder",
 
   "session.noMessages": "No messages yet. Send a prompt to start.",
+  "session.loadEarlier": "Load {count} earlier messages",
   "session.placeholder": "Send a message to this session…",
   "session.send": "Send",
   "session.stop": "Stop",
@@ -239,6 +240,7 @@ const ko: Record<I18nKey, string> = {
   "picker.useThis": "이 폴더 사용",
 
   "session.noMessages": "아직 메시지가 없습니다. 프롬프트를 보내 시작하세요.",
+  "session.loadEarlier": "이전 메시지 {count}개 더 보기",
   "session.placeholder": "이 세션에 메시지 보내기…",
   "session.send": "보내기",
   "session.stop": "중단",

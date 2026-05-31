@@ -4,7 +4,7 @@
 // thinking: 헤더 없이 작은 회색 미리보기 expandable. tool call: 컴팩트 한 줄 요약.
 
 import { Loader2, ChevronRight, FileText, FilePen, Terminal, Search, Globe, Wrench, FolderTree, Check, X as XIcon, ListTodo } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -132,7 +132,7 @@ function ToolCall({ tc }: { tc: ToolCallView }) {
   );
 }
 
-export function MessageView({ msg }: { msg: ChatMessage }) {
+function MessageViewImpl({ msg }: { msg: ChatMessage }) {
   const { t } = useT();
   const isUser = msg.role === "user";
 
@@ -195,3 +195,25 @@ export function MessageView({ msg }: { msg: ChatMessage }) {
     </div>
   );
 }
+
+// 메모이제이션: 완료된 메시지가 다른 메시지의 갱신 때문에 markdown 을 재파싱하지
+// 않도록 한다 (큰 세션 렉의 주범). 내용 관련 필드가 바뀔 때만 재렌더.
+function toolSig(tcs?: ToolCallView[]): string {
+  if (!tcs?.length) return "";
+  return tcs.map((t) => `${t.id}:${t.status}:${t.resultText ? 1 : 0}`).join("|");
+}
+export const MessageView = memo(MessageViewImpl, (a, b) => {
+  const x = a.msg;
+  const y = b.msg;
+  return (
+    x.key === y.key &&
+    x.text === y.text &&
+    x.thinking === y.thinking &&
+    x.streaming === y.streaming &&
+    x.model === y.model &&
+    x.elapsedMs === y.elapsedMs &&
+    x.time === y.time &&
+    x.subagentRun === y.subagentRun &&
+    toolSig(x.toolCalls) === toolSig(y.toolCalls)
+  );
+});

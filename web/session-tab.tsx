@@ -36,6 +36,10 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
   const { state, send, takeover, clearError, setModel, setThinking, rename, abort, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  // 메시지 윈도잉: 큰 세션은 마지막 N개만 렌더해 메인스레드 블록을 막는다.
+  // (수천 메시지 × 마크다운 파싱 = 동기 렌더로 앱 멈춤) "이전 보기"로 더 로드.
+  const MSG_WINDOW = 60;
+  const [visibleCount, setVisibleCount] = useState(MSG_WINDOW);
   const [commands, setCommands] = useState<{ name: string; description?: string; source: string }[]>([]);
   const [cmdIndex, setCmdIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -161,7 +165,18 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
               <div className="p-10 text-center text-sm text-muted-foreground">{t("session.noMessages")}</div>
             ) : (
               <div className="flex w-full flex-col gap-7">
-                {state.messages.map((m) => (
+                {state.messages.length > visibleCount ? (
+                  <button
+                    onClick={() => setVisibleCount((n) => n + MSG_WINDOW)}
+                    className="mx-auto rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
+                  >
+                    {t("session.loadEarlier", { count: state.messages.length - visibleCount })}
+                  </button>
+                ) : null}
+                {(visibleCount >= state.messages.length
+                  ? state.messages
+                  : state.messages.slice(state.messages.length - visibleCount)
+                ).map((m) => (
                   <MessageView key={m.key} msg={m} />
                 ))}
               </div>

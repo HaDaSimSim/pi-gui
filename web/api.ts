@@ -1,5 +1,8 @@
 // pi-gui 백엔드 API 클라이언트.
 // 모든 호출은 Vite 프록시(dev) 또는 같은 오리진(prod)의 /api 로 간다.
+// Tauri 에서는 apiUrl() 이 절대경로(127.0.0.1:4317)로 바꿜준다.
+
+import { apiUrl } from "./config";
 
 export interface DirectoryInfo {
   cwd: string;
@@ -167,13 +170,13 @@ export interface SessionControls {
 }
 
 async function getJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(apiUrl(url));
   if (!res.ok) throw new ApiError(res.status, await safeJson(res));
   return res.json();
 }
 
 async function postJSON<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -242,10 +245,10 @@ export const api = {
 
   // 세션 삭제 (jsonl 제거). 라이브/락 점유 중이면 409.
   deleteSession: (path: string) =>
-    fetch(`/api/session?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+    fetch(apiUrl(`/api/session?path=${encodeURIComponent(path)}`), { method: "DELETE" }),
 
   dispose: (path: string) =>
-    fetch(`/api/session/live?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+    fetch(apiUrl(`/api/session/live?path=${encodeURIComponent(path)}`), { method: "DELETE" }),
 
   // 세션 컨트롤/통계 스냅샷 (info 패널). 런타임 없으면 live:false.
   controls: (path: string) =>
@@ -297,7 +300,7 @@ export function subscribeEvents(
   onEvent: (event: any) => void,
   onError?: (e: Event) => void,
 ): () => void {
-  const es = new EventSource(`/api/session/events?path=${encodeURIComponent(path)}`);
+  const es = new EventSource(apiUrl(`/api/session/events?path=${encodeURIComponent(path)}`));
   es.onmessage = (e) => {
     try {
       onEvent(JSON.parse(e.data));

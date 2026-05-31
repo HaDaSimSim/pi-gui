@@ -47,6 +47,28 @@ How-to-work-here for **pi-gui**. Read `README.md` for what/why.
   is `/api/` (trailing slash) on purpose — `/api` alone also matches the
   frontend's own module URLs.
 
+## Tauri (desktop shell)
+
+- The Rust shell (`src-tauri/`) **spawns the Node backend as a child** on launch
+  and kills it on `ExitRequested`. pi SDK is TS/Node, so the backend stays Node —
+  Rust just wraps it. Don't try to port the backend to Rust.
+- **`tauri:dev` would collide with a running `pnpm dev`** — both want 4317/5173.
+  `tauri:dev` starts its own backend and passes `PI_GUI_NO_SPAWN=1` so the Rust
+  side doesn't double-spawn. When verifying a built binary, override
+  `PI_GUI_PORT` + `VITE_PI_GUI_PORT` (rebuild frontend) to avoid touching 4317.
+- Frontend reaches the backend via `web/config.ts`: relative `/api` in the
+  browser, absolute `http://127.0.0.1:<port>` under Tauri (detected by
+  `__TAURI_INTERNALS__`). If you add a new `fetch`/`EventSource`, route the URL
+  through `apiUrl()` or it breaks in the desktop app.
+- `tauri.conf.json` lists `../dist-backend` as a bundled resource — **the Rust
+  build fails if `dist-backend/` doesn't exist**. Run `pnpm bundle:backend`
+  first (the `tauri:build` script does). Window is `titleBarStyle: Overlay` +
+  `hiddenTitle`; a `data-tauri-drag-region` strip (Tauri-only) reserves space for
+  the macOS traffic lights — don't remove it or content sits under the buttons.
+- Native folder pick uses `@tauri-apps/plugin-dialog` (absolute path). The
+  browser can't get a real server path from `<input type=file>`, which is why the
+  non-Tauri build keeps the server-side directory browser.
+
 ## Frontend gotchas
 
 - `@/` aliases `web/` (not `web/` being a `src` root) — set in both

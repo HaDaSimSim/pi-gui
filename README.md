@@ -147,6 +147,33 @@ pi-web/
 └── vite.config.ts      dev proxy /api/ → 4317, @/ alias
 ```
 
+## Desktop app (Tauri)
+
+pi-gui ships as a native desktop app via Tauri. The Rust shell
+(`src-tauri/`) is a thin wrapper: on launch it **spawns the Node backend as a
+child process** (127.0.0.1:4317) and kills it on exit. The WebView loads the
+built frontend and talks to that backend.
+
+- In Tauri the WebView origin is `tauri://`, so relative `/api` won't reach the
+  backend — `web/config.ts` switches to an absolute base (`http://127.0.0.1:4317`)
+  when `__TAURI_INTERNALS__` is present. `VITE_PI_GUI_PORT` overrides the port.
+- **New-directory uses the native folder dialog** in Tauri
+  (`@tauri-apps/plugin-dialog`, returns an absolute path); the browser build
+  falls back to the server-side directory browser modal.
+- Backend spawn is env-tunable: `PI_GUI_PORT`, `PI_GUI_NODE` (node binary),
+  `PI_GUI_BACKEND_ENTRY` (dev: path to `server/index.ts`), `PI_GUI_NO_SPAWN`
+  (don't spawn — attach to an already-running backend, used by `tauri:dev`).
+
+```bash
+pnpm tauri:dev     # starts backend (4317) + tauri dev (WebView on vite 5173)
+pnpm tauri:build   # bundles dist-backend, builds frontend, packages the .app
+```
+
+`pnpm bundle:backend` assembles `dist-backend/` (server + shared + runtime
+node_modules, pi SDK dereferenced from its global symlink) which Tauri ships as a
+resource. It's ~200MB and machine-specific (same portability caveat as the
+`link:` SDK).
+
 ## Tests
 
 ```bash

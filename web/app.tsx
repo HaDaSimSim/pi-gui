@@ -12,6 +12,7 @@ import { api, type DirectoryInfo, type SessionInfo } from "./api";
 import { SessionTab } from "./session-tab";
 import { Sidebar, sessionLabel } from "./sidebar";
 import { DirectoryPicker } from "./directory-picker";
+import { IS_TAURI } from "./config";
 import { Toaster } from "@/components/ui/sonner";
 import { useT } from "./i18n";
 
@@ -132,9 +133,17 @@ export default function App() {
     [t],
   );
 
-  // 새 디렉터리: 폴더 선택 모달로 서버 파일시스템을 탐색(또는 절대경로 입력) → 그 cwd 에서 새 세션.
+  // 새 디렉터리: Tauri 면 네이티브 폴더 선택창(절대경로 반환), 아니면 서버 탐색 모달.
   const [pickerOpen, setPickerOpen] = useState(false);
-  const newDirectory = useCallback(() => setPickerOpen(true), []);
+  const newDirectory = useCallback(async () => {
+    if (IS_TAURI) {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ directory: true, multiple: false, title: t("picker.title") });
+      if (typeof picked === "string" && picked.trim()) newSession(picked.trim());
+      return;
+    }
+    setPickerOpen(true);
+  }, [newSession, t]);
 
   // 세션 삭제: 확인 → API → 열린 탭 닫기 + 목록 갱신.
   const deleteSession = useCallback(
@@ -160,7 +169,10 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      {/* Tauri: 상단 드래그 스트립 (macOS 트래픽 라이트 아래 여백 확보 + 창 이동) */}
+      {IS_TAURI ? <div data-tauri-drag-region className="h-7 shrink-0 bg-sidebar" /> : null}
+      <div className="min-h-0 flex-1">
       <ResizablePanelGroup>
         {/* 사이드바 — 접기/리사이즈 가능. 기본 22%, 최소 12%. */}
         <ResizablePanel
@@ -261,6 +273,7 @@ export default function App() {
           </main>
         </ResizablePanel>
       </ResizablePanelGroup>
+      </div>
 
       {settingsOpen ? (
         <Suspense fallback={null}>

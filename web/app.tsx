@@ -107,10 +107,22 @@ export default function App() {
   }, [loadDirs]);
 
   // 세션이 이름을 알려오면 해당 탭 label 갱신 (이름이 실제로 바뀌었을 때만).
+  // 동시에 그 세션이 속한 cwd 의 사이드바 목록을 강제 갱신한다
+  // (pending 새 세션이 첫 프롬프트로 파일이 생기면 그제서야 목록에 뜨므로).
   const setTabTitle = useCallback((path: string, name: string) => {
+    let cwd: string | undefined;
     setTabs((prev) =>
-      prev.map((tab) => (tab.path === path && tab.label !== name ? { ...tab, label: name } : tab)),
+      prev.map((tab) => {
+        if (tab.path === path) cwd = tab.cwd;
+        return tab.path === path && tab.label !== name ? { ...tab, label: name } : tab;
+      }),
     );
+    if (cwd) {
+      api
+        .sessions(cwd)
+        .then((sessions) => setSessionsByDir((m) => ({ ...m, [cwd!]: sessions })))
+        .catch(() => undefined);
+    }
   }, []);
 
   // 브라우저 탭 제목: 기본 π, 세션 열릴 면 "π · 세션이름".

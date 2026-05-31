@@ -285,6 +285,13 @@ export function useSession(path: string, cwd?: string) {
         case "ui_notify":
           toast[ev.level === "error" ? "error" : ev.level === "warning" ? "warning" : "info"](ev.message);
           break;
+        case "session_info_changed":
+          // 세션 이름이 바뀌면(첫 메시지 후 자동 명명 등) 라이브 반영.
+          if (ev.name) patch({ name: ev.name });
+          break;
+        case "thinking_level_changed":
+          refreshControls();
+          break;
         case "agent_start":
           patch({ streaming: true });
           turnStartRef.current = Date.now();
@@ -362,11 +369,22 @@ export function useSession(path: string, cwd?: string) {
             if (turnStartRef.current > 0) {
               streamingRef.current.elapsedMs = Date.now() - turnStartRef.current;
             }
+            // 턴이 끝나면 아직 running 인 tool 은 완료되지 못한 것(락 차단 등)으로 간주해 정리.
+            for (const tc of streamingRef.current.toolCalls ?? []) {
+              if (tc.status === "running") tc.status = "error";
+            }
             flushStreaming();
             streamingRef.current = null;
           }
           break;
         case "agent_end":
+          // agent_end 에서도 혹시 남은 running tool 을 정리 (스트림이 아직 살아있으면).
+          if (streamingRef.current) {
+            for (const tc of streamingRef.current.toolCalls ?? []) {
+              if (tc.status === "running") tc.status = "error";
+            }
+            flushStreaming();
+          }
           patch({ streaming: false });
           streamingRef.current = null;
           refreshControls(); // 턴 끝난 뒤 컨텍스트/비용 갱신

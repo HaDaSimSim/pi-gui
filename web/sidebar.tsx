@@ -3,10 +3,12 @@
 // 레벨 1: 디렉터리 목록. 클릭하면 그 디렉터리 안으로 들어간다(인라인 확장 X).
 // 레벨 2: 뒤로가기 헤더 + 해당 디렉터리의 세션 목록. 세션 클릭 → 탭으로 열림.
 
-import { ChevronLeft, Loader2, Plus, FolderPlus, Folder, Trash2 } from "lucide-react";
+import { ChevronLeft, Loader2, Plus, FolderPlus, Folder, Trash2, Search } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { DirectoryInfo, SessionInfo } from "./api";
 import type { TFunc } from "./i18n";
@@ -54,8 +56,37 @@ export interface SidebarProps {
   onDeleteSession: (s: SessionInfo) => void;
 }
 
+// 검색 입력칸 (사이드바 공용). 아이콘 + controlled input.
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="h-8 pl-8 text-sm"
+      />
+    </div>
+  );
+}
+
 export function Sidebar(props: SidebarProps) {
   const { t } = props;
+  const [dirQuery, setDirQuery] = useState("");
+  const [sessionQuery, setSessionQuery] = useState("");
+
+  // 필터링: 디렉터리는 경로로, 세션은 이름/첫메시지로 (대소문자 무시).
+  const dq = dirQuery.trim().toLowerCase();
+  const filteredDirs = dq ? props.dirs.filter((d) => d.cwd.toLowerCase().includes(dq)) : props.dirs;
+  const sq = sessionQuery.trim().toLowerCase();
+  const filteredSessions = props.sessions
+    ? sq
+      ? props.sessions.filter((s) =>
+          sessionLabel(s, t).toLowerCase().includes(sq) || (s.firstMessage ?? "").toLowerCase().includes(sq),
+        )
+      : props.sessions
+    : undefined;
 
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
@@ -87,17 +118,20 @@ export function Sidebar(props: SidebarProps) {
                 <Plus className="size-4" />
               </Button>
             </div>
+            <SearchBox value={sessionQuery} onChange={setSessionQuery} placeholder={t("sessions.searchSessions")} />
           </div>
           <ScrollArea className="flex-1">
             <div className="flex flex-col gap-0.5 p-2">
-              {props.sessionsLoading || !props.sessions ? (
+              {props.sessionsLoading || !filteredSessions ? (
                 <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" /> {t("sessions.loadingSessions")}
                 </div>
-              ) : props.sessions.length === 0 ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">{t("sessions.noSessions")}</div>
+              ) : filteredSessions.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  {sessionQuery.trim() ? t("sessions.noMatch") : t("sessions.noSessions")}
+                </div>
               ) : (
-                props.sessions.map((s) => {
+                filteredSessions.map((s) => {
                   const active = s.path === props.activeSessionPath;
                   return (
                     <div
@@ -129,18 +163,21 @@ export function Sidebar(props: SidebarProps) {
       ) : (
         // ── 레벨 1: 디렉터리 목록 ──
         <>
-          <div className="flex items-center justify-between border-b border-sidebar-border p-3">
-            <div className="text-sm font-semibold">{t("sessions.directories")}</div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={t("sessions.newDirectory")}
-              title={t("sessions.newDirectory")}
-              onClick={props.onNewDirectory}
-            >
-              <FolderPlus className="size-4" />
-            </Button>
+          <div className="flex flex-col gap-2 border-b border-sidebar-border p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold">{t("sessions.directories")}</div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label={t("sessions.newDirectory")}
+                title={t("sessions.newDirectory")}
+                onClick={props.onNewDirectory}
+              >
+                <FolderPlus className="size-4" />
+              </Button>
+            </div>
+            <SearchBox value={dirQuery} onChange={setDirQuery} placeholder={t("sessions.searchDirectories")} />
           </div>
           <ScrollArea className="flex-1">
             <div className="flex flex-col gap-0.5 p-2">
@@ -148,10 +185,12 @@ export function Sidebar(props: SidebarProps) {
                 <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" /> {t("sessions.loadingDirectories")}
                 </div>
-              ) : props.dirs.length === 0 ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">{t("sessions.noDirectories")}</div>
+              ) : filteredDirs.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  {dirQuery.trim() ? t("sessions.noMatch") : t("sessions.noDirectories")}
+                </div>
               ) : (
-                props.dirs.map((d) => {
+                filteredDirs.map((d) => {
                   const { base, parent } = splitPath(d.cwd);
                   return (
                     <button

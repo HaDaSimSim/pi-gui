@@ -128,7 +128,7 @@ export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThi
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <span className="flex-1 truncate text-sm font-medium">{controls.name || t("sessions.untitled")}</span>
+            <span className="flex-1 truncate text-sm font-medium">{controls.name || state.name || t("sessions.untitled")}</span>
             <Button size="icon" variant="ghost" className="size-7" aria-label={t("info.rename")} onClick={() => setEditingName(true)}>
               <Pencil className="size-3.5" />
             </Button>
@@ -203,22 +203,14 @@ export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThi
           <div className="text-sm text-muted-foreground">{t("info.contextUnknown")}</div>
         )}
 
-        {/* 토큰 구성 바 (input/output/cacheRead/cacheWrite 세그먼트) */}
+        {/* 토큰 구성 바 (input/output/cacheRead/cacheWrite 세그먼트) —
+            수치는 아래 통계 그리드와 중복이라 여긴 색상 바만 보여준다. */}
         {tk && tk.total > 0 ? (
-          <div className="mt-1 flex flex-col gap-1.5">
-            <div className="text-sm text-muted-foreground">{t("info.breakdown")}</div>
-            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
-              {seg("bg-sky-500", tk.input, tk.total)}
-              {seg("bg-emerald-500", tk.output, tk.total)}
-              {seg("bg-amber-500", tk.cacheRead, tk.total)}
-              {seg("bg-violet-500", tk.cacheWrite, tk.total)}
-            </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-sky-500" />{t("info.inputTokens")} {fmtNum(tk.input)}</span>
-              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-500" />{t("info.outputTokens")} {fmtNum(tk.output)}</span>
-              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-500" />R {fmtNum(tk.cacheRead)}</span>
-              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-violet-500" />W {fmtNum(tk.cacheWrite)}</span>
-            </div>
+          <div className="mt-1 flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+            {seg("bg-sky-500", tk.input, tk.total)}
+            {seg("bg-emerald-500", tk.output, tk.total)}
+            {seg("bg-amber-500", tk.cacheRead, tk.total)}
+            {seg("bg-violet-500", tk.cacheWrite, tk.total)}
           </div>
         ) : null}
       </div>

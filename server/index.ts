@@ -8,6 +8,12 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+
+// pi-web/pi-gui 가 띄우는 런타임에서는 session-lock 익스텐션을 끕다.
+// pi-web 이 이미 SessionLock 을 직접 관리하므로, 익스텐션이 같은 파일에
+// 또 락을 잡으면 두 홀더가 충돌해 tool 이 "held elsewhere" 로 차단된다.
+// (세션 생성 전에 설정돼야 하므로 import 직후 최상단에서 박는다.)
+process.env.PI_WEB_HOST = "1";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";

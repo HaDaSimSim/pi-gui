@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { SubagentRunCard } from "./subagent-run";
+import { GitPanel } from "./git-panel";
 import { api, type ModelInfo, type ThinkingLevel } from "./api";
 import { useT } from "./i18n";
 import type { SessionState, SubagentRunView } from "./use-session";
@@ -30,6 +31,8 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 interface InfoPanelProps {
   state: SessionState;
   subagentRuns: SubagentRunView[];
+  path: string;
+  cwd?: string;
   onSetModel: (provider: string, id: string) => void;
   onSetThinking: (level: ThinkingLevel) => void;
   onRename: (name: string) => void;
@@ -59,7 +62,7 @@ function seg(color: string, value: number, total: number) {
   return <div className={color} style={{ width: `${(value / total) * 100}%` }} />;
 }
 
-export function InfoPanel({ state, subagentRuns, onSetModel, onSetThinking, onRename }: InfoPanelProps) {
+export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThinking, onRename }: InfoPanelProps) {
   const { t } = useT();
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [nameDraft, setNameDraft] = useState("");
@@ -90,6 +93,7 @@ export function InfoPanel({ state, subagentRuns, onSetModel, onSetThinking, onRe
             <span className="ml-1 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{subagentRuns.length}</span>
           ) : null}
         </TabsTrigger>
+        <TabsTrigger value="git">{t("git.title")}</TabsTrigger>
       </TabsList>
 
       {/* ── Info 탭 ── */}
@@ -257,6 +261,11 @@ export function InfoPanel({ state, subagentRuns, onSetModel, onSetThinking, onRe
             ))}
           </div>
         )}
+      </TabsContent>
+
+      {/* ── Git 탭 ── */}
+      <TabsContent value="git" className="min-h-0 flex-1 overflow-y-auto">
+        <GitPanel path={path} cwd={cwd} />
       </TabsContent>
     </Tabs>
   );

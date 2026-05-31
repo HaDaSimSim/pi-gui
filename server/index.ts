@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { RuntimeManager, LockedError, RevokedError } from "./runtime-manager.ts";
 import { listLocks } from "../shared/session-lock.ts";
+import { getGitStatus } from "./git.ts";
 
 const app = new Hono();
 const runtimes = new RuntimeManager();
@@ -156,6 +157,13 @@ app.get("/api/session/footer", (c) => {
 
 // ── 활성(라이브) 런타임 목록 ──────────────────────────────────────────
 app.get("/api/live", (c) => c.json({ live: runtimes.listLive() }));
+
+// git 상태 (브랜치/변경파일/커밋그래프) : 읽기 전용, 런타임 0개.
+app.get("/api/git", async (c) => {
+  const cwd = c.req.query("cwd");
+  if (!cwd) return c.json({ error: "cwd query required" }, 400);
+  return c.json(await getGitStatus(cwd));
+});
 
 // ── 락 조망: 지금 누가 무엇을 점유 중인가 (TUI 포함 전체) ──────────────
 app.get("/api/locks", (c) => c.json({ locks: listLocks() }));

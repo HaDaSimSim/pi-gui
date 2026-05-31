@@ -49,6 +49,7 @@ and can see each other's claims.
 | Read a session (scrollback) | no | no |
 | Subscribe to live events (SSE) | no | no |
 | Footer token/cost summary | no | no |
+| Git status / branches / log (`/api/git`) | no | no |
 | Delete a session (file remove) | no | no (refuses if live/locked) |
 | Send a prompt / open / new | **yes** (lazy, 1 per session) | **yes** (exclusive) |
 | Change model / thinking / rename / abort | **yes** | **yes** |
@@ -76,21 +77,25 @@ runtime.
   mounted so background sessions keep their SSE subscription.
 - Chat UI with markdown rendering (unified: remark/rehype + sanitize), thinking
   preview, compact collapsible tool calls, per-message model · elapsed · time.
-- Per-session **info panel**: model picker, thinking level (efficiency), context
-  usage + token breakdown, session rename, raw stats.
+- Per-session **info panel**: an always-open, resizable/collapsible right side
+  panel with tabs — **Info** (model picker, thinking level, context usage + token
+  breakdown, rename, raw stats), **Subagents**, and **Git**.
 - **Footer** mirroring the TUI: pwd (git branch) · name, token/cost/context,
   model · thinking, ownership.
 - **Slash commands**: extension commands + skills (`/skill:name`) with `/`
   autocomplete; executed through the normal prompt flow.
 - Composer: file attach + paste screenshots (clipboard images). Stop button
   aborts an in-flight response.
-- Subagent runs (from the pi-skills `subagents` extension) render inline as
-  collapsible blocks (title · agent · status · turn outputs).
+- Subagent runs (from the pi-skills `subagents` extension) render in the info
+  panel's **Subagents** tab as collapsible cards (title · agent · status · turns).
 - Session management: create new session / directory, delete a session
   (refuses while it's live or locked elsewhere).
 - **Extension UI bridge**: `ctx.ui.confirm/select/input/editor` render as shadcn
   dialogs and `ctx.ui.notify` as toasts, so interactive extensions (e.g.
   session-lock's takeover confirm) work in the browser.
+- **Git panel** (read-only): a tab in the info panel showing current branch +
+  ahead/behind, changed files (staged/unstaged/untracked), local branches, and a
+  recent commit graph. Pure `git` reads via `/api/git` — no runtime, no writes.
 - Settings modal: language (en/ko), theme (light / dark / true-dark),
   density, motion, configurable UI + monospace fonts; read-only models / locks /
   live-runtime tables.
@@ -134,7 +139,7 @@ pnpm build:web       # production bundle → dist-web/
 
 ```
 pi-web/
-├── server/             Hono backend (index.ts routes/SSE/static, runtime-manager.ts locks, web-ui-context.ts ui bridge)
+├── server/             Hono backend (index.ts routes/SSE/static, runtime-manager.ts locks, web-ui-context.ts ui bridge, git.ts read-only git)
 ├── web/                React + shadcn frontend (kebab-case files; ui/ = shadcn components)
 ├── shared/             session-lock.ts → symlink → pi-skills lock protocol
 ├── test/               unit + E2E (see Tests)

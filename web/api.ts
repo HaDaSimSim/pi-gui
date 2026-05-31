@@ -75,6 +75,43 @@ export interface FooterData {
   contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } | null;
 }
 
+export interface GitFileChange {
+  path: string;
+  index: string;
+  work: string;
+  untracked: boolean;
+}
+
+export interface GitCommit {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  relTime: string;
+  refs: string;
+  parents: string[];
+}
+
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  upstream: string | null;
+}
+
+export interface GitStatus {
+  isRepo: boolean;
+  branch: string | null;
+  head: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  staged: GitFileChange[];
+  unstaged: GitFileChange[];
+  untracked: GitFileChange[];
+  branches: GitBranch[];
+  commits: GitCommit[];
+}
+
 export interface SessionStats {
   tokens?: {
     input: number;
@@ -202,6 +239,9 @@ export const api = {
     getJSON<FooterData>(
       `/api/session/footer?path=${encodeURIComponent(path)}${cwd ? `&cwd=${encodeURIComponent(cwd)}` : ""}`,
     ),
+
+  // git 상태 (브랜치/변경파일/커밋그래프). 읽기 전용.
+  git: (cwd: string) => getJSON<GitStatus>(`/api/git?cwd=${encodeURIComponent(cwd)}`),
 
   // 모델 변경. 409 면 ApiError.
   setModel: (path: string, provider: string, id: string, force = false) =>

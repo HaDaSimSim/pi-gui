@@ -356,6 +356,8 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
         <InfoPanel
           state={state}
           subagentRuns={subagentRuns}
+          path={path}
+          cwd={cwd}
           onSetModel={(provider, id) => setModel(provider, id)}
           onSetThinking={(level) => setThinking(level)}
           onRename={(name) => rename(name)}

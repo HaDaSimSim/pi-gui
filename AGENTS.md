@@ -12,9 +12,9 @@ How-to-work-here for **pi-web**. Read `README.md` for what/why.
   only thing preventing two writers from corrupting a session jsonl (pi puts no
   OS lock on session files).
 - **Browsing must never spawn a runtime.** `/api/directories`, `/api/sessions`,
-  `/api/session`, `/api/session/footer`, and SSE subscription are pure file
-  reads. Only `prompt`/`open`/`new` + the control routes (`model`, `thinking`,
-  `rename`, `abort`, `ui-response`) create or touch a runtime + lock. That
+  `/api/session`, `/api/session/footer`, `/api/git`, and SSE subscription are
+  pure file reads. Only `prompt`/`open`/`new` + the control routes (`model`,
+  `thinking`, `rename`, `abort`, `ui-response`) create or touch a runtime + lock. That
   separation is the cost model the whole design rests on. (`DELETE /api/session`
   is a file delete, not a runtime op — it refuses if the session is live/locked.)
 - **The UI bridge must stay bound.** `RuntimeManager.getOrCreate` binds a

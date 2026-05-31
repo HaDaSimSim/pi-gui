@@ -3,7 +3,7 @@
 // 레벨 1: 디렉터리 목록. 클릭하면 그 디렉터리 안으로 들어간다(인라인 확장 X).
 // 레벨 2: 뒤로가기 헤더 + 해당 디렉터리의 세션 목록. 세션 클릭 → 탭으로 열림.
 
-import { ChevronLeft, Loader2, Plus, FolderPlus, Folder, Trash2, Search } from "lucide-react";
+import { ChevronLeft, Loader2, Plus, FolderPlus, Folder, Trash2, Search, Pencil } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +54,7 @@ export interface SidebarProps {
   onNewSession: (cwd: string) => void;
   onNewDirectory: () => void;
   onDeleteSession: (s: SessionInfo) => void;
+  onRenameSession: (s: SessionInfo) => void;
 }
 
 // 검색 입력칸 (사이드바 공용). 아이콘 + controlled input.
@@ -141,10 +142,23 @@ export function Sidebar(props: SidebarProps) {
                         active && "bg-sidebar-accent font-medium",
                       )}
                     >
-                      <button onClick={() => props.onOpenSession(s)} className="flex-1 truncate text-left">
-                        {sessionLabel(s, t)}
+                      <button onClick={() => props.onOpenSession(s)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left">
+                        <span className="truncate">{s.draft ? t("sessions.newSession") : sessionLabel(s, t)}</span>
+                        {s.draft ? (
+                          <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">{t("sessions.draft")}</span>
+                        ) : null}
                       </button>
                       {s.live ? <span className="size-2 shrink-0 rounded-full bg-emerald-500" title={t("sessions.live")} /> : null}
+                      {s.draft ? null : (
+                      <>
+                      <button
+                        aria-label={t("info.rename")}
+                        title={t("info.rename")}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                        onClick={() => props.onRenameSession(s)}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
                       <button
                         aria-label={t("sessions.delete")}
                         title={t("sessions.delete")}
@@ -153,6 +167,8 @@ export function Sidebar(props: SidebarProps) {
                       >
                         <Trash2 className="size-3.5" />
                       </button>
+                      </>
+                      )}
                     </div>
                   );
                 })

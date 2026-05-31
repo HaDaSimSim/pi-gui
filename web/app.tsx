@@ -197,6 +197,53 @@ export default function App() {
     [t, closeTab],
   );
 
+  // 세션 이름 변경 (사이드바). rename 은 쓰기라 런타임을 욕구한다 — 사용자가
+  // 명시적으로 바꾸는 거라 허용. 성공하면 목록/탭 label 갱신.
+  const renameSession = useCallback(
+    async (s: SessionInfo) => {
+      const next = window.prompt(t("info.renamePlaceholder"), s.name ?? "");
+      if (next == null) return;
+      const name = next.trim();
+      if (!name) return;
+      try {
+        await api.rename(s.path, name);
+        setTabTitle(s.path, name);
+        if (selectedDir) {
+          api
+            .sessions(selectedDir)
+            .then((sessions) => setSessionsByDir((m) => ({ ...m, [selectedDir]: sessions })))
+            .catch(() => undefined);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [t, setTabTitle, selectedDir],
+  );
+  // 사이드바에 보일 세션 목록: 서버가 준 목록 앞에, 아직 파일이 없는
+  // draft(열린 pending 탭)을 임시로 올려둔다. 첫 메시지를 보내 파일이 생기면
+  // setTabTitle 이 목록을 갱신해 정식 세션으로 바뀜다.
+  const sidebarSessions = (() => {
+    if (!selectedDir) return undefined;
+    const fetched = sessionsByDir[selectedDir];
+    if (!fetched) return undefined;
+    const known = new Set(fetched.map((s) => s.path));
+    const drafts: SessionInfo[] = tabs
+      .filter((tab) => tab.cwd === selectedDir && !known.has(tab.path))
+      .map((tab) => ({
+        path: tab.path,
+        id: "",
+        name: null,
+        firstMessage: "",
+        messageCount: 0,
+        created: new Date().toISOString(),
+        modified: new Date().toISOString(),
+        live: false,
+        draft: true,
+      }));
+    return [...drafts, ...fetched];
+  })();
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       {/* Tauri: 상단 드래그 스트립 (macOS 트래픽 라이트 아래 여백 확보 + 창 이동) */}
@@ -226,13 +273,14 @@ export default function App() {
                 dirsLoading={dirsLoading}
                 selectedDir={selectedDir}
                 onSelectDir={selectDir}
-                sessions={selectedDir ? sessionsByDir[selectedDir] : undefined}
+                sessions={sidebarSessions}
                 sessionsLoading={selectedDir ? loadingDirs.has(selectedDir) : false}
                 activeSessionPath={activeTab}
                 onOpenSession={openSession}
                 onNewSession={newSession}
                 onNewDirectory={newDirectory}
                 onDeleteSession={deleteSession}
+                onRenameSession={renameSession}
               />
             </div>
             {/* 사이드바 하단 바 */}

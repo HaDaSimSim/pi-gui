@@ -146,7 +146,10 @@ export class RuntimeManager {
    * @param cwd  pending 세션(파일 아직 없음)을 띄울 때 쓸 작업 디렉터리.
    * @throws LockedError 락이 남에게 있고 force 가 아닐 때.
    */
-  async getOrCreate(sessionPath: string, opts: { force?: boolean; cwd?: string } = {}): Promise<LiveRuntime> {
+  async getOrCreate(
+    sessionPath: string,
+    opts: { force?: boolean; cwd?: string; model?: { provider: string; id: string }; thinkingLevel?: string } = {},
+  ): Promise<LiveRuntime> {
     const existing = this.runtimes.get(sessionPath);
     if (existing) {
       // 내가 이미 띄운 런타임이라도, 그 사이 뺏겼을 수 있다.
@@ -183,6 +186,9 @@ export class RuntimeManager {
       authStorage: this.auth,
       modelRegistry: this.registry,
       sessionManager,
+      // 첫 메시지 전에 고른 모델/효율을 런타임 생성 시 적용 (draft → 실제).
+      ...(opts.model ? { model: this.registry.find(opts.model.provider, opts.model.id) ?? undefined } : {}),
+      ...(opts.thinkingLevel ? { thinkingLevel: opts.thinkingLevel as never } : {}),
     });
 
     const unsubscribe = session.subscribe((event) => {

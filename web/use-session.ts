@@ -15,6 +15,7 @@ import {
   type SessionEntry,
   type LockRecord,
   type SessionControls,
+  type ThinkingLevel,
 } from "./api";
 
 export type ChatRole = "user" | "assistant" | "tool" | "system" | "subagent";
@@ -207,9 +208,18 @@ export function useSession(path: string, cwd?: string) {
   // 턴 시작 시각 (agent_start) — message_end 에서 소요 시간 계산용 (ui-cosmetics 방식)
   const turnStartRef = useRef<number>(0);
 
+  // 첫 메시지 전 draft 모델/효율 (런타임이 없어 API 로 못 바꾸므로 로컬에 들고 있다가
+  // 첫 prompt 에 함께 보낸다). 런타임이 생기면 controls 가 진짜 값을 들고 온다.
+  const [draftModel, setDraftModel] = useState<{ provider: string; id: string } | null>(null);
+  const [draftThinking, setDraftThinking] = useState<ThinkingLevel | null>(null);
+
   const patch = useCallback((p: Partial<SessionState>) => {
     setState((s) => ({ ...s, ...p }));
   }, []);
+
+  // 최신 state 를 콜백에서 읽기 위한 ref (setModel/setThinking 의 live 판정용).
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // 스트리밍 메시지를 messages 배열 끝에 반영
   const flushStreaming = useCallback(() => {
@@ -413,7 +423,10 @@ export function useSession(path: string, cwd?: string) {
         messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text, time: new Date().toISOString() }],
       }));
       try {
-        await api.prompt(path, text, force, images, cwd);
+        await api.prompt(path, text, force, images, cwd, {
+          model: draftModel ?? undefined,
+          thinkingLevel: draftThinking ?? undefined,
+        });
         patch({ live: true });
         refreshControls();
       } catch (e) {
@@ -425,7 +438,7 @@ export function useSession(path: string, cwd?: string) {
         }
       }
     },
-    [path, cwd, patch, refreshControls],
+    [path, cwd, patch, refreshControls, draftModel, draftThinking],
   );
 
   // 강제로 가져오기 (force takeover 후 재전송 X — 그냥 락만 확보)
@@ -463,12 +476,21 @@ export function useSession(path: string, cwd?: string) {
   );
 
   const setModel = useCallback(
-    (provider: string, id: string, force = false) => runControl(() => api.setModel(path, provider, id, force)),
+    (provider: string, id: string, force = false) => {
+      // 라이브 런타임이 있으면 즉시 반영, 없으면(첫 메시지 전) draft 로 든다.
+      setDraftModel({ provider, id });
+      if (stateRef.current.live) return runControl(() => api.setModel(path, provider, id, force));
+      return Promise.resolve();
+    },
     [path, runControl],
   );
   const setThinking = useCallback(
-    (level: SessionControls["thinkingLevel"], force = false) =>
-      level ? runControl(() => api.setThinking(path, level, force)) : Promise.resolve(),
+    (level: SessionControls["thinkingLevel"], force = false) => {
+      if (!level) return Promise.resolve();
+      setDraftThinking(level);
+      if (stateRef.current.live) return runControl(() => api.setThinking(path, level, force));
+      return Promise.resolve();
+    },
     [path, runControl],
   );
   const rename = useCallback(
@@ -492,5 +514,24 @@ export function useSession(path: string, cwd?: string) {
     [path, patch],
   );
 
-  return { state, send, takeover, clearError, setModel, setThinking, rename, refreshControls, abort, respondUi };
+  // info 패널 · 컴포저 공용: 현재 모델/효율 — 라이브면 controls, 아니면 draft.
+  const effectiveModel = state.controls?.model
+    ? { provider: state.controls.model.provider, id: state.controls.model.id }
+    : draftModel;
+  const effectiveThinking = state.controls?.thinkingLevel ?? draftThinking;
+
+  return {
+    state,
+    send,
+    takeover,
+    clearError,
+    setModel,
+    setThinking,
+    rename,
+    refreshControls,
+    abort,
+    respondUi,
+    effectiveModel,
+    effectiveThinking,
+  };
 }

@@ -19,6 +19,7 @@ export interface SessionInfo {
   created: string;
   modified: string;
   live: boolean;
+  draft?: boolean; // 첫 메시지 전 임시 세션 (파일 아직 없음, 사이드바 임시 표시)
 }
 
 export interface LockRecord {
@@ -236,9 +237,25 @@ export const api = {
   open: (path: string, force = false) =>
     postJSON<{ live: boolean; locked: boolean }>("/api/session/open", { path, force }),
 
-  // 프롬프트 전송. images = data URL 배열(첨부), cwd = pending 세션 최초 생성용. 409 면 ApiError
-  prompt: (path: string, message: string, force = false, images?: string[], cwd?: string) =>
-    postJSON<{ accepted: boolean }>("/api/session/prompt", { path, message, force, images, cwd }),
+  // 프롬프트 전송. images = data URL 배열(첨부), cwd = pending 세션 최초 생성용.
+  // model/thinkingLevel = 첫 메시지 전 draft 선택(런타임 생성 시 적용). 409 면 ApiError
+  prompt: (
+    path: string,
+    message: string,
+    force = false,
+    images?: string[],
+    cwd?: string,
+    draft?: { model?: { provider: string; id: string }; thinkingLevel?: string },
+  ) =>
+    postJSON<{ accepted: boolean }>("/api/session/prompt", {
+      path,
+      message,
+      force,
+      images,
+      cwd,
+      model: draft?.model,
+      thinkingLevel: draft?.thinkingLevel,
+    }),
 
   // 진행 중인 응답 중단.
   abort: (path: string) => postJSON<{ aborted: boolean }>("/api/session/abort", { path }),

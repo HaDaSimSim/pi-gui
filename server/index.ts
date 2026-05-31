@@ -280,6 +280,8 @@ app.post("/api/session/prompt", async (c) => {
     force?: boolean;
     cwd?: string; // pending 세션을 처음 띄울 때 필요
     images?: string[]; // data URL 배열 (data:<mime>;base64,<data>)
+    model?: { provider: string; id: string }; // 첫 메시지 전 draft 모델
+    thinkingLevel?: string; // 첫 메시지 전 draft 효율
   }>();
   if (!body?.path || !body?.message) {
     return c.json({ error: "path and message required" }, 400);
@@ -294,7 +296,12 @@ app.post("/api/session/prompt", async (c) => {
   try {
     // 런타임이 없으면 먼저 띄운다 (락도 여기서 잡힘). pending 세션이면 cwd 로 생성.
     if (!runtimes.get(body.path)) {
-      await runtimes.getOrCreate(body.path, { force: body.force, cwd: body.cwd });
+      await runtimes.getOrCreate(body.path, {
+        force: body.force,
+        cwd: body.cwd,
+        model: body.model,
+        thinkingLevel: body.thinkingLevel,
+      });
     }
     await runtimes.prompt(body.path, body.message, images); // 내부에서 isMine() 재확인
     return c.json({ accepted: true, live: true });

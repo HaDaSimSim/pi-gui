@@ -8,3 +8,6 @@ src-tauri/target/
 src-tauri/gen/
 dist-backend/
 __pycache__/
+
+# pi project-local extensions (machine-specific symlinks; do not commit)
+.pi/

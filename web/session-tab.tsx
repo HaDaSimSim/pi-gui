@@ -17,6 +17,7 @@ import { useSession } from "./use-session";
 import { MessageView } from "./message-view";
 import { InfoPanel } from "./info-panel";
 import { Footer } from "./footer";
+import { ModelControls } from "./model-controls";
 import { UiRequestDialog } from "./ui-request-dialog";
 import { useT } from "./i18n";
 
@@ -32,7 +33,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string; onTitle?: (name: string) => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, respondUi } = useSession(path, cwd);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [commands, setCommands] = useState<{ name: string; description?: string; source: string }[]>([]);
@@ -231,6 +232,16 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
               ))}
             </div>
           ) : null}
+          {/* 모델/효율 셀렉터 (항상 표시, 첫 메시지 전에도 변경 가능) */}
+          <div className="mb-1.5">
+            <ModelControls
+              model={effectiveModel}
+              thinking={effectiveThinking}
+              supportsThinking={state.controls?.supportsThinking ?? true}
+              onSetModel={(provider, id) => setModel(provider, id)}
+              onSetThinking={(level) => setThinking(level)}
+            />
+          </div>
           <div className="flex items-end gap-2">
             <input
               ref={fileInputRef}

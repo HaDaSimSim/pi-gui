@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { useUiSettings, FONT_DEFAULTS, type ThemeMode, type Density } from "./use-ui-settings";
+import { useUiSettings, FONT_DEFAULTS, type ThemeModeTrigger, type DarkVariant, type Density } from "./use-ui-settings";
 import { useT } from "./i18n";
 import { api, type ModelInfo, type LockRecord } from "./api";
 
@@ -137,16 +137,33 @@ export function SettingsModal({ visible, onDismiss }: { visible: boolean; onDism
               <>
                 <SectionTitle>{t("settings.appearance")}</SectionTitle>
                 <Field label={t("settings.theme")} description={t("settings.themeDesc")}>
-                  <RadioGroup value={settings.theme} onValueChange={(v) => update({ theme: v as ThemeMode })} className="flex flex-col gap-2">
+                  <RadioGroup
+                    value={settings.themeMode}
+                    onValueChange={(v) => update({ themeMode: v as ThemeModeTrigger })}
+                    className="flex gap-4"
+                  >
+                    <label className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value="auto" /> {t("settings.themeAuto")}
+                    </label>
                     <label className="flex items-center gap-2 text-sm">
                       <RadioGroupItem value="light" /> {t("settings.light")}
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <RadioGroupItem value="dark" /> {t("settings.dark")}
                     </label>
+                  </RadioGroup>
+                </Field>
+                <Field label={t("settings.darkVariant")} description={t("settings.darkVariantDesc")}>
+                  <RadioGroup
+                    value={settings.darkVariant}
+                    onValueChange={(v) => update({ darkVariant: v as DarkVariant })}
+                    className="flex gap-4"
+                  >
+                    <label className="flex items-center gap-2 text-sm">
+                      <RadioGroupItem value="dark" /> {t("settings.dark")}
+                    </label>
                     <label className="flex items-center gap-2 text-sm">
                       <RadioGroupItem value="true-dark" /> {t("settings.trueDark")}
-                      <span className="text-xs text-muted-foreground">— {t("settings.trueDarkDesc")}</span>
                     </label>
                   </RadioGroup>
                 </Field>

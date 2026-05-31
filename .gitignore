@@ -7,3 +7,4 @@ dist-web/
 src-tauri/target/
 src-tauri/gen/
 dist-backend/
+__pycache__/

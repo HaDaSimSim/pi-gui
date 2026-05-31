@@ -12,6 +12,7 @@ import { api, type DirectoryInfo, type SessionInfo } from "./api";
 import { SessionTab } from "./session-tab";
 import { Sidebar, sessionLabel } from "./sidebar";
 import { DirectoryPicker } from "./directory-picker";
+import { Titlebar } from "./titlebar";
 import { IS_TAURI } from "./config";
 import { Toaster } from "@/components/ui/sonner";
 import { useT } from "./i18n";
@@ -85,10 +86,14 @@ export default function App() {
 
   const openSession = useCallback(
     (s: SessionInfo) => {
-      setTabs((prev) => (prev.find((tab) => tab.path === s.path) ? prev : [...prev, { path: s.path, label: sessionLabel(s, t) }]));
+      setTabs((prev) =>
+        prev.find((tab) => tab.path === s.path)
+          ? prev
+          : [...prev, { path: s.path, label: sessionLabel(s, t), cwd: selectedDir ?? undefined }],
+      );
       setActiveTab(s.path);
     },
-    [t],
+    [t, selectedDir],
   );
 
   const closeTab = useCallback((path: string) => {
@@ -125,11 +130,23 @@ export default function App() {
     }
   }, []);
 
-  // 브라우저 탭 제목: 기본 π, 세션 열릴 면 "π · 세션이름".
+  // 제목 포맷: π - 세션이름 - 디렉터리(마지막 조각).
+  // 세션이름 없으면 untitled, 디렉터리 없으면 생략.
+  const activeTab_ = tabs.find((tab) => tab.path === activeTab);
+  const docTitle = (() => {
+    if (!activeTab_) return "π";
+    const name = activeTab_.label || t("sessions.untitled");
+    const dir = activeTab_.cwd ? activeTab_.cwd.replace(/\/$/, "").split("/").pop() : "";
+    return dir ? `π - ${name} - ${dir}` : `π - ${name}`;
+  })();
   useEffect(() => {
-    const active = tabs.find((tab) => tab.path === activeTab);
-    document.title = active ? `π · ${active.label}` : "π";
-  }, [tabs, activeTab]);
+    document.title = docTitle;
+    if (IS_TAURI) {
+      import("@tauri-apps/api/window")
+        .then(({ getCurrentWindow }) => getCurrentWindow().setTitle(docTitle))
+        .catch(() => undefined);
+    }
+  }, [docTitle]);
 
   // 새 세션 만들기: cwd 에서 경로 발급 → pending 탭 열기. 첫 프롬프트에 실제 생성.
   const newSession = useCallback(
@@ -183,7 +200,12 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       {/* Tauri: 상단 드래그 스트립 (macOS 트래픽 라이트 아래 여백 확보 + 창 이동) */}
-      {IS_TAURI ? <div data-tauri-drag-region className="h-7 shrink-0 bg-sidebar" /> : null}
+      {IS_TAURI ? (
+        <Titlebar
+          name={activeTab_ ? activeTab_.label || t("sessions.untitled") : ""}
+          dir={activeTab_?.cwd ? activeTab_.cwd.replace(/\/$/, "").split("/").pop() : undefined}
+        />
+      ) : null}
       <div className="min-h-0 flex-1">
       <ResizablePanelGroup>
         {/* 사이드바 — 접기/리사이즈 가능. 기본 22%, 최소 12%. */}

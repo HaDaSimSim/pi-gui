@@ -1,4 +1,4 @@
-// pi-web 백엔드 골격.
+// pi-gui 백엔드 골격.
 //
 // 보기(목록/스크롤백)는 파일 I/O 로만, 라이브 채팅만 런타임을 띄운다.
 // SECURITY: 이 서버는 로컬 셸/파일/모델키에 접근하는 백엔드다.
@@ -9,11 +9,14 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { existsSync, readFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { resolve, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { RuntimeManager, LockedError, RevokedError } from "./runtime-manager.ts";
 import { listLocks } from "../shared/session-lock.ts";
-import { getGitStatus } from "./git.ts";
+import { getGitStatus, getCommitDetail } from "./git.ts";
 
 const app = new Hono();
 const runtimes = new RuntimeManager();
@@ -163,6 +166,39 @@ app.get("/api/git", async (c) => {
   const cwd = c.req.query("cwd");
   if (!cwd) return c.json({ error: "cwd query required" }, 400);
   return c.json(await getGitStatus(cwd));
+});
+
+// git 단일 커밋 상세 (메시지 전문 + 변경 파일 numstat) : 읽기 전용.
+app.get("/api/git/commit", async (c) => {
+  const cwd = c.req.query("cwd");
+  const hash = c.req.query("hash");
+  if (!cwd || !hash) return c.json({ error: "cwd and hash required" }, 400);
+  const detail = await getCommitDetail(cwd, hash);
+  if (!detail) return c.json({ error: "commit not found" }, 404);
+  return c.json(detail);
+});
+
+// 디렉터리 브라우저: 주어진 경로의 하위 디렉터리 목록. 새 세션 폴더 선택용.
+// 새 디렉터리를 고르는 용도라 읽기 전용. path 없으면 홈 디렉터리에서 시작.
+app.get("/api/fs/list", async (c) => {
+  const raw = c.req.query("path");
+  const target = raw && raw.trim() ? resolve(raw.trim()) : homedir();
+  try {
+    if (!existsSync(target)) return c.json({ error: "path not found", path: target }, 404);
+    const dirents = await readdir(target, { withFileTypes: true });
+    const dirs = dirents
+      .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b));
+    const parent = dirname(target);
+    return c.json({
+      path: target,
+      parent: parent === target ? null : parent, // 루트면 null
+      dirs,
+    });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e), path: target }, 400);
+  }
 });
 
 // ── 락 조망: 지금 누가 무엇을 점유 중인가 (TUI 포함 전체) ──────────────
@@ -416,12 +452,25 @@ if (existsSync(DIST_DIR)) {
 }
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
-  console.log(`pi-web backend → http://127.0.0.1:${info.port}  (localhost only)`);
+  console.log(`pi-gui backend → http://127.0.0.1:${info.port}  (localhost only)`);
 });
 
-process.on("SIGINT", async () => {
-  console.log("\nshutting down…");
-  await runtimes.shutdown();
+// 종료 처리: Ctrl-C 한 번에 확실히 내려간다.
+//  - 재진입 방지(두 번째 시그널이 와도 중복 실행 안 함)
+//  - 리스너를 먼저 닫아 포트를 바로 반납
+//  - cleanup 이 멈추면 안 되므로 타임아웃으로 강제 종료
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n${signal} — shutting down…`);
   server.close();
+  // cleanup 은 최선, 단 2초 안에 끝나지 않으면 그대로 종료.
+  const cleanup = runtimes.shutdown().catch(() => undefined);
+  const timeout = new Promise((r) => setTimeout(r, 2000));
+  await Promise.race([cleanup, timeout]);
   process.exit(0);
-});
+}
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

@@ -87,48 +87,12 @@ function ToolCall({ tc }: { tc: ToolCallView }) {
   );
 }
 
-function SubagentRun({ run }: { run: NonNullable<ChatMessage["subagentRun"]> }) {
-  const dot =
-    run.status === "running" ? "bg-amber-500" : run.status === "failed" ? "bg-destructive" : "bg-emerald-500";
-  const lastTurn = run.turns[run.turns.length - 1];
-  return (
-    <div className="my-1 rounded-lg border border-dashed p-2.5">
-      <Collapsible>
-        <CollapsibleTrigger className="flex w-full min-w-0 items-center gap-2 text-left text-xs">
-          <span className={cn("size-2 shrink-0 rounded-full", dot)} />
-          <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">subagent</span>
-          <span className="truncate font-medium">{run.title}</span>
-          <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
-            {run.agent}{run.turns.length > 1 ? ` · ${run.turns.length} turns` : ""}
-          </span>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-2 flex flex-col gap-2">
-          <div className="text-[11px] text-muted-foreground">{run.task}</div>
-          {run.turns.map((tn, i) => (
-            <div key={i} className="border-l-2 border-border pl-2">
-              {tn.error ? (
-                <div className="text-[11px] text-destructive">{tn.error}</div>
-              ) : tn.finalOutput ? (
-                <div className="whitespace-pre-wrap text-xs">{tn.finalOutput.slice(0, 4000)}</div>
-              ) : (
-                <div className="text-[11px] text-muted-foreground">…</div>
-              )}
-            </div>
-          ))}
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
-  );
-}
-
 export function MessageView({ msg }: { msg: ChatMessage }) {
   const { t } = useT();
   const isUser = msg.role === "user";
 
-  // subagent run 블록 (자체 렌더)
-  if (msg.subagentRun) {
-    return <SubagentRun run={msg.subagentRun} />;
-  }
+  // subagent run 은 info 패널의 Subagents 탭에서 렌더한다 — 채팅 흐름에서는 숨긴다.
+  if (msg.subagentRun) return null;
 
   const timeStr = msg.time
     ? new Date(msg.time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
@@ -151,10 +115,10 @@ export function MessageView({ msg }: { msg: ChatMessage }) {
   if (isUser) {
     return (
       <div className="flex w-full flex-col items-end">
-        <div className="max-w-[60%] rounded-2xl rounded-br-sm bg-primary px-3.5 py-2.5 text-primary-foreground">
+        <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-primary-foreground">
           <div className="whitespace-pre-wrap break-words leading-relaxed">{msg.text}</div>
         </div>
-        {timeStr ? <div className="mt-1 mr-1 text-xs text-muted-foreground/70">{timeStr}</div> : null}
+        {timeStr ? <div className="mt-1.5 mr-1 text-xs text-muted-foreground/70">{timeStr}</div> : null}
       </div>
     );
   }
@@ -170,7 +134,7 @@ export function MessageView({ msg }: { msg: ChatMessage }) {
 
   return (
     <div className="flex w-full flex-col items-start">
-      <div className="w-full">
+      <div className="w-full leading-relaxed">
         {thinkingBlock}
         {msg.text ? (
           <Markdown text={msg.text} />
@@ -179,7 +143,7 @@ export function MessageView({ msg }: { msg: ChatMessage }) {
         ) : null}
         {msg.toolCalls?.map((tc) => <ToolCall key={tc.id} tc={tc} />)}
       </div>
-      <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground/70">
+      <div className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground/70">
         <span>{meta}</span>
         {msg.streaming ? <Loader2 className="size-3.5 animate-spin" /> : null}
       </div>

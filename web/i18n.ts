@@ -60,6 +60,8 @@ const en = {
   "message.done": "done",
 
   "info.title": "Session info",
+  "info.subagents": "Subagents",
+  "info.noSubagents": "No subagent runs in this session yet.",
   "info.model": "Model",
   "info.efficiency": "Efficiency",
   "info.context": "Context",
@@ -202,6 +204,8 @@ const ko: Record<I18nKey, string> = {
   "message.done": "완료",
 
   "info.title": "세션 정보",
+  "info.subagents": "서브에이전트",
+  "info.noSubagents": "이 세션에서 실행된 서브에이전트가 아직 없습니다.",
   "info.model": "모델",
   "info.efficiency": "효율(Efficiency)",
   "info.context": "컨텍스트",

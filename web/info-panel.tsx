@@ -19,14 +19,17 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { SubagentRunCard } from "./subagent-run";
 import { api, type ModelInfo, type ThinkingLevel } from "./api";
 import { useT } from "./i18n";
-import type { SessionState } from "./use-session";
+import type { SessionState, SubagentRunView } from "./use-session";
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 interface InfoPanelProps {
   state: SessionState;
+  subagentRuns: SubagentRunView[];
   onSetModel: (provider: string, id: string) => void;
   onSetThinking: (level: ThinkingLevel) => void;
   onRename: (name: string) => void;
@@ -38,14 +41,14 @@ function fmtNum(n: number | undefined | null): string {
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <div className="mb-1.5 text-xs font-medium text-muted-foreground">{children}</div>;
+  return <div className="mb-1.5 text-sm font-medium text-muted-foreground">{children}</div>;
 }
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="text-muted-foreground">{label}</div>
-      <div className="font-medium">{value}</div>
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="text-sm font-medium">{value}</div>
     </div>
   );
 }
@@ -56,7 +59,7 @@ function seg(color: string, value: number, total: number) {
   return <div className={color} style={{ width: `${(value / total) * 100}%` }} />;
 }
 
-export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPanelProps) {
+export function InfoPanel({ state, subagentRuns, onSetModel, onSetThinking, onRename }: InfoPanelProps) {
   const { t } = useT();
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [nameDraft, setNameDraft] = useState("");
@@ -71,18 +74,30 @@ export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPa
     setNameDraft(controls?.name ?? "");
   }, [controls?.name]);
 
-  if (!state.live || !controls) {
-    return <div className="p-4 text-sm text-muted-foreground">{t("info.notLive")}</div>;
-  }
-
-  const modelValue = controls.model ? `${controls.model.provider}/${controls.model.id}` : undefined;
-  const thinkingLevels = controls.availableThinkingLevels.length ? controls.availableThinkingLevels : THINKING_LEVELS;
-  const usage = controls.stats?.contextUsage;
+  const modelValue = controls?.model ? `${controls.model.provider}/${controls.model.id}` : undefined;
+  const thinkingLevels = controls?.availableThinkingLevels.length ? controls.availableThinkingLevels : THINKING_LEVELS;
+  const usage = controls?.stats?.contextUsage;
   const percent = usage?.percent ?? null;
-  const tk = controls.stats?.tokens;
+  const tk = controls?.stats?.tokens;
 
   return (
-    <div className="flex flex-col gap-5 p-4">
+    <Tabs defaultValue="info" className="flex h-full min-h-0 flex-col gap-0">
+      <TabsList variant="line" className="shrink-0 gap-1 border-b px-3 pt-2">
+        <TabsTrigger value="info">{t("info.title")}</TabsTrigger>
+        <TabsTrigger value="subagents">
+          {t("info.subagents")}
+          {subagentRuns.length ? (
+            <span className="ml-1 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{subagentRuns.length}</span>
+          ) : null}
+        </TabsTrigger>
+      </TabsList>
+
+      {/* ── Info 탭 ── */}
+      <TabsContent value="info" className="min-h-0 flex-1 overflow-y-auto">
+        {!state.live || !controls ? (
+          <div className="p-4 text-sm text-muted-foreground">{t("info.notLive")}</div>
+        ) : (
+          <div className="flex flex-col gap-6 p-4">
       {/* 이름 변경 */}
       <div>
         <Label>{t("info.rename")}</Label>
@@ -172,7 +187,7 @@ export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPa
         {usage && percent !== null ? (
           <>
             <Progress value={Math.min(100, Math.round(percent))} />
-            <div className="text-xs text-muted-foreground">
+            <div className="text-sm text-muted-foreground">
               {t("info.contextUsage", {
                 used: fmtNum(usage.tokens),
                 total: fmtNum(usage.contextWindow),
@@ -186,15 +201,15 @@ export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPa
 
         {/* 토큰 구성 바 (input/output/cacheRead/cacheWrite 세그먼트) */}
         {tk && tk.total > 0 ? (
-          <div className="mt-1 flex flex-col gap-1">
-            <div className="text-[11px] text-muted-foreground">{t("info.breakdown")}</div>
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
+          <div className="mt-1 flex flex-col gap-1.5">
+            <div className="text-sm text-muted-foreground">{t("info.breakdown")}</div>
+            <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
               {seg("bg-sky-500", tk.input, tk.total)}
               {seg("bg-emerald-500", tk.output, tk.total)}
               {seg("bg-amber-500", tk.cacheRead, tk.total)}
               {seg("bg-violet-500", tk.cacheWrite, tk.total)}
             </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-sky-500" />{t("info.inputTokens")} {fmtNum(tk.input)}</span>
               <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-500" />{t("info.outputTokens")} {fmtNum(tk.output)}</span>
               <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-500" />R {fmtNum(tk.cacheRead)}</span>
@@ -205,7 +220,7 @@ export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPa
       </div>
 
       {/* 통계 그리드 (opencode context tab 감성) */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
         <Stat label={t("info.cost")} value={controls.stats?.cost != null ? `$${controls.stats.cost.toFixed(4)}` : "—"} />
         <Stat label={t("info.tokens")} value={fmtNum(tk?.total)} />
         <Stat label={t("info.inputTokens")} value={fmtNum(tk?.input)} />
@@ -218,7 +233,7 @@ export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPa
 
       {/* raw data (접이식) */}
       <Collapsible>
-        <CollapsibleTrigger className="text-xs font-medium text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="text-sm font-medium text-muted-foreground hover:text-foreground">
           {t("info.rawData")}
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-2">
@@ -227,6 +242,22 @@ export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPa
           </pre>
         </CollapsibleContent>
       </Collapsible>
-    </div>
+          </div>
+        )}
+      </TabsContent>
+
+      {/* ── Subagents 탭 ── */}
+      <TabsContent value="subagents" className="min-h-0 flex-1 overflow-y-auto">
+        {subagentRuns.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">{t("info.noSubagents")}</div>
+        ) : (
+          <div className="flex flex-col gap-3 p-4">
+            {subagentRuns.map((run, i) => (
+              <SubagentRunCard key={run.runId || i} run={run} defaultOpen={subagentRuns.length === 1} />
+            ))}
+          </div>
+        )}
+      </TabsContent>
+    </Tabs>
   );
 }

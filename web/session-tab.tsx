@@ -1,10 +1,16 @@
 // 한 세션 탭: 메시지 + 컴포저 + 락 충돌 배너 + info 패널 토글.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Paperclip, Send, Info, X, Square } from "lucide-react";
+import { Loader2, Paperclip, Send, PanelRight, X, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
+import { usePanelRef } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { api } from "./api";
 import { useSession } from "./use-session";
@@ -29,12 +35,26 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
   const { state, send, takeover, clearError, setModel, setThinking, rename, abort, respondUi } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [infoOpen, setInfoOpen] = useState(false);
   const [commands, setCommands] = useState<{ name: string; description?: string; source: string }[]>([]);
   const [cmdIndex, setCmdIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTextRef = useRef<string>("");
+
+  // info 패널은 항상 열림 + 리사이즈 가능. 토글 버튼으로 접을 수 있다.
+  const infoRef = usePanelRef();
+  const toggleInfo = () => {
+    const p = infoRef.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
+    else p.collapse();
+  };
+
+  // 세션 안의 subagent-run 엔트리를 모아 info 패널로 넘긴다 (최신이 아래).
+  const subagentRuns = useMemo(
+    () => state.messages.filter((m) => m.subagentRun).map((m) => m.subagentRun!),
+    [state.messages],
+  );
 
   // 라이브가 되면 슬래시 커맨드 목록을 불러온다 (extension 등록 커맨드).
   useEffect(() => {
@@ -111,26 +131,27 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
     (state.conflict?.by ? `${state.conflict.by.owner} (pid ${state.conflict.by.pid})` : t("session.anotherClient"));
 
   return (
-    <div className="flex h-full min-h-0">
+    <ResizablePanelGroup className="h-full min-h-0">
       {/* ── 채팅 영역 ── */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <ResizablePanel className="min-w-0">
+        <div className="flex h-full min-h-0 min-w-0 flex-col">
         {/* 상단 미니 바 */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5 text-xs">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-sm">
           <div>{statusLine}</div>
           <Button
             variant="ghost"
             size="icon"
             className="size-7"
             aria-label={t("info.title")}
-            onClick={() => setInfoOpen((v) => !v)}
+            onClick={toggleInfo}
           >
-            <Info className="size-4" />
+            <PanelRight className="size-4" />
           </Button>
         </div>
 
         {/* 메시지 스크롤 영역 */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="px-6 py-4">
+          <div className="mx-auto max-w-3xl px-8 py-6">
             {state.loading ? (
               <div className="flex justify-center p-6">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -138,7 +159,7 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
             ) : state.messages.length === 0 ? (
               <div className="p-10 text-center text-sm text-muted-foreground">{t("session.noMessages")}</div>
             ) : (
-              <div className="flex w-full flex-col gap-4">
+              <div className="flex w-full flex-col gap-7">
                 {state.messages.map((m) => (
                   <MessageView key={m.key} msg={m} />
                 ))}
@@ -149,7 +170,7 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
 
         {/* 락 충돌 배너 */}
         {state.conflict ? (
-          <div className="mx-3 mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <div className="mx-8 mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
             <div className="mb-1 font-medium">
               {state.conflict.kind === "revoked" ? t("session.revokedHeader") : t("session.lockedHeader")}
             </div>
@@ -161,7 +182,7 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
         ) : null}
 
         {state.error ? (
-          <div className="mx-3 mt-2 flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <div className="mx-8 mt-2 flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
             <span>{state.error}</span>
             <button onClick={clearError} aria-label="dismiss" className="text-muted-foreground hover:text-foreground">
               <X className="size-4" />
@@ -170,10 +191,10 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
         ) : null}
 
         {/* 컴포저 */}
-        <div className="relative shrink-0 px-6 py-3">
+        <div className="relative shrink-0 px-8 py-4">
           {/* 슬래시 커맨드 메뉴 ("/" 입력 시) */}
           {commandMenu ? (
-            <div className="absolute bottom-full left-6 right-6 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
+            <div className="absolute bottom-full left-8 right-8 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
               {commandMenu.map((c, i) => (
                 <button
                   key={c.name}
@@ -319,22 +340,29 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
 
         {/* 푸터 (TUI 미러링) */}
         <Footer path={path} cwd={cwd} refreshKey={footerKey} />
-      </div>
-
-      {/* ── info 패널 (열리면 채팅이 좁아짐) ── */}
-      {infoOpen ? (
-        <div className="w-80 shrink-0 overflow-y-auto border-l">
-          <InfoPanel
-            state={state}
-            onSetModel={(provider, id) => setModel(provider, id)}
-            onSetThinking={(level) => setThinking(level)}
-            onRename={(name) => rename(name)}
-          />
         </div>
-      ) : null}
+      </ResizablePanel>
 
-      {/* extension UI 브릿지 (confirm/select/input/editor) */}
+      <ResizableHandle withHandle />
+      <ResizablePanel
+        panelRef={infoRef}
+        collapsible
+        collapsedSize={0}
+        minSize="260px"
+        defaultSize="340px"
+        maxSize="560px"
+        className="min-w-0 border-l"
+      >
+        <InfoPanel
+          state={state}
+          subagentRuns={subagentRuns}
+          onSetModel={(provider, id) => setModel(provider, id)}
+          onSetThinking={(level) => setThinking(level)}
+          onRename={(name) => rename(name)}
+        />
+      </ResizablePanel>
+
       {state.uiRequest ? <UiRequestDialog request={state.uiRequest} onRespond={respondUi} /> : null}
-    </div>
+    </ResizablePanelGroup>
   );
 }

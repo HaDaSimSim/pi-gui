@@ -64,9 +64,13 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
   const applyCommand = (name: string) => setInput(`/${name} `);
 
   // 세션 이름이 정해지면 상위(App)로 올려 탭 label/브라우저 제목 갱신.
+  // onTitle 은 매 렌더 새 함수일 수 있으므로 ref 로 고정해 의존성에서 뺀다
+  // (아니면 onTitle→setState→새 onTitle→effect 재실행 무한루프).
+  const onTitleRef = useRef(onTitle);
+  onTitleRef.current = onTitle;
   useEffect(() => {
-    if (state.name) onTitle?.(state.name);
-  }, [state.name, onTitle]);
+    if (state.name) onTitleRef.current?.(state.name);
+  }, [state.name]);
 
   // 새 메시지/스트리밍 시 맨 아래로 (스크롤 컨테이너 내부에서만)
   useEffect(() => {

@@ -153,11 +153,11 @@ function CommitDetailDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[80vh] gap-0 overflow-hidden sm:max-w-2xl">
+      <DialogContent className="flex max-h-[85vh] w-[92vw] flex-col gap-0 overflow-hidden sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 pr-6 text-base">
-            <GitCommitIcon className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 truncate">{detail?.subject ?? t("git.loading")}</span>
+          <DialogTitle className="flex items-start gap-2 pr-8 text-base">
+            <GitCommitIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 break-words">{detail?.subject ?? t("git.loading")}</span>
           </DialogTitle>
         </DialogHeader>
         {loading ? (
@@ -165,7 +165,7 @@ function CommitDetailDialog({
         ) : !detail ? (
           <div className="py-8 text-center text-sm text-muted-foreground">{t("git.error")}</div>
         ) : (
-          <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pt-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pt-2">
             {/* 메타 */}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               <span className="font-mono text-foreground/80">{detail.shortHash}</span>

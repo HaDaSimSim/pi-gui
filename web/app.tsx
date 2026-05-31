@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, lazy, Suspense } from "react";
-import { RefreshCw, Settings, PanelLeft, X } from "lucide-react";
+import { RefreshCw, Settings, PanelLeft, X, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   ResizablePanelGroup,
@@ -11,6 +11,12 @@ import { cn } from "@/lib/utils";
 import { api, type DirectoryInfo, type SessionInfo } from "./api";
 import { SessionTab } from "./session-tab";
 import { Sidebar, sessionLabel } from "./sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DirectoryPicker } from "./directory-picker";
 import { Titlebar } from "./titlebar";
 import { IS_TAURI } from "./config";
@@ -121,13 +127,34 @@ export default function App() {
     [t, selectedDir],
   );
 
-  const closeTab = useCallback((path: string) => {
+  const closeTab = useCallback(
+    async (path: string) => {
+      // 실행 중(스트리밍)인 세션이면 중단하고 닫을지 확인.
+      try {
+        const live = await api.live();
+        const running = live.find((r) => r.key === path && r.streaming);
+        if (running && !window.confirm(t("tabs.closeRunningConfirm"))) return;
+        if (running) await api.abort(path).catch(() => undefined);
+      } catch {
+        /* live 조회 실패해도 닫기는 진행 */
+      }
+      setTabs((prev) => {
+        const remaining = prev.filter((tab) => tab.path !== path);
+        setActiveTab((cur) => (cur !== path ? cur : remaining.length ? remaining[remaining.length - 1].path : undefined));
+        return remaining;
+      });
+      api.dispose(path).catch(() => undefined); // 닫을 때 런타임 내려달라고 신호 (best-effort)
+    },
+    [t],
+  );
+
+  // 모든 탭 닫기. 각 탭의 런타임도 best-effort 로 내린다.
+  const closeAllTabs = useCallback(() => {
     setTabs((prev) => {
-      const remaining = prev.filter((tab) => tab.path !== path);
-      setActiveTab((cur) => (cur !== path ? cur : remaining.length ? remaining[remaining.length - 1].path : undefined));
-      return remaining;
+      for (const tab of prev) api.dispose(tab.path).catch(() => undefined);
+      return [];
     });
-    api.dispose(path).catch(() => undefined); // 닫을 때 런타임 내려달라고 신호 (best-effort)
+    setActiveTab(undefined);
   }, []);
 
   const refresh = useCallback(() => {
@@ -199,10 +226,9 @@ export default function App() {
     setPickerOpen(true);
   }, [newSession, t]);
 
-  // 세션 삭제: 확인 → API → 열린 탭 닫기 + 목록 갱신.
+  // 세션 삭제: 사이드바에서 이미 인라인 더블체크했으므로 바로 API → 탭 닫기 + 목록 갱신.
   const deleteSession = useCallback(
     async (s: SessionInfo) => {
-      if (!window.confirm(t("sessions.deleteConfirm"))) return;
       try {
         const res = await api.deleteSession(s.path);
         if (!res.ok) {
@@ -365,6 +391,19 @@ export default function App() {
                       </div>
                     );
                   })}
+                  {/* 탭 메뉴 (오른쪽 끝): 모든 탭 닫기 등 */}
+                  <div className="ml-auto shrink-0 pr-1">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-8" aria-label={t("tabs.menu")}>
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={closeAllTabs}>{t("tabs.closeAll")}</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
 
                 {/* 탭 본문 — 모든 탭을 마운트 유지하고 활성만 표시 (SSE 구독 유지) */}

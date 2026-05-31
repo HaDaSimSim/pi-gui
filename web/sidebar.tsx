@@ -3,7 +3,7 @@
 // 레벨 1: 디렉터리 목록. 클릭하면 그 디렉터리 안으로 들어간다(인라인 확장 X).
 // 레벨 2: 뒤로가기 헤더 + 해당 디렉터리의 세션 목록. 세션 클릭 → 탭으로 열림.
 
-import { ChevronLeft, Loader2, Plus, FolderPlus, Folder, Trash2, Search, Pencil } from "lucide-react";
+import { ChevronLeft, Loader2, Plus, FolderPlus, Folder, Trash2, Search, Pencil, Check, X } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +76,8 @@ export function Sidebar(props: SidebarProps) {
   const { t } = props;
   const [dirQuery, setDirQuery] = useState("");
   const [sessionQuery, setSessionQuery] = useState("");
+  // 삭제 더블체크: 첫 클릭은 확인 모드(체크/X), 두 번째 체크에서 실제 삭제.
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   // 필터링: 디렉터리는 경로로, 세션은 이름/첫메시지로 (대소문자 무시).
   const dq = dirQuery.trim().toLowerCase();
@@ -139,9 +141,7 @@ export function Sidebar(props: SidebarProps) {
                       key={s.path}
                       className={cn(
                         "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-sidebar-accent",
-                        active
-                          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--color-primary)]"
-                          : "text-sidebar-foreground/80",
+                        active ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-sidebar-foreground/80",
                       )}
                     >
                       <button onClick={() => props.onOpenSession(s)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left">
@@ -151,25 +151,77 @@ export function Sidebar(props: SidebarProps) {
                         ) : null}
                       </button>
                       {s.live ? <span className="size-2 shrink-0 rounded-full bg-emerald-500" title={t("sessions.live")} /> : null}
-                      {s.draft ? null : (
-                      <>
-                      <button
-                        aria-label={t("info.rename")}
-                        title={t("info.rename")}
-                        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
-                        onClick={() => props.onRenameSession(s)}
-                      >
-                        <Pencil className="size-3.5" />
-                      </button>
-                      <button
-                        aria-label={t("sessions.delete")}
-                        title={t("sessions.delete")}
-                        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                        onClick={() => props.onDeleteSession(s)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                      </>
+                      {s.draft ? null : confirmDelete === s.path ? (
+                        // 삭제 더블체크: 체크(확정) / X(취소)
+                        <span className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            aria-label={t("sessions.confirmDelete")}
+                            title={t("sessions.confirmDelete")}
+                            className="rounded p-0.5 text-destructive hover:bg-destructive/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDelete(null);
+                              props.onDeleteSession(s);
+                            }}
+                          >
+                            <Check className="size-3.5" />
+                          </button>
+                          <button
+                            aria-label={t("info.cancel")}
+                            title={t("info.cancel")}
+                            className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDelete(null);
+                            }}
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </span>
+                      ) : (
+                        <>
+                          {/* 평소: 마지막 활동 시간(active 면 항상, 그 외엔 hover 아닐 때만) */}
+                          {s.modified ? (
+                            <span
+                              className={cn(
+                                "shrink-0 text-[11px] text-muted-foreground",
+                                active ? "" : "group-hover:hidden",
+                              )}
+                            >
+                              {relativeTime(s.modified)}
+                            </span>
+                          ) : null}
+                          {/* 수정/삭제: hover 또는 active 면 표시 */}
+                          <span
+                            className={cn(
+                              "flex shrink-0 items-center gap-0.5",
+                              active ? "" : "hidden group-hover:flex",
+                            )}
+                          >
+                            <button
+                              aria-label={t("info.rename")}
+                              title={t("info.rename")}
+                              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onRenameSession(s);
+                              }}
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                            <button
+                              aria-label={t("sessions.delete")}
+                              title={t("sessions.delete")}
+                              className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmDelete(s.path);
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </span>
+                        </>
                       )}
                     </div>
                   );

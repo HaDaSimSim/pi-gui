@@ -487,6 +487,17 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (i
   console.log(`PI_GUI_PORT=${info.port}`);
 });
 
+// 안전망: extension 콜백(자식 프로세스 exit 핸들러 등)에서 throw 가 나도
+// 백엔드 프로세스를 죽이지 않는다. pi-web 은 다수 세션을 서빙하므로
+// 한 세션/익스텐션의 오류가 서버 전체를 내리면 안 된다.
+// (예: subagents 익스텐션이 hasUI=true 로 착각해 TUI 전용 theme 을 건드리다 throw.)
+process.on("uncaughtException", (err) => {
+  console.error("[pi-gui] uncaughtException (생존):", err?.stack || err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[pi-gui] unhandledRejection (생존):", reason);
+});
+
 // 종료 처리: Ctrl-C 한 번에 확실히 내려간다.
 //  - 재진입 방지(두 번째 시그널이 와도 중복 실행 안 함)
 //  - 리스너를 먼저 닫아 포트를 바로 반납

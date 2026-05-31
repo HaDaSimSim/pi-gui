@@ -43,6 +43,17 @@ function fmtNum(n: number | undefined | null): string {
   return n.toLocaleString();
 }
 
+// 비용을 USD 통화로 (opencode 처럼). 아주 작은 값은 4자리까지.
+function fmtCost(n: number | undefined | null): string {
+  if (n === undefined || n === null) return "—";
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: n > 0 && n < 0.01 ? 4 : 2,
+  }).format(n);
+}
+
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="mb-1.5 text-sm font-medium text-muted-foreground">{children}</div>;
 }
@@ -215,16 +226,18 @@ export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThi
         ) : null}
       </div>
 
-      {/* 통계 그리드 (opencode context tab 감성) */}
+      {/* 통계 그리드 (opencode context tab 스펙) */}
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-        <Stat label={t("info.cost")} value={controls.stats?.cost != null ? `$${controls.stats.cost.toFixed(4)}` : "—"} />
+        <Stat label={t("info.provider")} value={controls.model?.provider || "—"} />
+        <Stat label={t("info.cost")} value={fmtCost(controls.stats?.cost)} />
         <Stat label={t("info.tokens")} value={fmtNum(tk?.total)} />
+        <Stat label={t("info.limit")} value={fmtNum(usage?.contextWindow)} />
         <Stat label={t("info.inputTokens")} value={fmtNum(tk?.input)} />
         <Stat label={t("info.outputTokens")} value={fmtNum(tk?.output)} />
         <Stat label={t("info.cacheTokens")} value={`${fmtNum(tk?.cacheRead)} / ${fmtNum(tk?.cacheWrite)}`} />
-        <Stat label={t("info.limit")} value={fmtNum(usage?.contextWindow)} />
-        <Stat label={t("info.messages")} value={fmtNum(controls.stats?.totalMessages)} />
         <Stat label={t("info.toolCalls")} value={fmtNum(controls.stats?.toolCalls)} />
+        <Stat label={t("info.userMessages")} value={fmtNum(controls.stats?.userMessages)} />
+        <Stat label={t("info.assistantMessages")} value={fmtNum(controls.stats?.assistantMessages)} />
       </div>
 
       {/* raw data (접이식) */}

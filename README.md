@@ -26,8 +26,9 @@ browser (React + shadcn/ui + Tailwind v4)
    │  /api/* (REST)  +  /api/session/events (SSE)
    ▼
 server/ (Hono, 127.0.0.1 only)
-   ├── index.ts            HTTP routes + SSE
-   └── runtime-manager.ts  sessionPath → live AgentSession; subscription channels; locks
+   ├── index.ts            HTTP routes + SSE (+ static serve of dist-web in prod)
+   ├── runtime-manager.ts  sessionPath → live AgentSession; subscription channels; locks
+   └── web-ui-context.ts   ExtensionUIContext bridge (ctx.ui.* → SSE → browser)
    │
    ├─ reads  → SessionManager.listAll() / list(cwd) / open(path)   (no runtime)
    ├─ writes → createAgentSession(...) per live session            (runtime + lock)
@@ -48,8 +49,9 @@ and can see each other's claims.
 | Read a session (scrollback) | no | no |
 | Subscribe to live events (SSE) | no | no |
 | Footer token/cost summary | no | no |
+| Delete a session (file remove) | no | no (refuses if live/locked) |
 | Send a prompt / open / new | **yes** (lazy, 1 per session) | **yes** (exclusive) |
-| Change model / thinking / rename | **yes** | **yes** |
+| Change model / thinking / rename / abort | **yes** | **yes** |
 
 Idle runtimes are reaped after 5 minutes. You can fan out a huge sidebar of
 directories and sessions for free; only the sessions you actually talk to cost a
@@ -86,10 +88,12 @@ runtime.
   collapsible blocks (title · agent · status · turn outputs).
 - Session management: create new session / directory, delete a session
   (refuses while it's live or locked elsewhere).
+- **Extension UI bridge**: `ctx.ui.confirm/select/input/editor` render as shadcn
+  dialogs and `ctx.ui.notify` as toasts, so interactive extensions (e.g.
+  session-lock's takeover confirm) work in the browser.
 - Settings modal: language (en/ko), theme (light / dark / true-dark),
   density, motion, configurable UI + monospace fonts; read-only models / locks /
   live-runtime tables.
-- New session / new directory creation.
 - Production single-process serve: `pnpm build && pnpm start` serves the built
   `dist-web/` from the Hono backend (static + SPA fallback) on `127.0.0.1:4317`.
   In dev, Vite serves the frontend and proxies `/api/`.
@@ -130,7 +134,7 @@ pnpm build:web       # production bundle → dist-web/
 
 ```
 pi-web/
-├── server/             Hono backend (index.ts routes/SSE, runtime-manager.ts locks)
+├── server/             Hono backend (index.ts routes/SSE/static, runtime-manager.ts locks, web-ui-context.ts ui bridge)
 ├── web/                React + shadcn frontend (kebab-case files; ui/ = shadcn components)
 ├── shared/             session-lock.ts → symlink → pi-skills lock protocol
 ├── test/               unit + E2E (see Tests)
@@ -143,7 +147,7 @@ pi-web/
 ```bash
 pnpm typecheck          # tsc --noEmit (Vite build does NOT type-check)
 pnpm build:web          # vite build
-pnpm test:unit          # lock protocol units (17), no server needed
+pnpm test:unit          # lock units (17) + i18n parity (8), no server needed
 
 # E2E need the backend up. Use a non-default port so you never collide with a
 # running dev server on 4317:
@@ -160,5 +164,8 @@ not part of the suite.
 - Live activity from *another* process (the TUI) is not streamed in real time —
   pi-web only streams runtimes it owns. A foreign session's live writes would
   need a jsonl file watcher (deliberately out of scope).
-- Extension `type:"custom"` renderers (goal, subagents) aren't auto-ported to the
+- Extension `ctx.ui.custom` (arbitrary terminal component) has no generic web
+  mapping. The generic bridge covers confirm/select/input/editor/notify;
+  extensions using `custom` (btw, questionnaire, subagents' run overlay) need a
+  bespoke web renderer each — subagent runs already render inline read-only.
   web; each needs a dedicated web renderer.

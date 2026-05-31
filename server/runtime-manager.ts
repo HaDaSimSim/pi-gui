@@ -217,6 +217,22 @@ export class RuntimeManager {
   }
 
   /**
+   * 진행 중인 응답을 중단한다. 락이 내 것일 때만 (쓰기성 작업).
+   * 런타임이 없거나 스트리밍 중이 아니면 no-op.
+   */
+  async abort(sessionPath: string): Promise<{ aborted: boolean }> {
+    const rt = this.runtimes.get(sessionPath);
+    if (!rt) return { aborted: false };
+    if (!rt.lock.isMine()) return { aborted: false };
+    rt.lastActivity = Date.now();
+    try {
+      await rt.session.abort();
+      return { aborted: true };
+    } catch {
+      return { aborted: false };
+    }
+  }
+  /**
    * 런타임이 내 것이도록 보장한다. 없으면 띄우고(락 획득), 있으면 락 재확인.
    * 쓰기성 작업(모델/사고수준/이름 변경) 전에 호출한다.
    * @throws LockedError 남이 점유 중 + force 아님

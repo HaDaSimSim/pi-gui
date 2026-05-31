@@ -30,9 +30,11 @@
     "dev:server": "node server/index.ts",
     "dev:web": "vite",
     "build:web": "vite build",
+    "build": "vite build",
+    "start": "node server/index.ts",
     "dev": "node server/index.ts & vite",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node test/lock-test.ts",
+    "test:unit": "node test/lock-test.ts && node test/i18n-test.ts",
     "test:e2e": "node test/e2e-lock.ts && node test/e2e-sse.ts && node test/e2e-sse-lock.ts"
   },
   "devDependencies": {

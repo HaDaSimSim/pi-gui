@@ -7,7 +7,8 @@
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { existsSync } from "node:fs";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { RuntimeManager, LockedError, RevokedError } from "./runtime-manager.ts";
@@ -245,6 +246,13 @@ app.get("/api/session/controls", (c) => {
   return c.json(runtimes.controls(path));
 });
 
+// ── 진행 중인 응답 중단 (락 필요, no-op 안전) ──
+app.post("/api/session/abort", async (c) => {
+  const body = await c.req.json<{ path: string }>();
+  if (!body?.path) return c.json({ error: "path required" }, 400);
+  return c.json(await runtimes.abort(body.path));
+});
+
 // ── 슬래시 커맨드 목록 (extension 등록). 라이브 런타임 있을 때만 채워짐.
 app.get("/api/session/commands", (c) => {
   const path = c.req.query("path");
@@ -354,7 +362,43 @@ app.delete("/api/session/live", async (c) => {
   return c.json({ disposed: true });
 });
 
+// 세션 삭제 (jsonl 파일 제거). 라이브이거나 남이 점유 중이면 거부.
+app.delete("/api/session", async (c) => {
+  const path = c.req.query("path");
+  if (!path) return c.json({ error: "path query required" }, 400);
+  if (runtimes.get(path)) return c.json({ error: "session is live; dispose it first" }, 409);
+  const holder = listLocks().find((l) => l.sessionPath === path);
+  if (holder) return c.json({ error: "session is locked", current: holder }, 409);
+  try {
+    if (existsSync(path)) await rm(path);
+    return c.json({ deleted: true });
+  } catch (e) {
+    return c.json({ error: String(e) }, 500);
+  }
+});
+
 const PORT = Number(process.env.PORT ?? 4317);
+
+// ── 프로덕션 정적 서빙 (dist-web 가 있을 때만) ────────────────
+//   API 라우트는 위에서 이미 처리됨. 그 외 경로는 dist-web 의 정적 파일,
+//   없으면 SPA fallback 으로 index.html (클라이언트 라우팅용).
+//   dev 에서는 Vite 가 프론트를 띄우므로 dist-web 이 없고, 이 블록은 스킵된다.
+const DIST_DIR = new URL("../dist-web/", import.meta.url).pathname;
+if (existsSync(DIST_DIR)) {
+  app.use("/*", serveStatic({ root: "./dist-web" }));
+  // SPA fallback: API 가 아닌 미매칭 경로는 index.html
+  const indexHtml = existsSync(`${DIST_DIR}index.html`)
+    ? readFileSync(`${DIST_DIR}index.html`, "utf8")
+    : null;
+  if (indexHtml) {
+    app.get("/*", (c) => {
+      if (c.req.path.startsWith("/api/")) return c.json({ error: "not found" }, 404);
+      return c.html(indexHtml);
+    });
+  }
+  console.log(`serving static frontend from ${DIST_DIR}`);
+}
+
 const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
   console.log(`pi-web backend → http://127.0.0.1:${info.port}  (localhost only)`);
 });

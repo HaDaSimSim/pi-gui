@@ -3,7 +3,7 @@
 // 레벨 1: 디렉터리 목록. 클릭하면 그 디렉터리 안으로 들어간다(인라인 확장 X).
 // 레벨 2: 뒤로가기 헤더 + 해당 디렉터리의 세션 목록. 세션 클릭 → 탭으로 열림.
 
-import { ChevronLeft, Loader2, Plus, FolderPlus, Folder } from "lucide-react";
+import { ChevronLeft, Loader2, Plus, FolderPlus, Folder, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ export interface SidebarProps {
   onOpenSession: (s: SessionInfo) => void;
   onNewSession: (cwd: string) => void;
   onNewDirectory: () => void;
+  onDeleteSession: (s: SessionInfo) => void;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -99,17 +100,26 @@ export function Sidebar(props: SidebarProps) {
                 props.sessions.map((s) => {
                   const active = s.path === props.activeSessionPath;
                   return (
-                    <button
+                    <div
                       key={s.path}
-                      onClick={() => props.onOpenSession(s)}
                       className={cn(
-                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent",
+                        "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-sidebar-accent",
                         active && "bg-sidebar-accent font-medium",
                       )}
                     >
-                      <span className="flex-1 truncate">{sessionLabel(s, t)}</span>
+                      <button onClick={() => props.onOpenSession(s)} className="flex-1 truncate text-left">
+                        {sessionLabel(s, t)}
+                      </button>
                       {s.live ? <span className="size-2 shrink-0 rounded-full bg-emerald-500" title={t("sessions.live")} /> : null}
-                    </button>
+                      <button
+                        aria-label={t("sessions.delete")}
+                        title={t("sessions.delete")}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                        onClick={() => props.onDeleteSession(s)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
                   );
                 })
               )}

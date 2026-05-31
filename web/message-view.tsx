@@ -87,9 +87,48 @@ function ToolCall({ tc }: { tc: ToolCallView }) {
   );
 }
 
+function SubagentRun({ run }: { run: NonNullable<ChatMessage["subagentRun"]> }) {
+  const dot =
+    run.status === "running" ? "bg-amber-500" : run.status === "failed" ? "bg-destructive" : "bg-emerald-500";
+  const lastTurn = run.turns[run.turns.length - 1];
+  return (
+    <div className="my-1 rounded-lg border border-dashed p-2.5">
+      <Collapsible>
+        <CollapsibleTrigger className="flex w-full min-w-0 items-center gap-2 text-left text-xs">
+          <span className={cn("size-2 shrink-0 rounded-full", dot)} />
+          <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">subagent</span>
+          <span className="truncate font-medium">{run.title}</span>
+          <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
+            {run.agent}{run.turns.length > 1 ? ` · ${run.turns.length} turns` : ""}
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2 flex flex-col gap-2">
+          <div className="text-[11px] text-muted-foreground">{run.task}</div>
+          {run.turns.map((tn, i) => (
+            <div key={i} className="border-l-2 border-border pl-2">
+              {tn.error ? (
+                <div className="text-[11px] text-destructive">{tn.error}</div>
+              ) : tn.finalOutput ? (
+                <div className="whitespace-pre-wrap text-xs">{tn.finalOutput.slice(0, 4000)}</div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">…</div>
+              )}
+            </div>
+          ))}
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
 export function MessageView({ msg }: { msg: ChatMessage }) {
   const { t } = useT();
   const isUser = msg.role === "user";
+
+  // subagent run 블록 (자체 렌더)
+  if (msg.subagentRun) {
+    return <SubagentRun run={msg.subagentRun} />;
+  }
 
   const timeStr = msg.time
     ? new Date(msg.time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })

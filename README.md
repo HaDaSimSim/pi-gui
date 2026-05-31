@@ -80,11 +80,19 @@ runtime.
   model · thinking, ownership.
 - **Slash commands**: extension commands + skills (`/skill:name`) with `/`
   autocomplete; executed through the normal prompt flow.
-- Composer: file attach + paste screenshots (clipboard images).
+- Composer: file attach + paste screenshots (clipboard images). Stop button
+  aborts an in-flight response.
+- Subagent runs (from the pi-skills `subagents` extension) render inline as
+  collapsible blocks (title · agent · status · turn outputs).
+- Session management: create new session / directory, delete a session
+  (refuses while it's live or locked elsewhere).
 - Settings modal: language (en/ko), theme (light / dark / true-dark),
   density, motion, configurable UI + monospace fonts; read-only models / locks /
   live-runtime tables.
 - New session / new directory creation.
+- Production single-process serve: `pnpm build && pnpm start` serves the built
+  `dist-web/` from the Hono backend (static + SPA fallback) on `127.0.0.1:4317`.
+  In dev, Vite serves the frontend and proxies `/api/`.
 
 ## Run
 
@@ -149,8 +157,6 @@ not part of the suite.
 
 ## Known rough edges
 
-- No production static-serving route on the backend yet; dev relies on the Vite
-  proxy. For a single-process deploy, add a static handler for `dist-web/`.
 - Live activity from *another* process (the TUI) is not streamed in real time —
   pi-web only streams runtimes it owns. A foreign session's live writes would
   need a jsonl file watcher (deliberately out of scope).

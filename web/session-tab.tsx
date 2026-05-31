@@ -1,7 +1,7 @@
 // 한 세션 탭: 메시지 + 컴포저 + 락 충돌 배너 + info 패널 토글.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Paperclip, Send, Info, X } from "lucide-react";
+import { Loader2, Paperclip, Send, Info, X, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string; onTitle?: (name: string) => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename } = useSession(path, cwd);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -288,15 +288,27 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
               rows={1}
               className="max-h-40 min-h-9 flex-1 resize-none"
             />
-            <Button
-              size="icon"
-              className="shrink-0"
-              aria-label={t("session.send")}
-              onClick={onSubmit}
-              disabled={state.loading || (!input.trim() && files.length === 0)}
-            >
-              <Send className="size-4" />
-            </Button>
+            {state.streaming ? (
+              <Button
+                size="icon"
+                variant="destructive"
+                className="shrink-0"
+                aria-label={t("session.stop")}
+                onClick={abort}
+              >
+                <Square className="size-4" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                className="shrink-0"
+                aria-label={t("session.send")}
+                onClick={onSubmit}
+                disabled={state.loading || (!input.trim() && files.length === 0)}
+              >
+                <Send className="size-4" />
+              </Button>
+            )}
           </div>
         </div>
 

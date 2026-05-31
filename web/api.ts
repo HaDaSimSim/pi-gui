@@ -173,6 +173,13 @@ export const api = {
   prompt: (path: string, message: string, force = false, images?: string[], cwd?: string) =>
     postJSON<{ accepted: boolean }>("/api/session/prompt", { path, message, force, images, cwd }),
 
+  // 진행 중인 응답 중단.
+  abort: (path: string) => postJSON<{ aborted: boolean }>("/api/session/abort", { path }),
+
+  // 세션 삭제 (jsonl 제거). 라이브/락 점유 중이면 409.
+  deleteSession: (path: string) =>
+    fetch(`/api/session?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+
   dispose: (path: string) =>
     fetch(`/api/session/live?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
 

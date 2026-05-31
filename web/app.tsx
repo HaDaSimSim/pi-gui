@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, lazy, Suspense } from "react";
 import { RefreshCw, Settings, PanelLeft, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,8 +11,12 @@ import { cn } from "@/lib/utils";
 import { api, type DirectoryInfo, type SessionInfo } from "./api";
 import { SessionTab } from "./session-tab";
 import { Sidebar, sessionLabel } from "./sidebar";
-import { SettingsModal } from "./settings-modal";
 import { useT } from "./i18n";
+
+// 설정 모달은 열 때만 필요 — lazy 로 분리해 초기 번들에서 제외.
+const SettingsModal = lazy(() =>
+  import("./settings-modal").then((m) => ({ default: m.SettingsModal })),
+);
 
 interface OpenTab {
   path: string;
@@ -132,6 +136,29 @@ export default function App() {
     if (cwd && cwd.trim()) newSession(cwd.trim());
   }, [newSession, t]);
 
+  // 세션 삭제: 확인 → API → 열린 탭 닫기 + 목록 갱신.
+  const deleteSession = useCallback(
+    async (s: SessionInfo) => {
+      if (!window.confirm(t("sessions.deleteConfirm"))) return;
+      try {
+        const res = await api.deleteSession(s.path);
+        if (!res.ok) {
+          console.error("delete failed", await res.json().catch(() => null));
+          return;
+        }
+        closeTab(s.path);
+        setSessionsByDir((m) => {
+          const next = { ...m };
+          for (const cwd of Object.keys(next)) next[cwd] = next[cwd].filter((x) => x.path !== s.path);
+          return next;
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    [t, closeTab],
+  );
+
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
       <ResizablePanelGroup>
@@ -159,6 +186,7 @@ export default function App() {
                 onOpenSession={openSession}
                 onNewSession={newSession}
                 onNewDirectory={newDirectory}
+                onDeleteSession={deleteSession}
               />
             </div>
             {/* 사이드바 하단 바 */}
@@ -234,7 +262,11 @@ export default function App() {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      <SettingsModal visible={settingsOpen} onDismiss={() => setSettingsOpen(false)} />
+      {settingsOpen ? (
+        <Suspense fallback={null}>
+          <SettingsModal visible={settingsOpen} onDismiss={() => setSettingsOpen(false)} />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

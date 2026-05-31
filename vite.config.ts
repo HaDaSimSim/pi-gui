@@ -30,5 +30,25 @@ export default defineConfig({
   build: {
     outDir: "../dist-web",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // 벤더 청크 분리 (Rolldown 은 함수 형태만 허용).
+        manualChunks(id: string) {
+          if (id.includes("node_modules")) {
+            if (id.includes("/react-dom/") || id.includes("/react/") || id.includes("/scheduler/")) return "react";
+            if (
+              id.includes("/unified/") ||
+              id.includes("/remark-") ||
+              id.includes("/rehype-") ||
+              id.includes("/mdast") ||
+              id.includes("/hast") ||
+              id.includes("/micromark")
+            )
+              return "markdown";
+          }
+          return undefined;
+        },
+      },
+    },
   },
 });

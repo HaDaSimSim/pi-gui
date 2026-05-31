@@ -16,7 +16,18 @@ import {
   type SessionControls,
 } from "./api";
 
-export type ChatRole = "user" | "assistant" | "tool" | "system";
+export type ChatRole = "user" | "assistant" | "tool" | "system" | "subagent";
+
+export interface SubagentRunView {
+  runId: string;
+  agent: string;
+  title: string;
+  task: string;
+  status: "running" | "done" | "failed";
+  model?: string;
+  turns: { prompt: string; finalOutput: string; error?: string }[];
+  cost?: number;
+}
 
 export interface ToolCallView {
   id: string;
@@ -36,6 +47,7 @@ export interface ChatMessage {
   model?: string;
   time?: string; // ISO timestamp (메타 표시용)
   elapsedMs?: number; // 응답 소요 시간 (agent_start → message_end)
+  subagentRun?: SubagentRunView; // subagents extension 의 subagent-run 엔트리
 }
 
 export interface LockConflict {
@@ -58,6 +70,44 @@ export interface SessionState {
 function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const e of entries) {
+    // subagents extension 의 subagent-run 커스텀 엔트리 (type:"custom").
+    if (e.type === "custom" && (e as any).customType === "subagent-run") {
+      const r = (e as any).data as
+        | {
+            runId: string;
+            agent: string;
+            title: string;
+            task: string;
+            status: "running" | "done" | "failed";
+            model?: string;
+            usage?: { cost?: number };
+            turns?: { prompt: string; finalOutput: string; error?: string }[];
+          }
+        | undefined;
+      if (r?.runId) {
+        out.push({
+          key: e.id,
+          role: "subagent",
+          text: "",
+          time: e.timestamp,
+          subagentRun: {
+            runId: r.runId,
+            agent: r.agent,
+            title: r.title,
+            task: r.task,
+            status: r.status,
+            model: r.model,
+            cost: r.usage?.cost,
+            turns: (r.turns ?? []).map((tn) => ({
+              prompt: tn.prompt,
+              finalOutput: tn.finalOutput,
+              error: tn.error,
+            })),
+          },
+        });
+      }
+      continue;
+    }
     // ui-cosmetics 의 turn-meta 커스텀 엔트리: 직전 assistant 턴의 소요 시간(초).
     // 직전 assistant 메시지에 elapsedMs 로 붙인다.
     if (e.type === "custom_message" && (e as any).customType === "turn-meta") {
@@ -373,5 +423,10 @@ export function useSession(path: string, cwd?: string) {
 
   const clearError = useCallback(() => patch({ error: null }), [patch]);
 
-  return { state, send, takeover, clearError, setModel, setThinking, rename, refreshControls };
+  // 진행 중인 응답 중단.
+  const abort = useCallback(() => {
+    api.abort(path).catch(() => undefined);
+  }, [path]);
+
+  return { state, send, takeover, clearError, setModel, setThinking, rename, refreshControls, abort };
 }

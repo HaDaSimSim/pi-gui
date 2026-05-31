@@ -410,7 +410,21 @@ export default function App() {
                 <div className="min-h-0 flex-1">
                   {tabs.map((tab) => (
                     <div key={tab.path} className={cn("h-full", tab.path === activeTab ? "block" : "hidden")}>
-                      <SessionTab path={tab.path} cwd={tab.cwd} onTitle={(name) => setTabTitle(tab.path, name)} />
+                      <SessionTab
+                        path={tab.path}
+                        cwd={tab.cwd}
+                        onTitle={(name) => setTabTitle(tab.path, name)}
+                        onLive={() => {
+                          // 첫 프롬프트로 파일이 생겼으니 그 cwd 세션 목록 갱신 → draft 칩 제거.
+                          const dir = tab.cwd;
+                          if (dir) {
+                            api
+                              .sessions(dir)
+                              .then((sessions) => setSessionsByDir((m) => ({ ...m, [dir]: sessions })))
+                              .catch(() => undefined);
+                          }
+                        }}
+                      />
                     </div>
                   ))}
                 </div>

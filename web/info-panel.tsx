@@ -7,14 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -22,11 +14,11 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { SubagentRunCard } from "./subagent-run";
 import { GitPanel } from "./git-panel";
-import { api, type ModelInfo, type ThinkingLevel } from "./api";
+import { ModelControls } from "./model-controls";
+import { type ThinkingLevel } from "./api";
 import { useT } from "./i18n";
 import type { SessionState, SubagentRunView } from "./use-session";
 
-const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
 interface InfoPanelProps {
   state: SessionState;
@@ -75,36 +67,43 @@ function seg(color: string, value: number, total: number) {
 
 export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThinking, onRename }: InfoPanelProps) {
   const { t } = useT();
-  const [models, setModels] = useState<ModelInfo[]>([]);
   const [nameDraft, setNameDraft] = useState("");
   const [editingName, setEditingName] = useState(false);
 
   const controls = state.controls;
 
   useEffect(() => {
-    api.models().then(setModels).catch(() => undefined);
-  }, []);
-  useEffect(() => {
     setNameDraft(controls?.name ?? "");
   }, [controls?.name]);
 
-  const modelValue = controls?.model ? `${controls.model.provider}/${controls.model.id}` : undefined;
-  const thinkingLevels = controls?.availableThinkingLevels.length ? controls.availableThinkingLevels : THINKING_LEVELS;
   const usage = controls?.stats?.contextUsage;
   const percent = usage?.percent ?? null;
   const tk = controls?.stats?.tokens;
 
   return (
     <Tabs defaultValue="info" className="flex h-full min-h-0 flex-col gap-0">
-      <TabsList variant="line" className="shrink-0 gap-1 border-b px-3 pt-2">
-        <TabsTrigger value="info">{t("info.title")}</TabsTrigger>
-        <TabsTrigger value="subagents">
+      <TabsList variant="line" className="h-auto shrink-0 gap-4 border-b px-4 pt-2">
+        <TabsTrigger
+          value="info"
+          className="flex-none rounded-none border-0 bg-transparent px-0 pb-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-0 dark:data-[state=active]:bg-transparent"
+        >
+          {t("info.title")}
+        </TabsTrigger>
+        <TabsTrigger
+          value="subagents"
+          className="flex-none rounded-none border-0 bg-transparent px-0 pb-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-0 dark:data-[state=active]:bg-transparent"
+        >
           {t("info.subagents")}
           {subagentRuns.length ? (
             <span className="ml-1 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">{subagentRuns.length}</span>
           ) : null}
         </TabsTrigger>
-        <TabsTrigger value="git">{t("git.title")}</TabsTrigger>
+        <TabsTrigger
+          value="git"
+          className="flex-none rounded-none border-0 bg-transparent px-0 pb-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-0 dark:data-[state=active]:bg-transparent"
+        >
+          {t("git.title")}
+        </TabsTrigger>
       </TabsList>
 
       {/* ── Info 탭 ── */}
@@ -147,54 +146,18 @@ export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThi
         )}
       </div>
 
-      {/* 모델 */}
+      {/* 모델 / 효율 — 컴포저와 동일한 ModelControls (combobox + borderless effort) 재사용 */}
       <div>
         <Label>{t("info.model")}</Label>
-        <Select
-          value={modelValue}
-          onValueChange={(v) => {
-            const slash = v.indexOf("/");
-            onSetModel(v.slice(0, slash), v.slice(slash + 1));
-          }}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder={t("info.changeModel")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              {models.map((m) => (
-                <SelectItem key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
-                  {m.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* 효율 (thinking level) */}
-      {controls.supportsThinking ? (
-        <div>
-          <Label>{t("info.efficiency")}</Label>
-          <Select
-            value={controls.thinkingLevel ?? undefined}
-            onValueChange={(v) => onSetThinking(v as ThinkingLevel)}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {thinkingLevels.map((l) => (
-                  <SelectItem key={l} value={l}>
-                    {l}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+        <div className="-ml-2">
+          <ModelControls
+            model={controls.model ? { provider: controls.model.provider, id: controls.model.id } : null}
+            thinking={controls.thinkingLevel ?? null}
+            onSetModel={onSetModel}
+            onSetThinking={onSetThinking}
+          />
         </div>
-      ) : null}
+      </div>
 
       {/* 컨텍스트 사용량 + 토큰 구성 (opencode 컨텍스트 패널 감성) */}
       <div className="flex flex-col gap-2">

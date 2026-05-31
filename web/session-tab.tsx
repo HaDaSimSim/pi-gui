@@ -31,7 +31,7 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string; onTitle?: (name: string) => void }) {
+export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void }) {
   const { t } = useT();
   const { state, send, takeover, clearError, setModel, setThinking, rename, abort, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
   const [input, setInput] = useState("");
@@ -45,6 +45,16 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTextRef = useRef<string>("");
+
+  // 스트리밍 경과 시간 — streaming 시작 시각부터 1초마다 갱신.
+  const [streamElapsed, setStreamElapsed] = useState(0);
+  useEffect(() => {
+    if (!state.streaming) return;
+    const start = Date.now();
+    setStreamElapsed(0);
+    const id = setInterval(() => setStreamElapsed(Date.now() - start), 1000);
+    return () => clearInterval(id);
+  }, [state.streaming]);
 
   // info 패널은 항상 열림 + 리사이즈 가능. 토글 버튼으로 접을 수 있다.
   const infoRef = usePanelRef();
@@ -97,6 +107,18 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
     if (state.name) onTitleRef.current?.(state.name);
   }, [state.name]);
 
+  // 세션이 라이브로 전환되면(첫 프롬프트 수락 → 파일 생성) 상위에 알린다.
+  // App 이 그 cwd 의 세션 목록을 갱신해 draft 칩을 정식 세션으로 바꿜다.
+  const onLiveRef = useRef(onLive);
+  onLiveRef.current = onLive;
+  const wasLiveRef = useRef(false);
+  useEffect(() => {
+    if (state.live && !wasLiveRef.current) {
+      wasLiveRef.current = true;
+      onLiveRef.current?.();
+    }
+  }, [state.live]);
+
   // 새 메시지/스트리밍 시 맨 아래로 (스크롤 컨테이너 내부에서만)
   useEffect(() => {
     const el = scrollRef.current;
@@ -121,15 +143,19 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
   };
 
   const statusLine = useMemo(() => {
-    if (state.streaming)
+    if (state.streaming) {
+      const sec = Math.floor(streamElapsed / 1000);
+      const elapsed = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
       return (
-        <span className="flex items-center gap-1 text-amber-500">
+        <span className="flex items-center gap-1.5 text-amber-500">
           <Loader2 className="size-3 animate-spin" /> {t("session.streaming")}
+          {sec > 0 ? <span className="tabular-nums text-muted-foreground">{elapsed}</span> : null}
         </span>
       );
+    }
     if (state.live) return <span className="text-emerald-500">{t("session.liveLockHeld")}</span>;
     return <span className="text-muted-foreground">{t("session.idle")}</span>;
-  }, [state.streaming, state.live, t]);
+  }, [state.streaming, state.live, streamElapsed, t]);
 
   const lockedBy =
     state.conflict?.by?.label ||

@@ -15,7 +15,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 // (세션 생성 전에 설정돼야 하므로 import 직후 최상단에서 박는다.)
 process.env.PI_WEB_HOST = "1";
 import { existsSync, readFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, dirname } from "node:path";
 import { execFileSync } from "node:child_process";

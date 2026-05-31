@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.33.2",
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "link:/Users/mingeon/.nvm/versions/node/v24.14.0/lib/node_modules/@earendil-works/pi-coding-agent",
+    "@earendil-works/pi-coding-agent": "0.78.0",
     "@hono/node-server": "^2.0.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

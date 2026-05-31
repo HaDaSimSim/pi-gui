@@ -113,6 +113,16 @@ const en = {
   "git.parents": "Parents",
   "git.filesChanged": "{count} file(s) changed",
 
+  "preflight.setupNeeded": "Setup needed",
+  "preflight.setupNeededDesc": "pi-gui runs on top of pi. The following are missing:",
+  "preflight.backendDown": "Backend not reachable",
+  "preflight.backendDownDesc": "Couldn't reach the pi-gui backend. Make sure it's running, then re-check.",
+  "preflight.checkPi": "pi is installed (~/.pi/agent)",
+  "preflight.checkModels": "Model config (auth.json / models.json)",
+  "preflight.checkLock": "session-lock extension",
+  "preflight.installHint": "Install pi and its extensions (incl. session-lock) first. See the pi docs and pi-skills.",
+  "preflight.recheck": "Re-check",
+
   "composer.attach": "Attach file",
   "composer.attached": "{count} file(s) attached",
   "composer.removeAttachment": "Remove",
@@ -289,6 +299,16 @@ const ko: Record<I18nKey, string> = {
   "git.noCommits": "아직 커밋이 없습니다.",
   "git.parents": "부모",
   "git.filesChanged": "파일 {count}개 변경",
+
+  "preflight.setupNeeded": "설치가 필요합니다",
+  "preflight.setupNeededDesc": "pi-gui 는 pi 위에서 동작합니다. 다음이 빠져 있습니다:",
+  "preflight.backendDown": "백엔드에 연결할 수 없습니다",
+  "preflight.backendDownDesc": "pi-gui 백엔드에 연결하지 못했습니다. 실행 중인지 확인하고 다시 점검하세요.",
+  "preflight.checkPi": "pi 설치됨 (~/.pi/agent)",
+  "preflight.checkModels": "모델 설정 (auth.json / models.json)",
+  "preflight.checkLock": "session-lock 익스텐션",
+  "preflight.installHint": "먼저 pi 와 그 익스텐션(session-lock 포함)을 설치하세요. pi 문서와 pi-skills 참고.",
+  "preflight.recheck": "다시 점검",
 
   "composer.attach": "파일 첨부",
   "composer.attached": "파일 {count}개 첨부됨",

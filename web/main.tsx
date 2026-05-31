@@ -4,11 +4,14 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
 import { ErrorBoundary } from "./error-boundary";
+import { PreflightGate } from "./preflight-gate";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <PreflightGate>
+        <App />
+      </PreflightGate>
     </ErrorBoundary>
   </StrictMode>,
 );

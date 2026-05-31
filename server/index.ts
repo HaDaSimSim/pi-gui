@@ -23,6 +23,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { RuntimeManager, LockedError, RevokedError } from "./runtime-manager.ts";
 import { listLocks } from "../shared/session-lock.ts";
 import { getGitStatus, getCommitDetail } from "./git.ts";
+import { preflight } from "./preflight.ts";
 
 const app = new Hono();
 const runtimes = new RuntimeManager();
@@ -183,6 +184,9 @@ app.get("/api/session/footer", (c) => {
 
 // ── 활성(라이브) 런타임 목록 ──────────────────────────────────────────
 app.get("/api/live", (c) => c.json({ live: runtimes.listLive() }));
+
+// 사전 점검: pi 설치 + 필수 extension 여부 (읽기 전용).
+app.get("/api/preflight", (c) => c.json(preflight()));
 
 // git 상태 (브랜치/변경파일/커밋그래프) : 읽기 전용, 런타임 0개.
 app.get("/api/git", async (c) => {

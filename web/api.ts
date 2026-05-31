@@ -204,6 +204,10 @@ export class ApiError extends Error {
 }
 
 export const api = {
+  // 사전 점검 (pi/모델/session-lock 설치 여부).
+  preflight: () =>
+    getJSON<{ ok: boolean; checks: { id: string; ok: boolean; detail: string }[] }>("/api/preflight"),
+
   directories: () =>
     getJSON<{ directories: DirectoryInfo[] }>("/api/directories").then((r) => r.directories),
 

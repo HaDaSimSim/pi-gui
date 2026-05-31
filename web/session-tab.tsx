@@ -1,7 +1,7 @@
 // 한 세션 탭: 메시지 + 컴포저 + 락 충돌 배너 + info 패널 토글.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Paperclip, Send, PanelRight, X, Square } from "lucide-react";
+import { Loader2, Paperclip, Send, PanelRight, X, Square, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +33,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   // 메시지 윈도잉: 큰 세션은 마지막 N개만 렌더해 메인스레드 블록을 막는다.
@@ -121,12 +121,23 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
 
   // 새 메시지/스트리밍 시 맨 아래로 — 단, 사용자가 이미 하단 근처에 있을 때만.
   // (위로 스크롤해 히스토리 볼 때 확 끝으로 이동되는 거 방지)
+  // 단, 처음 열릴 때(메시지 최초 로드)는 무조건 맨 아래로.
+  const didInitialScrollRef = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (!didInitialScrollRef.current && state.messages.length > 0 && !state.loading) {
+      didInitialScrollRef.current = true;
+      // 레이아웃 후 맨 아래로 (초기 열림).
+      requestAnimationFrame(() => {
+        const e = scrollRef.current;
+        if (e) e.scrollTop = e.scrollHeight;
+      });
+      return;
+    }
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
     if (nearBottom) el.scrollTop = el.scrollHeight;
-  }, [state.messages]);
+  }, [state.messages, state.loading]);
 
   // 히스토리 자동 로드: 위로 스크롤해 상단 근처면 visibleCount 를 늘린다.
   const onScroll = () => {
@@ -188,15 +199,29 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
         {/* 상단 미니 바 */}
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-sm">
           <div>{statusLine}</div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t("info.title")}
-            onClick={toggleInfo}
-          >
-            <PanelRight className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {state.live ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:text-destructive"
+                aria-label={t("session.shutdown")}
+                title={t("session.shutdown")}
+                onClick={shutdown}
+              >
+                <Power className="size-4" />
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label={t("info.title")}
+              onClick={toggleInfo}
+            >
+              <PanelRight className="size-4" />
+            </Button>
+          </div>
         </div>
 
         {/* 메시지 스크롤 영역 */}

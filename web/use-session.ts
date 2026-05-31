@@ -532,6 +532,12 @@ export function useSession(path: string, cwd?: string) {
     api.abort(path).catch(() => undefined);
   }, [path]);
 
+  // 런타임 내리고 락 해제 (탭은 유지). 세션은 읽기 전용으로 돌아간다.
+  const shutdown = useCallback(() => {
+    api.dispose(path).catch(() => undefined);
+    patch({ live: false, streaming: false });
+  }, [path, patch]);
+
   // UI 브릿지 응답 (confirm/select/input 다이얼로그의 결과를 백엔드로).
   const respondUi = useCallback(
     (id: string, value: unknown) => {
@@ -557,6 +563,7 @@ export function useSession(path: string, cwd?: string) {
     rename,
     refreshControls,
     abort,
+    shutdown,
     respondUi,
     effectiveModel,
     effectiveThinking,

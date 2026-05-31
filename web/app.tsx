@@ -377,7 +377,7 @@ export default function App() {
                         )}
                         onClick={() => setActiveTab(tab.path)}
                       >
-                        <span className="max-w-[180px] truncate">{tab.label}</span>
+                        <span className="max-w-[120px] truncate">{tab.label}</span>
                         <button
                           aria-label={t("sessions.closeSession")}
                           className="rounded p-0.5 opacity-50 hover:bg-accent hover:opacity-100"

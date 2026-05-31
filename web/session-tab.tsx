@@ -252,7 +252,6 @@ export function SessionTab({ path, cwd, onTitle }: { path: string; cwd?: string;
             <ModelControls
               model={effectiveModel}
               thinking={effectiveThinking}
-              supportsThinking={state.controls?.supportsThinking ?? true}
               onSetModel={(provider, id) => setModel(provider, id)}
               onSetThinking={(level) => setThinking(level)}
             />

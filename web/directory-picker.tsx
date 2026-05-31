@@ -56,7 +56,7 @@ export function DirectoryPicker({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[80vh] flex-col gap-3 sm:max-w-lg">
+      <DialogContent className="flex h-[80vh] max-h-[680px] w-[92vw] max-w-3xl flex-col gap-3 overflow-hidden sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t("picker.title")}</DialogTitle>
         </DialogHeader>

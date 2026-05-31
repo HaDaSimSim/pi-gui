@@ -153,7 +153,7 @@ function CommitDetailDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[85vh] w-[92vw] flex-col gap-0 overflow-hidden sm:max-w-3xl">
+      <DialogContent className="flex h-[80vh] max-h-[680px] w-[92vw] max-w-5xl flex-col gap-0 overflow-hidden sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle className="flex items-start gap-2 pr-8 text-base">
             <GitCommitIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />

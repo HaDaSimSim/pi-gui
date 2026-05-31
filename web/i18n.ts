@@ -4,13 +4,14 @@
 // 사전과 useT() 훅만 노출한다. 키는 점(.) 구분 평면 키, 값은 문자열.
 // 보간은 {name} 형태의 단순 치환만 지원한다.
 
+import { useCallback } from "react";
 import { useUiSettings } from "./use-ui-settings";
 
 export type Lang = "en" | "ko";
 
 // 영어 사전이 키의 원천(소스 오브 트루스). 다른 언어는 같은 키 집합을 채운다.
 const en = {
-  "app.title": "pi-web",
+  "app.title": "pi-gui",
   "nav.settings": "Settings",
   "nav.sessions": "Sessions",
   "nav.back": "Back to sessions",
@@ -35,6 +36,12 @@ const en = {
   "sessions.delete": "Delete session",
   "sessions.deleteConfirm": "Delete this session? This removes the .jsonl file and cannot be undone.",
   "sessions.newDirectoryPrompt": "Enter an absolute directory path to start a session in:",
+  "picker.title": "Choose a directory",
+  "picker.up": "Parent directory",
+  "picker.empty": "No subdirectories",
+  "picker.manualPlaceholder": "Or type an absolute path",
+  "picker.go": "Go",
+  "picker.useThis": "Use this folder",
 
   "session.noMessages": "No messages yet. Send a prompt to start.",
   "session.placeholder": "Send a message to this session…",
@@ -88,6 +95,8 @@ const en = {
   "git.title": "Git",
   "git.loading": "Loading git status…",
   "git.notRepo": "Not a git repository.",
+  "git.error": "Couldn't load git status.",
+  "git.noCwd": "Could not determine the working directory.",
   "git.refresh": "Refresh",
   "git.detached": "detached",
   "git.changes": "Changes",
@@ -98,6 +107,8 @@ const en = {
   "git.branches": "Branches",
   "git.commits": "Commits",
   "git.noCommits": "No commits yet.",
+  "git.parents": "Parents",
+  "git.filesChanged": "{count} file(s) changed",
 
   "composer.attach": "Attach file",
   "composer.attached": "{count} file(s) attached",
@@ -117,6 +128,9 @@ const en = {
   "settings.refresh": "Refresh",
   "settings.appearance": "Appearance",
   "settings.appearanceDesc": "Stored in your browser only",
+  "settings.navGeneral": "General",
+  "settings.navServer": "Server",
+  "settings.fontPreview": "Preview",
   "settings.language": "Language",
   "settings.languageDesc": "Interface language.",
   "settings.theme": "Theme",
@@ -168,7 +182,7 @@ const en = {
 export type I18nKey = keyof typeof en;
 
 const ko: Record<I18nKey, string> = {
-  "app.title": "pi-web",
+  "app.title": "pi-gui",
   "nav.settings": "설정",
   "nav.sessions": "세션",
   "nav.back": "세션 목록으로",
@@ -193,6 +207,12 @@ const ko: Record<I18nKey, string> = {
   "sessions.delete": "세션 삭제",
   "sessions.deleteConfirm": "이 세션을 삭제할까요? .jsonl 파일이 제거되며 되돌릴 수 없습니다.",
   "sessions.newDirectoryPrompt": "세션을 시작할 디렉터리 절대경로를 입력하세요:",
+  "picker.title": "디렉터리 선택",
+  "picker.up": "상위 디렉터리",
+  "picker.empty": "하위 디렉터리 없음",
+  "picker.manualPlaceholder": "또는 절대경로 입력",
+  "picker.go": "이동",
+  "picker.useThis": "이 폴더 사용",
 
   "session.noMessages": "아직 메시지가 없습니다. 프롬프트를 보내 시작하세요.",
   "session.placeholder": "이 세션에 메시지 보내기…",
@@ -246,6 +266,8 @@ const ko: Record<I18nKey, string> = {
   "git.title": "Git",
   "git.loading": "git 상태 불러오는 중…",
   "git.notRepo": "git 저장소가 아닙니다.",
+  "git.error": "git 상태를 불러오지 못했습니다.",
+  "git.noCwd": "작업 디렉터리를 확인하지 못했습니다.",
   "git.refresh": "새로고침",
   "git.detached": "분리됨(detached)",
   "git.changes": "변경사항",
@@ -256,6 +278,8 @@ const ko: Record<I18nKey, string> = {
   "git.branches": "브랜치",
   "git.commits": "커밋",
   "git.noCommits": "아직 커밋이 없습니다.",
+  "git.parents": "부모",
+  "git.filesChanged": "파일 {count}개 변경",
 
   "composer.attach": "파일 첨부",
   "composer.attached": "파일 {count}개 첨부됨",
@@ -275,6 +299,9 @@ const ko: Record<I18nKey, string> = {
   "settings.refresh": "새로고침",
   "settings.appearance": "화면",
   "settings.appearanceDesc": "이 브라우저에만 저장됩니다",
+  "settings.navGeneral": "일반",
+  "settings.navServer": "서버",
+  "settings.fontPreview": "미리보기",
   "settings.language": "언어",
   "settings.languageDesc": "인터페이스 언어.",
   "settings.theme": "테마",
@@ -349,6 +376,8 @@ export type TFunc = (key: I18nKey, params?: Record<string, string | number>) => 
 export function useT(): { t: TFunc; lang: Lang } {
   const { settings } = useUiSettings();
   const lang = settings.lang;
-  const t: TFunc = (key, params) => translate(lang, key, params);
+  // t 는 lang 이 바될 때만 신우을 바꾼다. 매 렌더 새 함수면
+  // 이걸 의존성으로 쓰는 useEffect/useCallback 이 무한 재실행된다.
+  const t = useCallback<TFunc>((key, params) => translate(lang, key, params), [lang]);
   return { t, lang };
 }

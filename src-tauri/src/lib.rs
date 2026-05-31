@@ -1,35 +1,34 @@
 // pi-gui — Tauri 네이티브 셸.
 //
 // 백엔드(server/index.ts, Hono + pi SDK)는 Node 로 돌아가야 하므로
-// 앱 시작 시 자식 프로세스로 띄우고(127.0.0.1:4317), 종료 시 같이 내린다.
+// 앱 시작 시 자식 프로세스로 띄우고, 종료 시 같이 내린다.
 // 프론트(WebView)는 그 백엔드로 fetch/EventSource 한다.
+//
+// 포트는 동적이다: 백엔드를 PORT=0 으로 띄우면 OS 가 빈 포트를 골라주고,
+// 백엔드가 stdout 에 "PI_GUI_PORT=<n>" 을 출력한다. 그걸 읽어 WebView 에
+// window.__PI_GUI_PORT__ 로 주입한다 → 포트 충돌(EADDRINUSE)이 사라진다.
 //
 // SECURITY: 백엔드는 127.0.0.1 에만 바인딩 (로컬 전용). Tauri 가 감싸도 동일.
 
-use std::process::{Child, Command};
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent};
 
 // 자식 백엔드 프로세스 핸들 (종료 시 kill 용).
 struct Backend(Mutex<Option<Child>>);
 
-// dev 모드: PI_GUI_BACKEND_URL 이 있으면 거기에 붙고 자식을 안 띄운다
-// (pnpm dev 가 이미 server 를 띄우는 경우). 없으면 직접 띄운다.
-fn spawn_backend(app: &tauri::App) -> Option<Child> {
+fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     if std::env::var("PI_GUI_NO_SPAWN").is_ok() {
+        // dev: 외부에서 이미 백엔드를 띄운 경우(pnpm dev). 포트는 4317 고정 가정.
         return None;
     }
 
     // 백엔드 진입점(server/index.ts)과 node 실행 파일 위치를 결정한다.
-    //  - dev: 프로젝트 루트의 server/index.ts
-    //  - prod: 리소스로 번들된 server/index.ts
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|p| p.join("backend"));
-
+    //  - dev: PI_GUI_BACKEND_ENTRY 로 지정
+    //  - prod: 리소스로 번들된 backend/server/index.ts
+    let resource_dir = app.path().resource_dir().ok().map(|p| p.join("backend"));
     let dev_entry = std::env::var("PI_GUI_BACKEND_ENTRY").ok();
 
     let (entry, cwd) = if let Some(e) = dev_entry {
@@ -39,30 +38,51 @@ fn spawn_backend(app: &tauri::App) -> Option<Child> {
     } else if let Some(rd) = resource_dir.filter(|p| p.join("server/index.ts").exists()) {
         (rd.join("server/index.ts"), Some(rd))
     } else {
-        // 폴백: 현재 작업 디렉터리 기준.
         let cwd = std::env::current_dir().ok();
         (std::path::PathBuf::from("server/index.ts"), cwd)
     };
 
     let node = std::env::var("PI_GUI_NODE").unwrap_or_else(|_| "node".to_string());
-    let port = std::env::var("PI_GUI_PORT").unwrap_or_else(|_| "4317".to_string());
+    // PORT=0 → OS 가 빈 포트 할당. PI_GUI_PORT 로 강제 지정도 허용(테스트용).
+    let port = std::env::var("PI_GUI_PORT").unwrap_or_else(|_| "0".to_string());
     let mut cmd = Command::new(node);
     cmd.arg(&entry);
     cmd.env("PORT", &port);
+    cmd.stdout(Stdio::piped());
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
 
-    match cmd.spawn() {
-        Ok(child) => {
-            eprintln!("[pi-gui] backend spawned (pid {})", child.id());
-            Some(child)
-        }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
         Err(e) => {
             eprintln!("[pi-gui] failed to spawn backend: {e}");
-            None
+            return None;
         }
+    };
+    eprintln!("[pi-gui] backend spawned (pid {})", child.id());
+
+    // 자식 stdout 을 읽어 "PI_GUI_PORT=<n>" 을 찾으면 프론트에 알린다.
+    if let Some(stdout) = child.stdout.take() {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().map_while(Result::ok) {
+                eprintln!("[backend] {line}");
+                if let Some(rest) = line.strip_prefix("PI_GUI_PORT=") {
+                    if let Ok(p) = rest.trim().parse::<u16>() {
+                        // 이벤트로도 쏘고, WebView 전역에도 직접 박는다(둘 다 안전망).
+                        let _ = handle.emit("pi-gui://port", p);
+                        if let Some(win) = handle.get_webview_window("main") {
+                            let _ = win.eval(&format!("window.__PI_GUI_PORT__ = {p};"));
+                        }
+                    }
+                }
+            }
+        });
     }
+
+    Some(child)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -72,7 +92,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Backend(Mutex::new(None)))
         .setup(|app| {
-            let child = spawn_backend(app);
+            let handle = app.handle();
+            let child = spawn_backend(handle);
             let state = app.state::<Backend>();
             *state.0.lock().unwrap() = child;
             Ok(())

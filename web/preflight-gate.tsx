@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle2, XCircle, Loader2, RefreshCw } from "lucide
 import { Button } from "@/components/ui/button";
 import { api } from "./api";
 import { useT, type I18nKey } from "./i18n";
+import { waitForBackendPort } from "./config";
 
 interface Check {
   id: string;
@@ -28,13 +29,16 @@ export function PreflightGate({ children }: { children: React.ReactNode }) {
 
   const run = () => {
     setState("loading");
-    api
-      .preflight()
-      .then((r) => {
-        setChecks(r.checks);
-        setState(r.ok ? "ok" : "fail");
-      })
-      .catch(() => setState("error"));
+    // Tauri prod: 동적 포트가 주입될 때까지 기다렸다가 호출.
+    waitForBackendPort().then(() =>
+      api
+        .preflight()
+        .then((r) => {
+          setChecks(r.checks);
+          setState(r.ok ? "ok" : "fail");
+        })
+        .catch(() => setState("error")),
+    );
   };
 
   useEffect(run, []);

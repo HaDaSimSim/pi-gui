@@ -52,14 +52,21 @@ How-to-work-here for **pi-gui**. Read `README.md` for what/why.
 - The Rust shell (`src-tauri/`) **spawns the Node backend as a child** on launch
   and kills it on `ExitRequested`. pi SDK is TS/Node, so the backend stays Node —
   Rust just wraps it. Don't try to port the backend to Rust.
-- **`tauri:dev` would collide with a running `pnpm dev`** — both want 4317/5173.
-  `tauri:dev` starts its own backend and passes `PI_GUI_NO_SPAWN=1` so the Rust
-  side doesn't double-spawn. When verifying a built binary, override
-  `PI_GUI_PORT` + `VITE_PI_GUI_PORT` (rebuild frontend) to avoid touching 4317.
+- **Built Tauri app uses a dynamic port — no 4317 collision.** The backend is
+  spawned with `PORT=0`; it prints `PI_GUI_PORT=<n>` on stdout, Rust parses that
+  line from the piped stdout and injects `window.__PI_GUI_PORT__` into the
+  WebView. A leftover dev backend or a second instance can't collide.
+- **`tauri:dev` still uses 4317** (dev convenience): it starts its own backend
+  and passes `PI_GUI_NO_SPAWN=1` so the Rust side doesn't double-spawn, and the
+  WebView (Vite on 5173) uses the relative-path proxy. So a running `pnpm dev`
+  *does* collide with `tauri:dev` on 4317/5173 — stop one first.
 - Frontend reaches the backend via `web/config.ts`: relative `/api` in the
-  browser, absolute `http://127.0.0.1:<port>` under Tauri (detected by
-  `__TAURI_INTERNALS__`). If you add a new `fetch`/`EventSource`, route the URL
-  through `apiUrl()` or it breaks in the desktop app.
+  browser and in Tauri **dev** (Vite proxy); absolute
+  `http://127.0.0.1:<injected port>` in Tauri **prod**. `waitForBackendPort()`
+  holds the app (in PreflightGate) until the port is injected. If you add a new
+  `fetch`/`EventSource`, route the URL through `apiUrl()` or it breaks in the app.
+- CSP `connect-src` must stay `http://127.0.0.1:*` (wildcard port) — the port is
+  dynamic, so a fixed port there would CSP-block every request.
 - `tauri.conf.json` lists `../dist-backend` as a bundled resource — **the Rust
   build fails if `dist-backend/` doesn't exist**. Run `pnpm bundle:backend`
   first (the `tauri:build` script does). Window is `titleBarStyle: Overlay` +

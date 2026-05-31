@@ -2,20 +2,47 @@
 //
 // - 브라우저(dev): 빈 문자열 → 상대경로 /api, Vite 프록시(5173→4317)가 처리.
 // - 브라우저(prod, pnpm start): 빈 문자열 → 같은 오리진(백엔드가 정적 서빙).
-// - Tauri dev: WebView 가 Vite(localhost:5173)에서 로드되므로 역시 상대경로
-//   + Vite 프록시를 탄다 (CORS 없음).
-// - Tauri prod: WebView 오리진이 tauri://localhost 라 프록시가 없다.
-//   절대경로(127.0.0.1:4317)로 직접 붙는다 (백엔드가 로컬 origin CORS 허용).
+// - Tauri dev: WebView 가 Vite(localhost:5173)에서 로드 → 상대경로 + 프록시 (CORS 없음).
+// - Tauri prod: 백엔드가 동적 포트로 뜨고, Rust 가 window.__PI_GUI_PORT__ 로 주입.
+//   그 포트의 절대경로(127.0.0.1:<port>)로 붙는다 (백엔드가 로컬 origin CORS 허용).
+
+declare global {
+  interface Window {
+    __PI_GUI_PORT__?: number;
+  }
+}
 
 export const IS_TAURI =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-// 절대경로는 "Tauri 구(prod 빌드)"에서만 쓴다. dev 는 Vite 프록시를 타야 CORS 가 없다.
-// 포트는 VITE_PI_GUI_PORT 로 오버라이드 가능(기본 4317) — 테스트/충돌 회피용.
-const PORT = import.meta.env.VITE_PI_GUI_PORT ?? "4317";
-export const API_BASE = IS_TAURI && !import.meta.env.DEV ? `http://127.0.0.1:${PORT}` : "";
+// Tauri prod 에서만 절대경로. dev 는 Vite 프록시(상대경로).
+const NEEDS_ABSOLUTE = IS_TAURI && !import.meta.env.DEV;
+
+// 현재 백엔드 베이스 URL. Tauri prod 면 주입된 동적 포트를 읽는다(호출 시점에).
+export function apiBase(): string {
+  if (!NEEDS_ABSOLUTE) return "";
+  const port = typeof window !== "undefined" ? window.__PI_GUI_PORT__ : undefined;
+  // 포트가 아직 안 들어왔으면 빈 문자열(상대경로) — waitForBackend 가 막아준다.
+  return port ? `http://127.0.0.1:${port}` : "";
+}
 
 // /api/... 경로를 환경에 맞는 절대/상대 URL 로 만든다.
 export function apiUrl(path: string): string {
-  return `${API_BASE}${path}`;
+  return `${apiBase()}${path}`;
+}
+
+// Tauri prod: Rust 가 동적 포트를 주입할 때까지 기다린다.
+// (WebView 로드 직후엔 아직 window.__PI_GUI_PORT__ 가 없을 수 있음.)
+export function waitForBackendPort(timeoutMs = 10000): Promise<void> {
+  if (!NEEDS_ABSOLUTE) return Promise.resolve();
+  if (window.__PI_GUI_PORT__) return Promise.resolve();
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (window.__PI_GUI_PORT__ || Date.now() - started > timeoutMs) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 50);
+  });
 }

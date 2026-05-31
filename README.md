@@ -151,21 +151,29 @@ pi-web/
 
 pi-gui ships as a native desktop app via Tauri. The Rust shell
 (`src-tauri/`) is a thin wrapper: on launch it **spawns the Node backend as a
-child process** (127.0.0.1:4317) and kills it on exit. The WebView loads the
+child process on a dynamic port** and kills it on exit. The WebView loads the
 built frontend and talks to that backend.
 
-- In Tauri the WebView origin is `tauri://`, so relative `/api` won't reach the
-  backend — `web/config.ts` switches to an absolute base (`http://127.0.0.1:4317`)
-  when `__TAURI_INTERNALS__` is present. `VITE_PI_GUI_PORT` overrides the port.
+- **Dynamic port (no collisions).** The backend is spawned with `PORT=0`, so the
+  OS picks a free port; the backend prints `PI_GUI_PORT=<n>` on stdout, the Rust
+  side parses it and injects `window.__PI_GUI_PORT__` into the WebView. This is
+  why two instances (or a leftover dev backend) never fight over 4317.
+- In Tauri **prod** the WebView origin is `tauri://`, so relative `/api` won't
+  reach the backend — `web/config.ts` builds an absolute base
+  (`http://127.0.0.1:<injected port>`) and `waitForBackendPort()` holds startup
+  until the port arrives. In Tauri **dev** it stays on the Vite proxy (relative).
+- CSP `connect-src` allows `http://127.0.0.1:*` (any local port) since the port
+  is dynamic.
 - **New-directory uses the native folder dialog** in Tauri
   (`@tauri-apps/plugin-dialog`, returns an absolute path); the browser build
   falls back to the server-side directory browser modal.
-- Backend spawn is env-tunable: `PI_GUI_PORT`, `PI_GUI_NODE` (node binary),
-  `PI_GUI_BACKEND_ENTRY` (dev: path to `server/index.ts`), `PI_GUI_NO_SPAWN`
-  (don't spawn — attach to an already-running backend, used by `tauri:dev`).
+- Backend spawn is env-tunable: `PI_GUI_PORT` (force a port; default `0` = OS
+  picks), `PI_GUI_NODE` (node binary), `PI_GUI_BACKEND_ENTRY` (dev: path to
+  `server/index.ts`), `PI_GUI_NO_SPAWN` (don't spawn — attach to an
+  already-running backend, used by `tauri:dev`).
 
 ```bash
-pnpm tauri:dev     # starts backend (4317) + tauri dev (WebView on vite 5173)
+pnpm tauri:dev     # starts backend (4317, dev) + tauri dev (WebView on vite 5173)
 pnpm tauri:build   # bundles dist-backend, builds frontend, packages the .app
 ```
 

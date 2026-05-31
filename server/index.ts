@@ -456,6 +456,8 @@ app.delete("/api/session", async (c) => {
   }
 });
 
+// PORT 미지정 시 4317 (dev · Vite 프록시 기대값). Tauri 프로덕션은 PORT=0 을 넘겨
+// OS 가 빈 포트를 고르게 한다(충돌 회피). 0 이면 아래 listen 콜백에서 실제 포트를 찍는다.
 const PORT = Number(process.env.PORT ?? 4317);
 
 // ── 프로덕션 정적 서빙 (dist-web 가 있을 때만) ────────────────
@@ -480,6 +482,9 @@ if (existsSync(DIST_DIR)) {
 
 const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (info) => {
   console.log(`pi-gui backend → http://127.0.0.1:${info.port}  (localhost only)`);
+  // Rust(Tauri) 가 파싱해 WebView 에 주입할 수 있게 실제 포트를 기계가독 한 줄로 출력.
+  // (PORT=0 으로 띄우면 OS 가 고른 포트가 여기 찍힌다.)
+  console.log(`PI_GUI_PORT=${info.port}`);
 });
 
 // 종료 처리: Ctrl-C 한 번에 확실히 내려간다.

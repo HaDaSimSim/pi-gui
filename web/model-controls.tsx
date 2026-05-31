@@ -98,7 +98,7 @@ export function ModelControls({
 
       {/* 효율(effort) — 항상 노출 */}
       <Select value={thinking ?? undefined} onValueChange={(v) => onSetThinking(v as ThinkingLevel)}>
-        <SelectTrigger size="sm" className="h-7 gap-1 border-none bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground">
+        <SelectTrigger size="sm" className="h-7 gap-1 border-none bg-transparent px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground dark:bg-transparent dark:hover:bg-accent">
           <SelectValue placeholder={t("info.efficiency")} />
         </SelectTrigger>
         <SelectContent>

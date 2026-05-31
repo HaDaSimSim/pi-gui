@@ -205,7 +205,7 @@ export default function App() {
     async (cwd: string) => {
       try {
         const r = await api.newSession(cwd);
-        setTabs((prev) => [...prev, { path: r.path, label: t("sessions.newSession"), cwd }]);
+        setTabs((prev) => [...prev, { path: r.path, label: t("sessions.untitled"), cwd }]);
         setActiveTab(r.path);
       } catch (e) {
         console.error(e);

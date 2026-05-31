@@ -383,6 +383,7 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
             />
             {state.streaming ? (
               <Button
+                key="stop"
                 size="icon"
                 variant="destructive"
                 className="shrink-0"
@@ -393,6 +394,7 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
               </Button>
             ) : (
               <Button
+                key="send"
                 size="icon"
                 className="shrink-0"
                 aria-label={t("session.send")}

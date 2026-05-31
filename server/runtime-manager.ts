@@ -16,6 +16,7 @@ import {
   AuthStorage,
   ModelRegistry,
   SessionManager,
+  SettingsManager,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
@@ -88,6 +89,8 @@ export class RuntimeManager {
   private channels = new Map<string, Set<Subscriber>>();
   private auth = AuthStorage.create();
   private registry = ModelRegistry.create(this.auth);
+  // 기본 효율(thinking) 값을 읽기 위한 설정 매니저 (non-live input default 용).
+  private settings = SettingsManager.create(process.cwd());
   private reaper: ReturnType<typeof setInterval>;
 
   constructor() {
@@ -331,12 +334,19 @@ export class RuntimeManager {
       // 라이브 아니면: 세션 파일의 마지막 assistant 응답 모델(없으면 기본 모델)을
       // input default 로 내려준다 (런타임 안 띄우고 파일만 읽음).
       const model = this.resolveModelForView(sessionPath);
+      // 기본 효율: 설정값 또는 medium. input default 로 내려준다.
+      let defThinking: ThinkingLevel = "medium";
+      try {
+        defThinking = (this.settings.getDefaultThinkingLevel?.() as ThinkingLevel) ?? "medium";
+      } catch {
+        /* 설정 읽기 실패 → medium */
+      }
       return {
         live: false,
         model,
-        thinkingLevel: null,
-        availableThinkingLevels: [],
-        supportsThinking: false,
+        thinkingLevel: defThinking,
+        availableThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+        supportsThinking: true,
         name: null,
         stats: null,
       };

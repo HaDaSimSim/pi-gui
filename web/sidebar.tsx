@@ -145,7 +145,7 @@ export function Sidebar(props: SidebarProps) {
                       )}
                     >
                       <button onClick={() => props.onOpenSession(s)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left">
-                        <span className="truncate">{s.draft ? t("sessions.newSession") : sessionLabel(s, t)}</span>
+                        <span className="truncate">{sessionLabel(s, t)}</span>
                         {s.draft ? (
                           <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">{t("sessions.draft")}</span>
                         ) : null}

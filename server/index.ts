@@ -493,9 +493,17 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (i
 // (예: subagents 익스텐션이 hasUI=true 로 착각해 TUI 전용 theme 을 건드리다 throw.)
 process.on("uncaughtException", (err) => {
   console.error("[pi-gui] uncaughtException (생존):", err?.stack || err);
+  runtimes.broadcastAll({
+    type: "backend_error",
+    message: err instanceof Error ? err.message : String(err),
+  });
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[pi-gui] unhandledRejection (생존):", reason);
+  runtimes.broadcastAll({
+    type: "backend_error",
+    message: reason instanceof Error ? reason.message : String(reason),
+  });
 });
 
 // 종료 처리: Ctrl-C 한 번에 확실히 내려간다.

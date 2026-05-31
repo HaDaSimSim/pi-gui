@@ -285,6 +285,16 @@ export function useSession(path: string, cwd?: string) {
         case "ui_notify":
           toast[ev.level === "error" ? "error" : ev.level === "warning" ? "warning" : "info"](ev.message);
           break;
+        case "session_error":
+          // 세션 단위 에러(프롬프트/extension 등) → 에러 배너 + 토스트.
+          patch({ streaming: false, error: ev.message || "session error" });
+          toast.error(ev.message || "session error");
+          streamingRef.current = null;
+          break;
+        case "backend_error":
+          // 백엔드 전역 에러(uncaughtException 등) → 토스트로 경고.
+          toast.error(`Backend error: ${ev.message || "unknown"}`);
+          break;
         case "session_info_changed":
           // 세션 이름이 바뀌면(첫 메시지 후 자동 명명 등) 라이브 반영.
           if (ev.name) patch({ name: ev.name });

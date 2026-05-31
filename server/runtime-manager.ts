@@ -127,6 +127,19 @@ export class RuntimeManager {
     }
   }
 
+  /** 모든 세션 채널의 구독자에게 뾌린다 (전역 알림용). */
+  broadcastAll(event: unknown) {
+    for (const set of this.channels.values()) {
+      for (const fn of set) {
+        try {
+          fn(event);
+        } catch {
+          /* 구독자 격리 */
+        }
+      }
+    }
+  }
+
   /**
    * 세션을 라이브로 띄운다. 락을 잡아야 성공한다.
    * @param force true 면 기존 점유자로부터 강제 탈취.
@@ -218,8 +231,14 @@ export class RuntimeManager {
       await rt.session.steer(message, hasImages ? images : undefined);
     } else {
       rt.session.prompt(message, hasImages ? { images } : undefined).catch((e) => {
-        // 프롬프트 도중 에러는 이벤트 스트림으로도 나가지만, 로깅은 남긴다.
+        // 프롬프트 도중 에러는 이벤트 스트림으로도 나가지만, 로깅도 남긴다.
         console.error(`[prompt error ${sessionPath}]`, e);
+        // GUI 에 알린다: 해당 세션 탭에 경고 배너를 띄울 수 있게.
+        this.broadcast(sessionPath, {
+          type: "session_error",
+          scope: "prompt",
+          message: e instanceof Error ? e.message : String(e),
+        });
       });
     }
   }

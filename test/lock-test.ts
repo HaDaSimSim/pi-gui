@@ -1,6 +1,6 @@
 // 락 규약 검증. 두 점유자(A=pi, B=pi-web)를 한 프로세스 안에서 흉내낸다.
 // 실제로는 토큰이 프로세스/인스턴스마다 다르므로, SessionLock 인스턴스 2개로 모사.
-import { SessionLock, listLocks } from "./shared/session-lock.ts";
+import { SessionLock, listLocks } from "../shared/session-lock.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

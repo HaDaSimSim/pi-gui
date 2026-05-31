@@ -62,6 +62,19 @@ export interface ModelInfo {
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+export interface FooterData {
+  cwd: string;
+  name: string | null;
+  branch: string | null;
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  cost: number;
+  live: boolean;
+  model?: ModelInfo | null;
+  thinkingLevel?: ThinkingLevel | null;
+  supportsThinking?: boolean;
+  contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null } | null;
+}
+
 export interface SessionStats {
   tokens?: {
     input: number;
@@ -148,13 +161,17 @@ export const api = {
       "/api/live",
     ).then((r) => r.live),
 
+  // 새 세션 경로 발급 (cwd 에서). pending: 첫 프롬프트 전엔 파일 없음.
+  newSession: (cwd: string) =>
+    postJSON<{ path: string; cwd: string; id: string; pending: boolean }>("/api/session/new", { cwd }),
+
   // 라이브 세션 열기 (락 확보). 409 면 ApiError(status=409, body.current)
   open: (path: string, force = false) =>
     postJSON<{ live: boolean; locked: boolean }>("/api/session/open", { path, force }),
 
-  // 프롬프트 전송. images = data URL 배열(첨부). 409 locked/revoked 면 ApiError
-  prompt: (path: string, message: string, force = false, images?: string[]) =>
-    postJSON<{ accepted: boolean }>("/api/session/prompt", { path, message, force, images }),
+  // 프롬프트 전송. images = data URL 배열(첨부), cwd = pending 세션 최초 생성용. 409 면 ApiError
+  prompt: (path: string, message: string, force = false, images?: string[], cwd?: string) =>
+    postJSON<{ accepted: boolean }>("/api/session/prompt", { path, message, force, images, cwd }),
 
   dispose: (path: string) =>
     fetch(`/api/session/live?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
@@ -162,6 +179,18 @@ export const api = {
   // 세션 컨트롤/통계 스냅샷 (info 패널). 런타임 없으면 live:false.
   controls: (path: string) =>
     getJSON<SessionControls>(`/api/session/controls?path=${encodeURIComponent(path)}`),
+
+  // 슬래시 커맨드 목록 (extension + skill). 라이브 런타임 없으면 빈 배열.
+  commands: (path: string) =>
+    getJSON<{ commands: { name: string; description?: string; source: string }[] }>(
+      `/api/session/commands?path=${encodeURIComponent(path)}`,
+    ).then((r) => r.commands),
+
+  // 푸터 데이터 (TUI 푸터 미러링). 런타임 없어도 파일에서 토큰/비용 집계.
+  footer: (path: string, cwd?: string) =>
+    getJSON<FooterData>(
+      `/api/session/footer?path=${encodeURIComponent(path)}${cwd ? `&cwd=${encodeURIComponent(cwd)}` : ""}`,
+    ),
 
   // 모델 변경. 409 면 ApiError.
   setModel: (path: string, provider: string, id: string, force = false) =>

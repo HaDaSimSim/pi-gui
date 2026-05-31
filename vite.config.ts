@@ -1,11 +1,19 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath, URL } from "node:url";
 
 // dev: Vite(5173) 가 /api 와 /api/.../events(SSE) 를 백엔드(4317)로 프록시.
 // SSE 는 버퍼링되면 안 되므로 프록시는 기본 패스스루(스트리밍 유지)로 둔다.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   root: "web",
+  resolve: {
+    // shadcn 표준 alias. 소스가 web/ 에 있으므로 @/ → web/ 로 매핑.
+    alias: {
+      "@": fileURLToPath(new URL("./web", import.meta.url)),
+    },
+  },
   server: {
     port: 5173,
     proxy: {

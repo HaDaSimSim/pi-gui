@@ -6,7 +6,7 @@
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SessionLock } from "./shared/session-lock.ts";
+import { SessionLock } from "../shared/session-lock.ts";
 
 const BASE = `http://127.0.0.1:${process.env.PORT ?? 4317}`;
 let pass = 0, fail = 0;

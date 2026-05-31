@@ -4,7 +4,7 @@
 // 사전과 useT() 훅만 노출한다. 키는 점(.) 구분 평면 키, 값은 문자열.
 // 보간은 {name} 형태의 단순 치환만 지원한다.
 
-import { useUiSettings } from "./useUiSettings";
+import { useUiSettings } from "./use-ui-settings";
 
 export type Lang = "en" | "ko";
 
@@ -30,6 +30,9 @@ const en = {
   "sessions.live": "live",
   "sessions.closeSession": "Close session",
   "sessions.untitled": "Untitled session",
+  "sessions.newSession": "New session",
+  "sessions.newDirectory": "New directory",
+  "sessions.newDirectoryPrompt": "Enter an absolute directory path to start a session in:",
 
   "session.noMessages": "No messages yet. Send a prompt to start.",
   "session.placeholder": "Send a message to this session…",
@@ -64,6 +67,12 @@ const en = {
   "info.tokens": "Tokens",
   "info.messages": "Messages",
   "info.toolCalls": "Tool calls",
+  "info.inputTokens": "Input",
+  "info.outputTokens": "Output",
+  "info.cacheTokens": "Cache (R/W)",
+  "info.limit": "Context limit",
+  "info.usage": "Usage",
+  "info.breakdown": "Token breakdown",
   "info.notLive": "Send a message to start a runtime and see live model, context, and stats.",
   "info.rename": "Rename session",
   "info.renamePlaceholder": "Session name",
@@ -160,6 +169,9 @@ const ko: Record<I18nKey, string> = {
   "sessions.live": "라이브",
   "sessions.closeSession": "세션 닫기",
   "sessions.untitled": "제목 없는 세션",
+  "sessions.newSession": "새 세션",
+  "sessions.newDirectory": "새 디렉터리",
+  "sessions.newDirectoryPrompt": "세션을 시작할 디렉터리 절대경로를 입력하세요:",
 
   "session.noMessages": "아직 메시지가 없습니다. 프롬프트를 보내 시작하세요.",
   "session.placeholder": "이 세션에 메시지 보내기…",
@@ -194,6 +206,12 @@ const ko: Record<I18nKey, string> = {
   "info.tokens": "토큰",
   "info.messages": "메시지",
   "info.toolCalls": "툴 호출",
+  "info.inputTokens": "입력",
+  "info.outputTokens": "출력",
+  "info.cacheTokens": "쿸시 (R/W)",
+  "info.limit": "컨텍스트 한도",
+  "info.usage": "사용률",
+  "info.breakdown": "토큰 구성",
   "info.notLive": "메시지를 보내 런타임을 시작하면 모델·컨텍스트·통계가 보입니다.",
   "info.rename": "세션 이름 변경",
   "info.renamePlaceholder": "세션 이름",

@@ -18,6 +18,7 @@ import {
   SessionManager,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
+import { existsSync } from "node:fs";
 
 // pi-ai 의 ImageContent 와 동일한 최소 셋 (pi-ai 는 직접 의존이 아니라 로컬로 선언).
 export interface ImageContent {
@@ -127,9 +128,10 @@ export class RuntimeManager {
   /**
    * 세션을 라이브로 띄운다. 락을 잡아야 성공한다.
    * @param force true 면 기존 점유자로부터 강제 탈취.
+   * @param cwd  pending 세션(파일 아직 없음)을 띄울 때 쓸 작업 디렉터리.
    * @throws LockedError 락이 남에게 있고 force 가 아닐 때.
    */
-  async getOrCreate(sessionPath: string, opts: { force?: boolean } = {}): Promise<LiveRuntime> {
+  async getOrCreate(sessionPath: string, opts: { force?: boolean; cwd?: string } = {}): Promise<LiveRuntime> {
     const existing = this.runtimes.get(sessionPath);
     if (existing) {
       // 내가 이미 띄운 런타임이라도, 그 사이 뺏겼을 수 있다.
@@ -141,9 +143,16 @@ export class RuntimeManager {
       return existing;
     }
 
-    // 세션 파일을 열고 락을 시도한다.
-    const sessionManager = SessionManager.open(sessionPath);
-    const cwd = sessionManager.getCwd() || process.cwd();
+    // 세션 파일을 열고 락을 시도한다. pending 세션이면(파일 없음) cwd 로 새로 만든다.
+    const sessionManager =
+      !existsSync(sessionPath) && opts.cwd
+        ? SessionManager.create(opts.cwd, undefined, { id: undefined })
+        : SessionManager.open(sessionPath);
+    // create 가 발급한 경로가 요청된 sessionPath 와 다를 수 있으므로 고정시킨다.
+    if (!existsSync(sessionPath) && opts.cwd) {
+      sessionManager.setSessionFile?.(sessionPath);
+    }
+    const cwd = sessionManager.getCwd() || opts.cwd || process.cwd();
     const name = sessionManager.getSessionName?.();
     const lock = new SessionLock(sessionPath, "pi-web", name ? `pi-web: ${name}` : "pi-web");
 
@@ -258,6 +267,38 @@ export class RuntimeManager {
       name: rt.session.sessionName ?? null,
       stats,
     };
+  }
+
+  /**
+   * 이 세션의 사용 가능한 슬래시 커맨드 목록. 라이브 런타임 필요.
+   *   - extension 등록 커맨드 (getRegisteredCommands)  → /name
+   *   - skill 커맨드 (resourceLoader.getSkills)         → /skill:name
+   * 실행은 기존 prompt 플로우로 "/..." 를 보내면 SDK 가 가로채다
+   * (skill 은 _expandSkillCommand, extension 은 command 핸들러).
+   */
+  commands(sessionPath: string): { name: string; description?: string; source: string }[] {
+    const rt = this.runtimes.get(sessionPath);
+    if (!rt) return [];
+    const out: { name: string; description?: string; source: string }[] = [];
+    // extension 커맨드
+    try {
+      const cmds = rt.session.extensionRunner?.getRegisteredCommands?.() ?? [];
+      for (const c of cmds as { name: string; invocationName?: string; description?: string }[]) {
+        out.push({ name: c.invocationName || c.name, description: c.description, source: "extension" });
+      }
+    } catch {
+      /* extension 커맨드 없음 */
+    }
+    // skill 커맨드 (/skill:name)
+    try {
+      const skills = rt.session.resourceLoader?.getSkills?.()?.skills ?? [];
+      for (const s of skills as { name: string; description?: string }[]) {
+        out.push({ name: `skill:${s.name}`, description: s.description, source: "skill" });
+      }
+    } catch {
+      /* skill 없음 */
+    }
+    return out;
   }
 
   /** 모델 변경 (런타임+락 필요). */

@@ -1,0 +1,232 @@
+// 세션 info 패널 (오른쪽). 라이브일 때: 모델/효율 선택, 컨텍스트 사용량,
+// raw 통계, 이름 변경. 라이브 아니면 안내.
+
+import { useEffect, useState } from "react";
+import { Pencil } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { api, type ModelInfo, type ThinkingLevel } from "./api";
+import { useT } from "./i18n";
+import type { SessionState } from "./use-session";
+
+const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
+interface InfoPanelProps {
+  state: SessionState;
+  onSetModel: (provider: string, id: string) => void;
+  onSetThinking: (level: ThinkingLevel) => void;
+  onRename: (name: string) => void;
+}
+
+function fmtNum(n: number | undefined | null): string {
+  if (n === undefined || n === null) return "—";
+  return n.toLocaleString();
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <div className="mb-1.5 text-xs font-medium text-muted-foreground">{children}</div>;
+}
+
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="text-muted-foreground">{label}</div>
+      <div className="font-medium">{value}</div>
+    </div>
+  );
+}
+
+// 토큰 구성 바의 한 세그먼트 (0이면 안 그림).
+function seg(color: string, value: number, total: number) {
+  if (!value || !total) return null;
+  return <div className={color} style={{ width: `${(value / total) * 100}%` }} />;
+}
+
+export function InfoPanel({ state, onSetModel, onSetThinking, onRename }: InfoPanelProps) {
+  const { t } = useT();
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [nameDraft, setNameDraft] = useState("");
+  const [editingName, setEditingName] = useState(false);
+
+  const controls = state.controls;
+
+  useEffect(() => {
+    api.models().then(setModels).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    setNameDraft(controls?.name ?? "");
+  }, [controls?.name]);
+
+  if (!state.live || !controls) {
+    return <div className="p-4 text-sm text-muted-foreground">{t("info.notLive")}</div>;
+  }
+
+  const modelValue = controls.model ? `${controls.model.provider}/${controls.model.id}` : undefined;
+  const thinkingLevels = controls.availableThinkingLevels.length ? controls.availableThinkingLevels : THINKING_LEVELS;
+  const usage = controls.stats?.contextUsage;
+  const percent = usage?.percent ?? null;
+  const tk = controls.stats?.tokens;
+
+  return (
+    <div className="flex flex-col gap-5 p-4">
+      {/* 이름 변경 */}
+      <div>
+        <Label>{t("info.rename")}</Label>
+        {editingName ? (
+          <div className="flex items-center gap-2">
+            <Input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder={t("info.renamePlaceholder")}
+              className="h-8"
+            />
+            <Button
+              size="sm"
+              onClick={() => {
+                onRename(nameDraft.trim());
+                setEditingName(false);
+              }}
+            >
+              {t("info.save")}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditingName(false)}>
+              {t("info.cancel")}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="flex-1 truncate text-sm font-medium">{controls.name || t("sessions.untitled")}</span>
+            <Button size="icon" variant="ghost" className="size-7" aria-label={t("info.rename")} onClick={() => setEditingName(true)}>
+              <Pencil className="size-3.5" />
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* 모델 */}
+      <div>
+        <Label>{t("info.model")}</Label>
+        <Select
+          value={modelValue}
+          onValueChange={(v) => {
+            const slash = v.indexOf("/");
+            onSetModel(v.slice(0, slash), v.slice(slash + 1));
+          }}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={t("info.changeModel")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {models.map((m) => (
+                <SelectItem key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
+                  {m.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* 효율 (thinking level) */}
+      {controls.supportsThinking ? (
+        <div>
+          <Label>{t("info.efficiency")}</Label>
+          <Select
+            value={controls.thinkingLevel ?? undefined}
+            onValueChange={(v) => onSetThinking(v as ThinkingLevel)}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {thinkingLevels.map((l) => (
+                  <SelectItem key={l} value={l}>
+                    {l}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
+      {/* 컨텍스트 사용량 + 토큰 구성 (opencode 컨텍스트 패널 감성) */}
+      <div className="flex flex-col gap-2">
+        <Label>{t("info.context")}</Label>
+        {usage && percent !== null ? (
+          <>
+            <Progress value={Math.min(100, Math.round(percent))} />
+            <div className="text-xs text-muted-foreground">
+              {t("info.contextUsage", {
+                used: fmtNum(usage.tokens),
+                total: fmtNum(usage.contextWindow),
+                percent: Math.round(percent),
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="text-sm text-muted-foreground">{t("info.contextUnknown")}</div>
+        )}
+
+        {/* 토큰 구성 바 (input/output/cacheRead/cacheWrite 세그먼트) */}
+        {tk && tk.total > 0 ? (
+          <div className="mt-1 flex flex-col gap-1">
+            <div className="text-[11px] text-muted-foreground">{t("info.breakdown")}</div>
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
+              {seg("bg-sky-500", tk.input, tk.total)}
+              {seg("bg-emerald-500", tk.output, tk.total)}
+              {seg("bg-amber-500", tk.cacheRead, tk.total)}
+              {seg("bg-violet-500", tk.cacheWrite, tk.total)}
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-sky-500" />{t("info.inputTokens")} {fmtNum(tk.input)}</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-500" />{t("info.outputTokens")} {fmtNum(tk.output)}</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-500" />R {fmtNum(tk.cacheRead)}</span>
+              <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-violet-500" />W {fmtNum(tk.cacheWrite)}</span>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* 통계 그리드 (opencode context tab 감성) */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+        <Stat label={t("info.cost")} value={controls.stats?.cost != null ? `$${controls.stats.cost.toFixed(4)}` : "—"} />
+        <Stat label={t("info.tokens")} value={fmtNum(tk?.total)} />
+        <Stat label={t("info.inputTokens")} value={fmtNum(tk?.input)} />
+        <Stat label={t("info.outputTokens")} value={fmtNum(tk?.output)} />
+        <Stat label={t("info.cacheTokens")} value={`${fmtNum(tk?.cacheRead)} / ${fmtNum(tk?.cacheWrite)}`} />
+        <Stat label={t("info.limit")} value={fmtNum(usage?.contextWindow)} />
+        <Stat label={t("info.messages")} value={fmtNum(controls.stats?.totalMessages)} />
+        <Stat label={t("info.toolCalls")} value={fmtNum(controls.stats?.toolCalls)} />
+      </div>
+
+      {/* raw data (접이식) */}
+      <Collapsible>
+        <CollapsibleTrigger className="text-xs font-medium text-muted-foreground hover:text-foreground">
+          {t("info.rawData")}
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2">
+          <pre className="whitespace-pre-wrap font-mono text-[11px] text-muted-foreground/70">
+            {JSON.stringify(controls.stats ?? {}, null, 2)}
+          </pre>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}

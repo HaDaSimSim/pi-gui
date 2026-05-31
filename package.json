@@ -5,26 +5,42 @@
   "type": "module",
   "packageManager": "pnpm@10.33.2",
   "dependencies": {
-    "@cloudscape-design/collection-hooks": "^1.0.96",
-    "@cloudscape-design/components": "^3.0.1304",
-    "@cloudscape-design/global-styles": "^1.0.59",
     "@earendil-works/pi-coding-agent": "link:/Users/mingeon/.nvm/versions/node/v24.14.0/lib/node_modules/@earendil-works/pi-coding-agent",
     "@hono/node-server": "^2.0.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "hono": "^4.12.23",
+    "lucide-react": "^1.17.0",
+    "next-themes": "^0.4.6",
+    "radix-ui": "^1.4.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "react-router-dom": "^7.16.0"
+    "react-resizable-panels": "^4.11.2",
+    "rehype-react": "^8.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss-animate": "^1.0.7",
+    "unified": "^11.0.5"
   },
   "scripts": {
     "dev:server": "node server/index.ts",
     "dev:web": "vite",
     "build:web": "vite build",
-    "dev": "node server/index.ts & vite"
+    "dev": "node server/index.ts & vite",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node test/lock-test.ts",
+    "test:e2e": "node test/e2e-lock.ts && node test/e2e-sse.ts && node test/e2e-sse-lock.ts"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
+    "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.14"
   }

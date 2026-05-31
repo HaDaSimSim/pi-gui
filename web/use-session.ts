@@ -35,6 +35,7 @@ export interface ChatMessage {
   streaming?: boolean;
   model?: string;
   time?: string; // ISO timestamp (메타 표시용)
+  elapsedMs?: number; // 응답 소요 시간 (agent_start → message_end)
 }
 
 export interface LockConflict {
@@ -50,12 +51,26 @@ export interface SessionState {
   error: string | null;
   loading: boolean;
   controls: SessionControls | null; // 모델/효율/컨텍스트/이름 스냅샷 (info 패널용)
+  name: string | null; // 세션 이름 (스크롤백 + rename + 라이브 반영)
 }
 
 // 세션 파일 엔트리(스크롤백)를 화면 메시지로 변환.
 function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const e of entries) {
+    // ui-cosmetics 의 turn-meta 커스텀 엔트리: 직전 assistant 턴의 소요 시간(초).
+    // 직전 assistant 메시지에 elapsedMs 로 붙인다.
+    if (e.type === "custom_message" && (e as any).customType === "turn-meta") {
+      const details = (e as any).details as { elapsed?: number; model?: string } | undefined;
+      if (details?.elapsed != null) {
+        const lastAssistant = [...out].reverse().find((x) => x.role === "assistant");
+        if (lastAssistant) {
+          lastAssistant.elapsedMs = details.elapsed * 1000;
+          if (!lastAssistant.model && details.model) lastAssistant.model = details.model;
+        }
+      }
+      continue;
+    }
     if (e.type !== "message" || !e.message) continue;
     const m = e.message;
     const role = m.role;
@@ -113,7 +128,7 @@ function extractToolCalls(content: unknown): ToolCallView[] {
     .map((b: any) => ({ id: b.id, name: b.name, args: b.arguments, status: "done" as const }));
 }
 
-export function useSession(path: string) {
+export function useSession(path: string, cwd?: string) {
   const [state, setState] = useState<SessionState>({
     messages: [],
     streaming: false,
@@ -122,10 +137,13 @@ export function useSession(path: string) {
     error: null,
     loading: true,
     controls: null,
+    name: null,
   });
 
   // 스트리밍 중 누적 중인 assistant 메시지 (이벤트로 갱신)
   const streamingRef = useRef<ChatMessage | null>(null);
+  // 턴 시작 시각 (agent_start) — message_end 에서 소요 시간 계산용 (ui-cosmetics 방식)
+  const turnStartRef = useRef<number>(0);
 
   const patch = useCallback((p: Partial<SessionState>) => {
     setState((s) => ({ ...s, ...p }));
@@ -148,7 +166,7 @@ export function useSession(path: string) {
   const refreshControls = useCallback(() => {
     api
       .controls(path)
-      .then((controls) => patch({ controls }))
+      .then((controls) => patch({ controls, ...(controls.name ? { name: controls.name } : {}) }))
       .catch(() => undefined);
   }, [path, patch]);
 
@@ -164,6 +182,7 @@ export function useSession(path: string) {
         patch({
           messages: entriesToMessages(detail.entries),
           live: detail.live,
+          name: detail.name ?? null,
           loading: false,
         });
         if (detail.live) refreshControls();
@@ -191,6 +210,7 @@ export function useSession(path: string) {
           break;
         case "agent_start":
           patch({ streaming: true });
+          turnStartRef.current = Date.now();
           break;
         case "message_start": {
           const msg = ev.message;
@@ -261,6 +281,10 @@ export function useSession(path: string) {
         case "message_end":
           if (streamingRef.current) {
             streamingRef.current.streaming = false;
+            // 턴 시작부터 지금까지의 소요 시간 (ui-cosmetics 처럼)
+            if (turnStartRef.current > 0) {
+              streamingRef.current.elapsedMs = Date.now() - turnStartRef.current;
+            }
             flushStreaming();
             streamingRef.current = null;
           }
@@ -284,7 +308,7 @@ export function useSession(path: string) {
         messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text, time: new Date().toISOString() }],
       }));
       try {
-        await api.prompt(path, text, force, images);
+        await api.prompt(path, text, force, images, cwd);
         patch({ live: true });
         refreshControls();
       } catch (e) {
@@ -296,7 +320,7 @@ export function useSession(path: string) {
         }
       }
     },
-    [path, patch, refreshControls],
+    [path, cwd, patch, refreshControls],
   );
 
   // 강제로 가져오기 (force takeover 후 재전송 X — 그냥 락만 확보)
@@ -320,7 +344,7 @@ export function useSession(path: string) {
       patch({ conflict: null, error: null });
       try {
         const controls = await fn();
-        patch({ controls, live: controls.live });
+        patch({ controls, live: controls.live, ...(controls.name ? { name: controls.name } : {}) });
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
           const kind = e.body?.error === "revoked" ? "revoked" : "locked";

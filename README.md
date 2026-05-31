@@ -15,11 +15,14 @@ It's a thin host layer on top of pi's SDK (`@earendil-works/pi-coding-agent`):
   writes would corrupt it. pi-web and the pi TUI share an advisory lock protocol
   (`session-lock`) so a given session is only ever *written* from one place.
   Viewing is always allowed; only sending requires the lock.
+- **The web mirrors the TUI.** pi-web reads whatever TUI extensions leave in the
+  session file (turn timing, token/cost, slash commands, skills) and renders it
+  itself. Extensions stay TUI-only; the web adapts to them.
 
 ## Architecture
 
 ```
-browser (React + Cloudscape)
+browser (React + shadcn/ui + Tailwind v4)
    │  /api/* (REST)  +  /api/session/events (SSE)
    ▼
 server/ (Hono, 127.0.0.1 only)
@@ -33,12 +36,9 @@ server/ (Hono, 127.0.0.1 only)
 
 The lock protocol lives in **pi-skills**
 (`pi-skills/extensions/session-lock/shared/session-lock.ts`) and is consumed two
-ways:
-
-- the **pi-skills `session-lock` extension** claims the lock when the pi TUI/CLI
-  opens a session, and
-- **pi-web** symlinks the same file (`shared/session-lock.ts`) so both speak the
-  exact same protocol and can see each other's claims.
+ways: the pi-skills `session-lock` extension claims it when the TUI/CLI opens a
+session, and pi-web symlinks the same file so both speak the exact same protocol
+and can see each other's claims.
 
 ## Cost model (why it scales)
 
@@ -47,22 +47,44 @@ ways:
 | List directories / sessions | no | no |
 | Read a session (scrollback) | no | no |
 | Subscribe to live events (SSE) | no | no |
-| Send a prompt | **yes** (lazy, 1 per session) | **yes** (exclusive) |
+| Footer token/cost summary | no | no |
+| Send a prompt / open / new | **yes** (lazy, 1 per session) | **yes** (exclusive) |
+| Change model / thinking / rename | **yes** | **yes** |
 
-Idle runtimes are reaped after 5 minutes. So you can fan out a huge sidebar of
+Idle runtimes are reaped after 5 minutes. You can fan out a huge sidebar of
 directories and sessions for free; only the sessions you actually talk to cost a
 runtime.
 
 ## Lock model
 
-- Exclusive, no auto-expiry. A session is held until the owner releases it or
-  someone **force-takes** it.
-- `state()` is one of `free` / `mine` / `lost`. "lost" means you held it but the
-  on-disk token changed (someone took over) or the lock vanished.
-- pi-web re-checks ownership **before every prompt** (`isMine()`); if it was
-  taken, the prompt is rejected (`409 revoked`) and the runtime is dropped.
+- Exclusive, no auto-expiry. Held until the owner releases or someone
+  **force-takes** it.
+- `state()` is `free` / `mine` / `lost`. "lost" = you held it but the on-disk
+  token changed (someone took over) or the lock vanished.
+- pi-web re-checks ownership **before every prompt** (`isMine()`); if taken, the
+  prompt is rejected (`409 revoked`) and the runtime dropped.
 - Opening a locked session returns `409 locked` with the current holder; the UI
   offers a **Force takeover** button (demotes the other side to read-only).
+
+## Features
+
+- Multi-directory / multi-session sidebar (drill-down: directory → sessions),
+  resizable + collapsible.
+- Multiple concurrent session tabs, each streaming live over SSE. Tabs stay
+  mounted so background sessions keep their SSE subscription.
+- Chat UI with markdown rendering (unified: remark/rehype + sanitize), thinking
+  preview, compact collapsible tool calls, per-message model · elapsed · time.
+- Per-session **info panel**: model picker, thinking level (efficiency), context
+  usage + token breakdown, session rename, raw stats.
+- **Footer** mirroring the TUI: pwd (git branch) · name, token/cost/context,
+  model · thinking, ownership.
+- **Slash commands**: extension commands + skills (`/skill:name`) with `/`
+  autocomplete; executed through the normal prompt flow.
+- Composer: file attach + paste screenshots (clipboard images).
+- Settings modal: language (en/ko), theme (light / dark / true-dark),
+  density, motion, configurable UI + monospace fonts; read-only models / locks /
+  live-runtime tables.
+- New session / new directory creation.
 
 ## Run
 
@@ -72,7 +94,7 @@ pnpm dev             # backend (4317) + Vite dev server (5173) together
 # open http://127.0.0.1:5173
 ```
 
-Or run the pieces separately:
+Run the pieces separately:
 
 ```bash
 pnpm dev:server      # Hono backend on 127.0.0.1:4317
@@ -88,59 +110,49 @@ pnpm build:web       # production bundle → dist-web/
 
 - `@earendil-works/pi-coding-agent` is consumed from the globally installed pi
   via a pnpm `link:` dependency (an absolute path to the global
-  `node_modules/@earendil-works/pi-coding-agent`). If you move pi or install it
-  to a different global prefix, update the `link:` path in `package.json` and
-  re-run `pnpm install`.
+  `node_modules/@earendil-works/pi-coding-agent`). If you move pi or change the
+  global prefix, update the `link:` path in `package.json` and re-run
+  `pnpm install`.
 - `shared/session-lock.ts` is a symlink into the pi-skills repo. If that repo
   moves, re-point the symlink.
 - Model keys / auth come from pi's own `~/.pi/agent/auth.json` + `models.json`
   via `AuthStorage`/`ModelRegistry`. pi-web doesn't manage credentials.
 
-## Project layout
+## Layout
 
 ```
 pi-web/
-├── server/
-│   ├── index.ts            Hono app: routes + SSE
-│   └── runtime-manager.ts  runtime lifecycle, subscription channels, lock guard
-├── web/                    React + Cloudscape frontend
-│   ├── main.tsx            entry (Cloudscape global styles + UI-settings boot)
-│   ├── App.tsx             HashRouter shell (routes → Layout → pages)
-│   ├── Layout.tsx          TopNavigation chrome (Sessions ⇄ Settings) + <Outlet/>
-│   ├── SessionsPage.tsx    AppLayout + SideNavigation(dirs→sessions) + Tabs(multi-session)
-│   ├── SettingsPage.tsx    appearance (theme/density/motion) + read-only models/locks/live
-│   ├── useUiSettings.ts    browser-side UI settings (localStorage → Cloudscape global styles)
-│   ├── SessionTab.tsx      one session: messages + PromptInput + lock-conflict banner
-│   ├── MessageView.tsx     message render (text/thinking/tool calls)
-│   ├── useSession.ts       per-session live state hook (scrollback + SSE deltas + send)
-│   └── api.ts              typed backend client + SSE subscription
-├── shared/
-│   └── session-lock.ts     → symlink → pi-skills lock protocol (source of truth)
-├── vite.config.ts          dev proxy /api → 4317
-├── poc.mjs                 SDK proof-of-concept (listAll, multi-runtime streaming)
-├── lock-test.ts            lock protocol unit tests
-├── e2e-lock.ts             server-level lock E2E
-├── e2e-sse.ts              SSE live-streaming E2E (real model)
-└── e2e-sse-lock.ts         "view without lock, write needs lock" E2E
+├── server/             Hono backend (index.ts routes/SSE, runtime-manager.ts locks)
+├── web/                React + shadcn frontend (kebab-case files; ui/ = shadcn components)
+├── shared/             session-lock.ts → symlink → pi-skills lock protocol
+├── test/               unit + E2E (see Tests)
+├── components.json     shadcn config (@/ → web/)
+└── vite.config.ts      dev proxy /api/ → 4317, @/ alias
 ```
 
 ## Tests
 
 ```bash
-node lock-test.ts        # lock protocol units (17)
-# the E2E scripts need the backend running:
-node server/index.ts &   # then, in another shell:
-node e2e-lock.ts         # lock enforcement (9)
-node e2e-sse.ts          # live streaming, real model (11)
-node e2e-sse-lock.ts     # view-vs-write lock separation (7)
+pnpm typecheck          # tsc --noEmit (Vite build does NOT type-check)
+pnpm build:web          # vite build
+pnpm test:unit          # lock protocol units (17), no server needed
+
+# E2E need the backend up. Use a non-default port so you never collide with a
+# running dev server on 4317:
+PORT=4318 nohup node server/index.ts > /tmp/piweb.log 2>&1 & sleep 2
+PORT=4318 pnpm test:e2e   # e2e-lock (9) + e2e-sse (11, real model) + e2e-sse-lock (7)
+lsof -ti :4318 | xargs kill
 ```
+
+`test/poc.mjs` is an SDK proof-of-concept (listAll + multi-runtime streaming),
+not part of the suite.
 
 ## Known rough edges
 
-- Frontend bundle is a single ~845 KB chunk (Cloudscape). Code-splitting not
-  done yet.
-- "Live activity from *another* process (the TUI)" is not streamed into pi-web —
-  pi-web only streams runtimes it owns. Watching a foreign session's writes live
-  would need a jsonl file watcher (deliberately out of scope for now).
-- No production static-serving route on the backend yet; dev uses the Vite
+- No production static-serving route on the backend yet; dev relies on the Vite
   proxy. For a single-process deploy, add a static handler for `dist-web/`.
+- Live activity from *another* process (the TUI) is not streamed in real time —
+  pi-web only streams runtimes it owns. A foreign session's live writes would
+  need a jsonl file watcher (deliberately out of scope).
+- Extension `type:"custom"` renderers (goal, subagents) aren't auto-ported to the
+  web; each needs a dedicated web renderer.

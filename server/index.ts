@@ -7,6 +7,8 @@
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
+import { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { RuntimeManager, LockedError, RevokedError } from "./runtime-manager.ts";
 import { listLocks } from "../shared/session-lock.ts";
@@ -63,6 +65,18 @@ app.get("/api/sessions", async (c) => {
 app.get("/api/session", async (c) => {
   const path = c.req.query("path");
   if (!path) return c.json({ error: "path query required" }, 400);
+  // 아직 파일이 없는 pending 세션(새 세션, 첫 프롬프트 전)은 빈 스크롤백으로.
+  if (!existsSync(path)) {
+    return c.json({
+      path,
+      cwd: c.req.query("cwd") ?? "",
+      name: null,
+      leafId: null,
+      entries: [],
+      live: !!runtimes.get(path),
+      pending: true,
+    });
+  }
   const sm = SessionManager.open(path);
   const entries = sm.getEntries();
   return c.json({
@@ -72,6 +86,70 @@ app.get("/api/session", async (c) => {
     leafId: sm.getLeafId(),
     entries, // 프론트에서 role/타입별로 렌더
     live: !!runtimes.get(path),
+  });
+});
+
+// ── 푸터 정보: TUI 푸터와 같은 데이터를 조립한다 (런타임 0개, 순수 파일 읽기).
+//   토큰/비용은 세션의 assistant usage 를 합산. 모델/thinking/context 는
+//   라이브 런타임이 있으면 controls 에서 채운다.
+function gitBranch(cwd: string): string | null {
+  try {
+    const out = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1500,
+    });
+    const b = out.toString().trim();
+    return b && b !== "HEAD" ? b : null;
+  } catch {
+    return null;
+  }
+}
+
+app.get("/api/session/footer", (c) => {
+  const path = c.req.query("path");
+  if (!path) return c.json({ error: "path query required" }, 400);
+  if (!existsSync(path)) {
+    return c.json({
+      cwd: c.req.query("cwd") ?? "",
+      name: null,
+      branch: null,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+      live: false,
+    });
+  }
+  const sm = SessionManager.open(path);
+  const cwd = sm.getCwd();
+  let input = 0,
+    output = 0,
+    cacheRead = 0,
+    cacheWrite = 0,
+    cost = 0;
+  for (const e of sm.getEntries()) {
+    const msg = (e as { type: string; message?: { role?: string; usage?: Record<string, number> & { cost?: { total?: number } } } }).message;
+    if (e.type === "message" && msg?.role === "assistant" && msg.usage) {
+      const u = msg.usage;
+      input += u.input ?? 0;
+      output += u.output ?? 0;
+      cacheRead += u.cacheRead ?? 0;
+      cacheWrite += u.cacheWrite ?? 0;
+      cost += u.cost?.total ?? 0;
+    }
+  }
+  // 라이브 런타임이 있으면 모델/thinking/context 병합
+  const controls = runtimes.controls(path);
+  return c.json({
+    cwd,
+    name: sm.getSessionName() ?? null,
+    branch: gitBranch(cwd),
+    tokens: { input, output, cacheRead, cacheWrite, total: input + output + cacheRead + cacheWrite },
+    cost,
+    live: controls.live,
+    model: controls.model,
+    thinkingLevel: controls.thinkingLevel,
+    supportsThinking: controls.supportsThinking,
+    contextUsage: (controls.stats as { contextUsage?: unknown } | null)?.contextUsage ?? null,
   });
 });
 
@@ -87,6 +165,23 @@ app.get("/api/models", async (c) => {
   return c.json({
     models: models.map((m) => ({ provider: m.provider, id: m.id, name: m.name })),
   });
+});
+
+// ── 새 세션 경로 발급: 주어진 cwd 에서 새 세션 파일 경로를 만든다.
+//   런타임/락 없이 경로만 발급한다 (비용 모델 유지). 실제 파일은 첫 프롬프트
+//   때 쓰여진다(기존 prompt 플로우). 그 전까지는 목록에 안 나타나는 "pending" 세션.
+app.post("/api/session/new", async (c) => {
+  const body = await c.req.json<{ cwd: string }>();
+  const cwd = body?.cwd?.trim();
+  if (!cwd) return c.json({ error: "cwd required" }, 400);
+  try {
+    const sm = SessionManager.create(cwd);
+    const path = sm.getSessionFile();
+    if (!path) return c.json({ error: "could not mint session path" }, 500);
+    return c.json({ path, cwd, id: sm.getSessionId(), pending: true });
+  } catch (e) {
+    return c.json({ error: String(e) }, 400);
+  }
 });
 
 // ── 라이브 세션 열기: 락을 잡는다 (force 로 강제 탈취 가능) ────────────
@@ -111,6 +206,7 @@ app.post("/api/session/prompt", async (c) => {
     path: string;
     message: string;
     force?: boolean;
+    cwd?: string; // pending 세션을 처음 띄울 때 필요
     images?: string[]; // data URL 배열 (data:<mime>;base64,<data>)
   }>();
   if (!body?.path || !body?.message) {
@@ -124,9 +220,9 @@ app.post("/api/session/prompt", async (c) => {
     })
     .filter((x): x is { type: "image"; mimeType: string; data: string } => x !== null);
   try {
-    // 런타임이 없으면 먼저 띄운다 (락도 여기서 잡힘)
+    // 런타임이 없으면 먼저 띄운다 (락도 여기서 잡힘). pending 세션이면 cwd 로 생성.
     if (!runtimes.get(body.path)) {
-      await runtimes.getOrCreate(body.path, { force: body.force });
+      await runtimes.getOrCreate(body.path, { force: body.force, cwd: body.cwd });
     }
     await runtimes.prompt(body.path, body.message, images); // 내부에서 isMine() 재확인
     return c.json({ accepted: true, live: true });
@@ -147,6 +243,13 @@ app.get("/api/session/controls", (c) => {
   const path = c.req.query("path");
   if (!path) return c.json({ error: "path query required" }, 400);
   return c.json(runtimes.controls(path));
+});
+
+// ── 슬래시 커맨드 목록 (extension 등록). 라이브 런타임 있을 때만 채워짐.
+app.get("/api/session/commands", (c) => {
+  const path = c.req.query("path");
+  if (!path) return c.json({ error: "path query required" }, 400);
+  return c.json({ commands: runtimes.commands(path) });
 });
 
 // ── 모델 변경 (락 필요) ──

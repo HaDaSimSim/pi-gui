@@ -40,7 +40,7 @@ try {
   console.log("3) 외부(TUI 흉내)가 락을 가로챈 상태에서 prompt → revoked 거부");
   {
     // shared 락 모듈로 직접 다른 인스턴스가 takeover
-    const { SessionLock } = await import("./shared/session-lock.ts");
+    const { SessionLock } = await import("../shared/session-lock.ts");
     const intruder = new SessionLock(sessionPath, "pi", "TUI-intruder");
     intruder.takeover(); // pi-web 런타임의 락을 revoke 시킴
 
@@ -55,7 +55,7 @@ try {
   {
     const sp2 = join(dir, "e2e-session-2.jsonl");
     writeFileSync(sp2, JSON.stringify({ ...header, id: crypto.randomUUID(), cwd: dir }) + "\n");
-    const { SessionLock } = await import("./shared/session-lock.ts");
+    const { SessionLock } = await import("../shared/session-lock.ts");
     const holder = new SessionLock(sp2, "pi", "TUI-holder");
     holder.tryAcquire();
 

@@ -1,21 +1,22 @@
-// UI 설정 스토어 — localStorage 에 저장하고 Cloudscape 전역 스타일에 반영한다.
+// UI 설정 스토어 — localStorage 에 저장하고 document 에 반영한다.
 //
-// 백엔드/SDK 가 아니라 "브라우저에서 끝나는" 설정들. 언어(en/ko), 테마(라이트/
-// 다크), 밀도(comfortable/compact), 모션 비활성화. 페이지 어디서든
-// useUiSettings() 로 읽고 바꿀 수 있다.
+// 브라우저에서 끝나는 설정들: 언어(en/ko), 테마(light/dark/true-dark),
+// 밀도(comfortable/compact), 모션, 폰트(sans/mono). 어디서든 useUiSettings()
+// 로 읽고 바꾼다.
+//
+// 테마는 Tailwind 의 .dark 클래스 기반 (true-dark 는 .dark.true-dark).
+// 밀도는 data-density 속성으로 두고 CSS 가 간격을 조절할 여지를 남긴다.
 
 import { useCallback, useEffect, useState } from "react";
-import { Mode, Density, applyMode, applyDensity, disableMotion } from "@cloudscape-design/global-styles";
-import { applyTheme, type Theme } from "@cloudscape-design/components/theming";
 import type { Lang } from "./i18n";
 
-// 테마 모드 — 단일 선택지. "true-dark" 는 다크 + 순수 검정(OLED).
 export type ThemeMode = "light" | "dark" | "true-dark";
+export type Density = "comfortable" | "compact";
 
 export interface UiSettings {
   lang: Lang; // "en" | "ko"
   theme: ThemeMode; // light | dark | true-dark
-  density: Density; // Density.Comfortable | Density.Compact
+  density: Density;
   motionDisabled: boolean;
   fontSans: string; // 본문 폰트 (CSS font-family 값)
   fontMono: string; // 모노스페이스 폰트
@@ -23,7 +24,7 @@ export interface UiSettings {
 
 const STORAGE_KEY = "pi-web.ui-settings";
 
-// 기본 폰트 체인 (theme.css 의 변수 기본값과 일치).
+// 기본 폰트 체인 (globals.css 의 변수 기본값과 일치).
 const DEFAULT_FONT_SANS =
   '"Pretendard GOV", "Pretendard", system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
 const DEFAULT_FONT_MONO =
@@ -43,7 +44,7 @@ const VALID_THEMES: ThemeMode[] = ["light", "dark", "true-dark"];
 const DEFAULTS: UiSettings = {
   lang: detectLang(),
   theme: "light",
-  density: Density.Comfortable,
+  density: "comfortable",
   motionDisabled: false,
   fontSans: DEFAULT_FONT_SANS,
   fontMono: DEFAULT_FONT_MONO,
@@ -58,7 +59,7 @@ function load(): UiSettings {
     let theme: ThemeMode;
     if (typeof parsed.theme === "string" && VALID_THEMES.includes(parsed.theme as ThemeMode)) {
       theme = parsed.theme as ThemeMode;
-    } else if (parsed.mode === Mode.Dark || parsed.mode === "dark") {
+    } else if (parsed.mode === "dark") {
       theme = parsed.trueDark === false ? "dark" : "true-dark";
     } else {
       theme = "light";
@@ -66,7 +67,7 @@ function load(): UiSettings {
     return {
       lang: parsed.lang === "ko" ? "ko" : parsed.lang === "en" ? "en" : DEFAULTS.lang,
       theme,
-      density: parsed.density === Density.Compact ? Density.Compact : Density.Comfortable,
+      density: parsed.density === "compact" ? "compact" : "comfortable",
       motionDisabled: !!parsed.motionDisabled,
       fontSans: typeof parsed.fontSans === "string" && parsed.fontSans.trim() ? parsed.fontSans : DEFAULT_FONT_SANS,
       fontMono: typeof parsed.fontMono === "string" && parsed.fontMono.trim() ? parsed.fontMono : DEFAULT_FONT_MONO,
@@ -76,53 +77,15 @@ function load(): UiSettings {
   }
 }
 
-// 트루 다크 테마: Cloudscape 공식 applyTheme 로 다크 모드 토큰값만
-// 순수 검정 계열로 교체한다. light 값은 그대로 둔다(테마는 한 번만
-// 적용하고, 라이트/다크 전환은 applyMode 가 담당). 계층감을 위해
-// 바닥은 #000, 떠있는 표면은 근접 검정.
-const TRUE_DARK_THEME: Theme = {
-  tokens: {
-    colorBackgroundLayoutMain: { dark: "#000000" },
-    colorBackgroundHomeHeader: { dark: "#000000" },
-    colorBackgroundContainerContent: { dark: "#0c0c0c" },
-    colorBackgroundContainerHeader: { dark: "#0c0c0c" },
-    colorBackgroundDropdownItemDefault: { dark: "#0c0c0c" },
-    colorBackgroundInputDefault: { dark: "#121212" },
-    colorBackgroundDialog: { dark: "#000000" },
-    colorBackgroundPopover: { dark: "#0c0c0c" },
-    colorBackgroundCellShaded: { dark: "#141414" },
-    colorBackgroundDropdownItemHover: { dark: "#1a1a1a" },
-  },
-};
-
-// applyTheme 는 reset 함수를 돌려준다. 토글 시 이전 테마를 제거하기 위해 보관.
-let resetTrueDark: (() => void) | null = null;
-
-function applyTrueDark(enabled: boolean) {
-  // 먼저 이전 테마 제거 (중첩 방지).
-  if (resetTrueDark) {
-    resetTrueDark();
-    resetTrueDark = null;
-  }
-  if (enabled) {
-    try {
-      resetTrueDark = applyTheme({ theme: TRUE_DARK_THEME }).reset;
-    } catch {
-      /* 테마 적용 실패는 무시 (기본 다크로 폴백) */
-    }
-  }
-}
-
-// 설정을 Cloudscape 전역 스타일 + CSS 변수에 적용한다 (document 레벨).
+// 설정을 document 에 적용한다 (클래스 + CSS 변수).
 function applyAll(s: UiSettings) {
-  // theme 을 Cloudscape Mode 로 매핑: light → Light, 그 외 → Dark.
-  applyMode(s.theme === "light" ? Mode.Light : Mode.Dark);
-  applyDensity(s.density);
-  disableMotion(s.motionDisabled);
-  // 트루 다크 테마는 "true-dark" 일 때만 (light 값은 안 건드림).
-  applyTrueDark(s.theme === "true-dark");
   try {
     const root = document.documentElement;
+    // 테마: light → 클래스 없음, dark/true-dark → .dark (+ .true-dark)
+    root.classList.toggle("dark", s.theme !== "light");
+    root.classList.toggle("true-dark", s.theme === "true-dark");
+    root.dataset.density = s.density;
+    root.dataset.motion = s.motionDisabled ? "reduced" : "full";
     root.lang = s.lang;
     root.style.setProperty("--piweb-font-sans", s.fontSans);
     root.style.setProperty("--piweb-font-mono", s.fontMono);

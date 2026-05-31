@@ -395,11 +395,9 @@ export function useSession(path: string, cwd?: string) {
         case "message_end":
           if (streamingRef.current) {
             streamingRef.current.streaming = false;
-            // 턴 시작부터 지금까지의 소요 시간 (ui-cosmetics 처럼)
-            if (turnStartRef.current > 0) {
-              streamingRef.current.elapsedMs = Date.now() - turnStartRef.current;
-            }
-            // 턴이 끝나면 아직 running 인 tool 은 완료되지 못한 것(락 차단 등)으로 간주해 정리.
+            // 중간 메시지(툴 호출 사이)에는 메타를 붙이지 않는다.
+            // 턴 전체의 메타(모델·소요시간)는 agent_end 에서 마지막 메시지에만 붙인다.
+            // 단, 툴이 running 인 채 끝난 건 정리(락 차단 등).
             for (const tc of streamingRef.current.toolCalls ?? []) {
               if (tc.status === "running") tc.status = "error";
             }
@@ -408,14 +406,26 @@ export function useSession(path: string, cwd?: string) {
           }
           break;
         case "agent_end":
-          // agent_end 에서도 혹시 남은 running tool 을 정리 (스트림이 아직 살아있으면).
+          // 턴 종료: 마지막 assistant 메시지에만 메타(소요시간)를 붙여 메타가 표시되게 한다.
           if (streamingRef.current) {
             for (const tc of streamingRef.current.toolCalls ?? []) {
               if (tc.status === "running") tc.status = "error";
             }
             flushStreaming();
           }
-          patch({ streaming: false });
+          setState((s) => {
+            const msgs = [...s.messages];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              if (msgs[i].role === "assistant") {
+                msgs[i] = {
+                  ...msgs[i],
+                  elapsedMs: turnStartRef.current > 0 ? Date.now() - turnStartRef.current : msgs[i].elapsedMs,
+                };
+                break;
+              }
+            }
+            return { ...s, streaming: false, messages: msgs };
+          });
           streamingRef.current = null;
           refreshControls(); // 턴 끝난 뒤 컨텍스트/비용 갱신
           break;

@@ -168,7 +168,9 @@ function MessageViewImpl({ msg }: { msg: ChatMessage }) {
     );
   }
 
-  // ── assistant: 버블 없이 평문 + 하단 메타 ──
+  // 메타 표시 규칙: 턴이 끝난 마지막 메시지(elapsedMs 설정됨)에만 표시.
+  // 스트리밍 중이면 스피너만, 중간 메시지(툴 호출 사이)에는 메타를 안 단다.
+  const showMeta = msg.elapsedMs != null;
   const meta = [
     msg.model ? t("message.assistantModel", { model: msg.model }) : t("message.assistant"),
     msg.elapsedMs != null ? formatElapsed(msg.elapsedMs) : "",
@@ -188,10 +190,12 @@ function MessageViewImpl({ msg }: { msg: ChatMessage }) {
         ) : null}
         {msg.toolCalls?.map((tc) => <ToolCall key={tc.id} tc={tc} />)}
       </div>
-      <div className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground/70">
-        <span>{meta}</span>
-        {msg.streaming ? <Loader2 className="size-3.5 animate-spin" /> : null}
-      </div>
+      {showMeta || msg.streaming ? (
+        <div className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground/70">
+          {showMeta ? <span>{meta}</span> : null}
+          {msg.streaming ? <Loader2 className="size-3.5 animate-spin" /> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

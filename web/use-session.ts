@@ -742,5 +742,6 @@ export function useSession(path: string, cwd?: string) {
     respondUi,
     effectiveModel,
     effectiveThinking,
+    turnStartRef,
   };
 }

@@ -37,7 +37,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, editQueue, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, editQueue, respondUi, effectiveModel, effectiveThinking, turnStartRef } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   // 메시지 윈도잉: 큰 세션은 마지막 N개만 렌더해 메인스레드 블록을 막는다.
@@ -52,15 +52,17 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastTextRef = useRef<string>("");
 
-  // 스트리밍 경과 시간 — streaming 시작 시각부터 1초마다 갱신.
-  const [streamElapsed, setStreamElapsed] = useState(0);
+  // 스트리밍 경과 시간 — turnStartRef(turn 시작 시각) 기준으로 1초마다 재렌더.
+  // turnStartRef 는 agent_start 에서 1회 세팅되므로 중간에 초기화되지 않는다.
+  const [, tick] = useState(0);
   useEffect(() => {
     if (!state.streaming) return;
-    const start = Date.now();
-    setStreamElapsed(0);
-    const id = setInterval(() => setStreamElapsed(Date.now() - start), 1000);
+    const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [state.streaming]);
+  const streamElapsed = state.streaming && turnStartRef.current > 0
+    ? Date.now() - turnStartRef.current
+    : 0;
 
   // info 패널은 항상 열림 + 리사이즈 가능. 토글 버튼으로 접을 수 있다.
   const infoRef = usePanelRef();

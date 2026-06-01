@@ -55,6 +55,7 @@ export interface SidebarProps {
   onNewDirectory: () => void;
   onDeleteSession: (s: SessionInfo) => void;
   onRenameSession: (s: SessionInfo) => void;
+  onDiscardDraft: (s: SessionInfo) => void;
 }
 
 // 검색 입력칸 (사이드바 공용). 아이콘 + controlled input.
@@ -151,7 +152,20 @@ export function Sidebar(props: SidebarProps) {
                         ) : null}
                       </button>
                       {s.live ? <span className="size-2 shrink-0 rounded-full bg-emerald-500" title={t("sessions.live")} /> : null}
-                      {s.draft ? null : confirmDelete === s.path ? (
+                      {s.draft ? (
+                        // draft: 파일·락 없으므로 그냥 닫기(탭 제거). 항상 X 표시.
+                        <button
+                          aria-label={t("sessions.closeSession")}
+                          title={t("sessions.closeSession")}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            props.onDiscardDraft(s);
+                          }}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      ) : confirmDelete === s.path ? (
                         // 삭제 더블체크: 체크(확정) / X(취소)
                         <span className="flex shrink-0 items-center gap-0.5">
                           <button

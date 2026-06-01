@@ -332,6 +332,7 @@ export default function App() {
                 onNewDirectory={newDirectory}
                 onDeleteSession={deleteSession}
                 onRenameSession={renameSession}
+                onDiscardDraft={(s) => closeTab(s.path)}
               />
             </div>
             {/* 사이드바 하단 바 */}

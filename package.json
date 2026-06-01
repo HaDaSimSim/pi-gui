@@ -36,7 +36,7 @@
     "start": "node server/index.ts",
     "dev": "node server/index.ts & vite",
     "tauri": "tauri",
-    "tauri:dev": "node --watch server/index.ts & PI_GUI_NO_SPAWN=1 tauri dev",
+    "tauri:dev": "node --watch server/index.ts 2>&1 | tee /tmp/pi-gui-backend.log & PI_GUI_NO_SPAWN=1 tauri dev",
     "tauri:build": "pnpm bundle:backend && tauri build",
     "typecheck": "tsc --noEmit",
     "test:unit": "node test/lock-test.ts && node test/i18n-test.ts",

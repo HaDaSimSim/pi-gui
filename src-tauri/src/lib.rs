@@ -50,15 +50,28 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     };
 
     let node = std::env::var("PI_GUI_NODE").unwrap_or_else(|_| "node".to_string());
-    // PORT=0 → OS 가 빈 포트 할당. PI_GUI_PORT 로 강제 지정도 허용(테스트용).
+    // PORT=0 -> OS picks a free port. PI_GUI_PORT forces a fixed port (test use).
     let port = std::env::var("PI_GUI_PORT").unwrap_or_else(|_| "0".to_string());
     let mut cmd = Command::new(node);
     cmd.arg(&entry);
     cmd.env("PORT", &port);
     cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped()); // pipe stderr too so crash logs are not lost
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
+
+    // Also persist backend logs to a file (so a windowless prod app can be diagnosed).
+    let log_path = app
+        .path()
+        .app_log_dir()
+        .ok()
+        .map(|d| {
+            let _ = std::fs::create_dir_all(&d);
+            d.join("backend.log")
+        })
+        .unwrap_or_else(|| std::env::temp_dir().join("pi-gui-backend.log"));
+    eprintln!("[pi-gui] backend log: {}", log_path.display());
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -67,24 +80,58 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
             return None;
         }
     };
-    eprintln!("[pi-gui] backend spawned (pid {})", child.id());
+    let pid = child.id();
+    eprintln!("[pi-gui] backend spawned (pid {pid})");
 
-    // 자식 stdout 을 읽어 "PI_GUI_PORT=<n>" 을 찾으면 프론트에 알린다.
+    // Shared log file handle for the stdout/stderr reader threads.
+    let log_file = std::sync::Arc::new(std::sync::Mutex::new(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok(),
+    ));
+    let write_log = move |lf: &std::sync::Arc<std::sync::Mutex<Option<std::fs::File>>>,
+                          line: &str| {
+        if let Ok(mut g) = lf.lock() {
+            if let Some(f) = g.as_mut() {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
+        }
+    };
+
+    // Read stdout: find "PI_GUI_PORT=<n>" and tell the frontend; log the rest.
     if let Some(stdout) = child.stdout.take() {
         let handle = app.clone();
+        let lf = log_file.clone();
+        let wl = write_log.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
                 eprintln!("[backend] {line}");
+                wl(&lf, &format!("[out] {line}"));
                 if let Some(rest) = line.strip_prefix("PI_GUI_PORT=") {
                     if let Ok(p) = rest.trim().parse::<u16>() {
-                        // 이벤트로도 쏘고, WebView 전역에도 직접 박는다(둘 다 안전망).
                         let _ = handle.emit("pi-gui://port", p);
                         if let Some(win) = handle.get_webview_window("main") {
                             let _ = win.eval(&format!("window.__PI_GUI_PORT__ = {p};"));
                         }
                     }
                 }
+            }
+        });
+    }
+
+    // Read stderr too (Node crash/exception messages come out here).
+    if let Some(stderr) = child.stderr.take() {
+        let lf = log_file.clone();
+        let wl = write_log.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                eprintln!("[backend!] {line}");
+                wl(&lf, &format!("[err] {line}"));
             }
         });
     }

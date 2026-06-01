@@ -49,6 +49,7 @@ export interface SessionControls {
   supportsThinking: boolean;
   name: string | null;
   stats: unknown; // SessionStats (tokens/cost/contextUsage 포함)
+  queue?: { steering: string[]; followUp: string[] }; // 스트리밍 중 대기열 메시지
 }
 
 export interface LiveRuntime {
@@ -223,7 +224,12 @@ export class RuntimeManager {
    * "매번 메시지 보내기 직전에 락이 나한테 있는지" 확인한다.
    * @throws RevokedError 락을 뺏긴 경우 (런타임도 내려간다).
    */
-  async prompt(sessionPath: string, message: string, images?: ImageContent[]): Promise<void> {
+  async prompt(
+    sessionPath: string,
+    message: string,
+    images?: ImageContent[],
+    deliverAs?: "steer" | "followUp",
+  ): Promise<void> {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) throw new Error("no live runtime; call getOrCreate first");
 
@@ -237,7 +243,12 @@ export class RuntimeManager {
     rt.lastActivity = Date.now();
     const hasImages = !!images && images.length > 0;
     if (rt.session.isStreaming) {
-      await rt.session.steer(message, hasImages ? images : undefined);
+      // 스트리밍 중: steer(기본, 즉시 개입) 또는 followUp(틴 끝난 뒤 전달).
+      if (deliverAs === "followUp") {
+        await rt.session.followUp(message, hasImages ? images : undefined);
+      } else {
+        await rt.session.steer(message, hasImages ? images : undefined);
+      }
     } else {
       rt.session.prompt(message, hasImages ? { images } : undefined).catch((e) => {
         // 프롬프트 도중 에러는 이벤트 스트림으로도 나가지만, 로깅도 남긴다.
@@ -376,7 +387,26 @@ export class RuntimeManager {
       supportsThinking: rt.session.supportsThinking?.() ?? false,
       name: rt.session.sessionName ?? null,
       stats,
+      queue: {
+        steering: [...(rt.session.getSteeringMessages?.() ?? [])],
+        followUp: [...(rt.session.getFollowUpMessages?.() ?? [])],
+      },
     };
+  }
+
+  /** 대기열을 통째로 교체한다(개별 수정/삭제용). SDK 는 clearQueue 후 재추가만 지원.
+  // 순서 유지: steering 먼저, 그다음 followUp. 락이 내 것일 때만.
+  setQueue(sessionPath: string, steering: string[], followUp: string[]): { ok: boolean } {
+    const rt = this.runtimes.get(sessionPath);
+    if (!rt || !rt.lock.isMine()) return { ok: false };
+    try {
+      rt.session.clearQueue();
+      for (const m of steering) void rt.session.steer(m);
+      for (const m of followUp) void rt.session.followUp(m);
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
   }
 
   /**

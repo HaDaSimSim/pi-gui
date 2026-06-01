@@ -75,6 +75,7 @@ export interface SessionState {
   controls: SessionControls | null; // 모델/효율/컨텍스트/이름 스냅샷 (info 패널용)
   name: string | null; // 세션 이름 (스크롤백 + rename + 라이브 반영)
   uiRequest: UiRequest | null; // extension 의 ctx.ui.confirm/select/input 요청 (브릿지)
+  queue: { steering: string[]; followUp: string[] }; // 스트리밍 중 대기열 메시지
 }
 
 export interface UiQuestionOption {
@@ -249,6 +250,7 @@ export function useSession(path: string, cwd?: string) {
     controls: null,
     name: null,
     uiRequest: null,
+    queue: { steering: [], followUp: [] },
   });
 
   // 스트리밍 중 누적 중인 assistant 메시지 (이벤트로 갱신)
@@ -344,7 +346,7 @@ export function useSession(path: string, cwd?: string) {
   const refreshControls = useCallback(() => {
     api
       .controls(path)
-      .then((controls) => patch({ controls, ...(controls.name ? { name: controls.name } : {}) }))
+      .then((controls) => patch({ controls, ...(controls.name ? { name: controls.name } : {}), ...(controls.queue ? { queue: controls.queue } : {}) }))
       .catch(() => undefined);
   }, [path, patch]);
 
@@ -435,6 +437,14 @@ export function useSession(path: string, cwd?: string) {
           break;
         case "thinking_level_changed":
           refreshControls();
+          break;
+        case "queue_update":
+          patch({
+            queue: {
+              steering: [...(ev.steering ?? [])],
+              followUp: [...(ev.followUp ?? [])],
+            },
+          });
           break;
         case "agent_start":
           patch({ streaming: true });
@@ -549,18 +559,22 @@ export function useSession(path: string, cwd?: string) {
   );
 
   // 프롬프트 전송 (낙관적으로 user 메시지 추가). images = data URL 배열(첨부).
+  // deliverAs: 스트리밍 중일 때 steer(즉시 개입) / followUp(틴 끝난 뒤). 큐잉이면
+  // 낙관적 user 메시지를 안 넘긴다(아직 전송 아닌 대기열이므로 queue_update 로 표시됨).
   const send = useCallback(
-    async (text: string, force = false, images?: string[]) => {
+    async (text: string, force = false, images?: string[], deliverAs?: "steer" | "followUp") => {
       patch({ conflict: null, error: null });
-      setState((s) => ({
-        ...s,
-        messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text, time: new Date().toISOString() }],
-      }));
+      if (!deliverAs) {
+        setState((s) => ({
+          ...s,
+          messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text, time: new Date().toISOString() }],
+        }));
+      }
       try {
         await api.prompt(path, text, force, images, cwd, {
           model: draftModel ?? undefined,
           thinkingLevel: draftThinking ?? undefined,
-        });
+        }, deliverAs);
         patch({ live: true });
         refreshControls();
       } catch (e) {
@@ -573,6 +587,15 @@ export function useSession(path: string, cwd?: string) {
       }
     },
     [path, cwd, patch, refreshControls, draftModel, draftThinking],
+  );
+
+  // 대기열 메시지 교체 (개별 수정/삭제). 살아남을 목록을 통째로 서버에 보낸다.
+  const editQueue = useCallback(
+    (steering: string[], followUp: string[]) => {
+      patch({ queue: { steering, followUp } }); // 낙관적 반영
+      api.setQueue(path, steering, followUp).catch(() => undefined);
+    },
+    [path, patch],
   );
 
   // 강제로 가져오기 (force takeover 후 재전송 X — 그냥 락만 확보)
@@ -676,6 +699,7 @@ export function useSession(path: string, cwd?: string) {
     refreshControls,
     abort,
     shutdown,
+    editQueue,
     respondUi,
     effectiveModel,
     effectiveThinking,

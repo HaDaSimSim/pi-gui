@@ -1,7 +1,7 @@
 // 한 세션 탭: 메시지 + 컴포저 + 락 충돌 배너 + info 패널 토글.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Paperclip, Send, PanelRight, X, Square, Power } from "lucide-react";
+import { Loader2, Paperclip, Send, PanelRight, X, Square, Power, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -36,13 +36,15 @@ function fileToDataUrl(file: File): Promise<string> {
 
 export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, editQueue, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   // 메시지 윈도잉: 큰 세션은 마지막 N개만 렌더해 메인스레드 블록을 막는다.
   // (수천 메시지 × 마크다운 파싱 = 동기 렌더로 앱 멈춤) "이전 보기"로 더 로드.
   const MSG_WINDOW = 60;
   const [visibleCount, setVisibleCount] = useState(MSG_WINDOW);
+  // 스트리밍 중 메시지 전달 모드: steer(즉시 개입) / followUp(틴 끝난 뒤).
+  const [steerMode, setSteerMode] = useState<"steer" | "followUp">("steer");
   // 서브에이전트를 "메인 스레드처럼" 펼쳐볼 때 선택된 runId (읽기전용).
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [commands, setCommands] = useState<{ name: string; description?: string; source: string }[]>([]);
@@ -194,7 +196,9 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
       const imgs = files.filter((f) => f.type.startsWith("image/"));
       images = imgs.length ? await Promise.all(imgs.map(fileToDataUrl)) : undefined;
     }
-    send(text, false, images);
+    // 스트리밍 중이면 선택한 모드(steer/followUp)로 큐잉, 아니면 일반 전송.
+    const deliverAs = state.streaming ? steerMode : undefined;
+    send(text, false, images, deliverAs);
     setInput("");
     setFiles([]);
   };
@@ -329,6 +333,47 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
               ))}
             </div>
           ) : null}
+          {/* 스트리밍 중 대기열: steering/followUp 메시지 (수정·삭제 가능) */}
+          {state.queue.steering.length + state.queue.followUp.length > 0 ? (
+            <div className="mb-2 flex flex-col gap-1">
+              {(["steering", "followUp"] as const).flatMap((bucket) =>
+                state.queue[bucket].map((msg, i) => (
+                  <div
+                    key={`${bucket}-${i}`}
+                    className="flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+                  >
+                    <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">
+                      {bucket === "steering" ? t("queue.steer") : t("queue.followUp")}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{msg}</span>
+                    <button
+                      aria-label={t("queue.edit")}
+                      title={t("queue.edit")}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      onClick={() => {
+                        setInput(msg);
+                        const next = { ...state.queue, [bucket]: state.queue[bucket].filter((_, j) => j !== i) };
+                        editQueue(next.steering, next.followUp);
+                      }}
+                    >
+                      <Pencil className="size-3" />
+                    </button>
+                    <button
+                      aria-label={t("queue.delete")}
+                      title={t("queue.delete")}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => {
+                        const next = { ...state.queue, [bucket]: state.queue[bucket].filter((_, j) => j !== i) };
+                        editQueue(next.steering, next.followUp);
+                      }}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                )),
+              )}
+            </div>
+          ) : null}
           {files.length ? (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {files.map((f, i) => (
@@ -437,16 +482,40 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
               className="max-h-40 min-h-9 flex-1 resize-none"
             />
             {state.streaming ? (
-              <Button
-                key="stop"
-                size="icon"
-                variant="destructive"
-                className="shrink-0"
-                aria-label={t("session.stop")}
-                onClick={abort}
-              >
-                <Square className="size-4" />
-              </Button>
+              <>
+                {/* 스트리밍 중: 전달 모드 토글 + 큐잉 전송 + 중단 */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0 px-2 text-xs"
+                  title={steerMode === "steer" ? t("queue.steerHint") : t("queue.followUpHint")}
+                  onClick={() => setSteerMode((m) => (m === "steer" ? "followUp" : "steer"))}
+                >
+                  {steerMode === "steer" ? t("queue.steer") : t("queue.followUp")}
+                </Button>
+                <Button
+                  key="queue-send"
+                  size="icon"
+                  variant="secondary"
+                  className="shrink-0"
+                  aria-label={t("session.send")}
+                  onClick={onSubmit}
+                  disabled={!input.trim() && files.length === 0}
+                >
+                  <Send className="size-4" />
+                </Button>
+                <Button
+                  key="stop"
+                  size="icon"
+                  variant="destructive"
+                  className="shrink-0"
+                  aria-label={t("session.stop")}
+                  onClick={abort}
+                >
+                  <Square className="size-4" />
+                </Button>
+              </>
             ) : (
               <Button
                 key="send"

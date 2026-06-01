@@ -169,6 +169,7 @@ export interface SessionControls {
   supportsThinking: boolean;
   name: string | null;
   stats: SessionStats | null;
+  queue?: { steering: string[]; followUp: string[] };
 }
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -247,6 +248,7 @@ export const api = {
     images?: string[],
     cwd?: string,
     draft?: { model?: { provider: string; id: string }; thinkingLevel?: string },
+    deliverAs?: "steer" | "followUp",
   ) =>
     postJSON<{ accepted: boolean }>("/api/session/prompt", {
       path,
@@ -256,7 +258,12 @@ export const api = {
       cwd,
       model: draft?.model,
       thinkingLevel: draft?.thinkingLevel,
+      deliverAs,
     }),
+
+  // 대기열 교체 (steering/followUp 개별 수정/삭제).
+  setQueue: (path: string, steering: string[], followUp: string[]) =>
+    postJSON<{ ok: boolean }>("/api/session/queue", { path, steering, followUp }),
 
   // 진행 중인 응답 중단.
   abort: (path: string) => postJSON<{ aborted: boolean }>("/api/session/abort", { path }),

@@ -284,6 +284,7 @@ app.post("/api/session/prompt", async (c) => {
     images?: string[]; // data URL 배열 (data:<mime>;base64,<data>)
     model?: { provider: string; id: string }; // 첫 메시지 전 draft 모델
     thinkingLevel?: string; // 첫 메시지 전 draft 효율
+    deliverAs?: "steer" | "followUp"; // 스트리밍 중일 때 전달 방식
   }>();
   if (!body?.path || !body?.message) {
     return c.json({ error: "path and message required" }, 400);
@@ -305,7 +306,7 @@ app.post("/api/session/prompt", async (c) => {
         thinkingLevel: body.thinkingLevel,
       });
     }
-    await runtimes.prompt(body.path, body.message, images); // 내부에서 isMine() 재확인
+    await runtimes.prompt(body.path, body.message, images, body.deliverAs); // 내부에서 isMine() 재확인
     return c.json({ accepted: true, live: true });
   } catch (e) {
     if (e instanceof LockedError) {
@@ -331,6 +332,13 @@ app.post("/api/session/abort", async (c) => {
   const body = await c.req.json<{ path: string }>();
   if (!body?.path) return c.json({ error: "path required" }, 400);
   return c.json(await runtimes.abort(body.path));
+});
+
+// 대기열(steering/followUp) 교체 — 개별 메시지 수정/삭제용 (클라이언트가 살아남을 목록 전송).
+app.post("/api/session/queue", async (c) => {
+  const body = await c.req.json<{ path: string; steering?: string[]; followUp?: string[] }>();
+  if (!body?.path) return c.json({ error: "path required" }, 400);
+  return c.json(runtimes.setQueue(body.path, body.steering ?? [], body.followUp ?? []));
 });
 
 // ── UI 브릿지 응답: 브라우저가 confirm/select/input 다이얼로그에 답한 결과 ──

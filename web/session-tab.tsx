@@ -305,7 +305,17 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
           </div>
         ) : null}
 
-        {/* 컴포저 */}
+        {/* 컴포저 (또는 questionnaire 인라인 — TUI 처럼 입력창 자리에 질문이 뜨다) */}
+        {state.uiRequest?.kind === "questionnaire" ? (
+          <div className="shrink-0 px-4 py-4">
+            <QuestionnaireDialog
+              id={state.uiRequest.id}
+              questions={state.uiRequest.questions ?? []}
+              onRespond={respondUi}
+              inline
+            />
+          </div>
+        ) : (
         <div className="relative shrink-0 px-4 py-4">
           {/* 슬래시 커맨드 메뉴 ("/" 입력 시) */}
           {commandMenu ? (
@@ -528,6 +538,7 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
             )}
           </div>
         </div>
+        )}
 
         {/* 푸터 (TUI 미러링) */}
         <Footer path={path} cwd={cwd} refreshKey={footerKey} />
@@ -556,16 +567,9 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
         />
       </ResizablePanel>
 
-      {state.uiRequest ? (
-        state.uiRequest.kind === "questionnaire" ? (
-          <QuestionnaireDialog
-            id={state.uiRequest.id}
-            questions={state.uiRequest.questions ?? []}
-            onRespond={respondUi}
-          />
-        ) : (
-          <UiRequestDialog request={state.uiRequest} onRespond={respondUi} />
-        )
+      {/* questionnaire 는 컴포저 자리에 인라인으로 뜨므로 여기서 제외. 나머지 ui 요청은 다이얼로그. */}
+      {state.uiRequest && state.uiRequest.kind !== "questionnaire" ? (
+        <UiRequestDialog request={state.uiRequest} onRespond={respondUi} />
       ) : null}
 
       {/* 서브에이전트 실행을 큰 모달로 (메인 스레드처럼 채팅 UI 재활용, 읽기전용) */}

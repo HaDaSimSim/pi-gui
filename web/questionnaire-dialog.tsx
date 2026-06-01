@@ -8,7 +8,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,10 +52,12 @@ export function QuestionnaireDialog({
   id,
   questions,
   onRespond,
+  inline = false,
 }: {
   id: string;
   questions: UiQuestion[];
   onRespond: (id: string, value: unknown) => void;
+  inline?: boolean;
 }) {
   const [drafts, setDrafts] = useState<Draft[]>(() => questions.map(() => emptyDraft()));
   const [tab, setTab] = useState(0);
@@ -91,92 +92,109 @@ export function QuestionnaireDialog({
   const q = questions[tab];
   const d = drafts[tab];
 
+  const body = (
+    <>
+      {/* 여러 질문이면 탭 바 */}
+      {isMulti ? (
+        <div className="flex flex-wrap gap-1 border-b pb-2">
+          {questions.map((qq, i) => (
+            <button
+              key={qq.id}
+              onClick={() => setTab(i)}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 text-xs",
+                i === tab ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50",
+              )}
+            >
+              {answers[i] ? <Check className="size-3 text-emerald-500" /> : null}
+              {qq.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex max-h-[55vh] flex-col gap-2 overflow-y-auto">
+        {isMulti ? <div className="text-sm font-medium">{q.prompt}</div> : null}
+
+        {q.options.map((opt, oi) => {
+          const checked = !d.customActive && d.selected.has(oi);
+          return (
+            <button
+              key={opt.value}
+              onClick={() => toggleOption(tab, oi)}
+              className={cn(
+                "flex items-start gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-accent/50",
+                checked ? "border-primary bg-accent" : "border-border",
+              )}
+            >
+              <span
+                className={cn(
+                  "mt-0.5 flex size-4 shrink-0 items-center justify-center border",
+                  q.multiSelect ? "rounded" : "rounded-full",
+                  checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40",
+                )}
+              >
+                {checked ? <Check className="size-3" /> : null}
+              </span>
+              <span className="min-w-0">
+                <span className="block">{opt.label}</span>
+                {opt.description ? (
+                  <span className="block text-xs text-muted-foreground">{opt.description}</span>
+                ) : null}
+              </span>
+            </button>
+          );
+        })}
+
+        {/* 자유 입력 */}
+        <Input
+          placeholder="Or type your own answer…"
+          value={d.custom}
+          onChange={(e) =>
+            update(tab, (dd) => ({ ...dd, custom: e.target.value, customActive: e.target.value.trim().length > 0 }))
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing && allAnswered) submit();
+          }}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="outline" onClick={cancel}>
+          Cancel
+        </Button>
+        {isMulti && tab < questions.length - 1 ? (
+          <Button onClick={() => setTab(tab + 1)} disabled={!answers[tab]}>
+            Next
+          </Button>
+        ) : (
+          <Button onClick={submit} disabled={!allAnswered}>
+            Submit
+          </Button>
+        )}
+      </div>
+    </>
+  );
+
+  // 인라인(컴포저 자리): TUI 처럼 입력창 대신 질문이 뜨는 형태.
+  if (inline) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg border bg-card p-3">
+        <div className="text-sm font-medium">
+          {isMulti ? `Questions (${tab + 1}/${questions.length})` : q.prompt}
+        </div>
+        {body}
+      </div>
+    );
+  }
+
   return (
     <Dialog open onOpenChange={(o) => !o && cancel()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{isMulti ? `Questions (${tab + 1}/${questions.length})` : q.prompt}</DialogTitle>
         </DialogHeader>
-
-        {/* 여러 질문이면 탭 바 */}
-        {isMulti ? (
-          <div className="flex flex-wrap gap-1 border-b pb-2">
-            {questions.map((qq, i) => (
-              <button
-                key={qq.id}
-                onClick={() => setTab(i)}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2 py-1 text-xs",
-                  i === tab ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50",
-                )}
-              >
-                {answers[i] ? <Check className="size-3 text-emerald-500" /> : null}
-                {qq.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="flex max-h-[55vh] flex-col gap-2 overflow-y-auto">
-          {isMulti ? <div className="text-sm font-medium">{q.prompt}</div> : null}
-
-          {q.options.map((opt, oi) => {
-            const checked = !d.customActive && d.selected.has(oi);
-            return (
-              <button
-                key={opt.value}
-                onClick={() => toggleOption(tab, oi)}
-                className={cn(
-                  "flex items-start gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-accent/50",
-                  checked ? "border-primary bg-accent" : "border-border",
-                )}
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 flex size-4 shrink-0 items-center justify-center border",
-                    q.multiSelect ? "rounded" : "rounded-full",
-                    checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40",
-                  )}
-                >
-                  {checked ? <Check className="size-3" /> : null}
-                </span>
-                <span className="min-w-0">
-                  <span className="block">{opt.label}</span>
-                  {opt.description ? (
-                    <span className="block text-xs text-muted-foreground">{opt.description}</span>
-                  ) : null}
-                </span>
-              </button>
-            );
-          })}
-
-          {/* 자유 입력 */}
-          <Input
-            placeholder="Or type your own answer…"
-            value={d.custom}
-            onChange={(e) =>
-              update(tab, (dd) => ({ ...dd, custom: e.target.value, customActive: e.target.value.trim().length > 0 }))
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing && allAnswered) submit();
-            }}
-          />
-        </div>
-
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={cancel}>
-            Cancel
-          </Button>
-          {isMulti && tab < questions.length - 1 ? (
-            <Button onClick={() => setTab(tab + 1)} disabled={!answers[tab]}>
-              Next
-            </Button>
-          ) : (
-            <Button onClick={submit} disabled={!allAnswered}>
-              Submit
-            </Button>
-          )}
-        </DialogFooter>
+        {body}
       </DialogContent>
     </Dialog>
   );

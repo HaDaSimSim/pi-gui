@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { createNodeWebSocket } from "@hono/node-ws";
 
 // pi-web/pi-gui 가 띄우는 런타임에서는 session-lock 익스텐션을 끕다.
 // pi-web 이 이미 SessionLock 을 직접 관리하므로, 익스텐션이 같은 파일에
@@ -27,6 +28,7 @@ import { preflight } from "./preflight.ts";
 
 const app = new Hono();
 const runtimes = new RuntimeManager();
+const { upgradeWebSocket, injectWebSocket } = createNodeWebSocket({ app });
 
 // ── CORS: 로컬 origin 만 허용 ────────────────────────────────
 // Tauri 프로덕션 빌드는 WebView 가 tauri://localhost 에서 로드되어
@@ -440,7 +442,62 @@ app.get("/api/session/events", async (c) => {
   });
 });
 
-// ── 라이브 런타임 내리기 ──────────────────────────────────────────────
+// ── WebSocket: 한 브라우저 = 소켓 1개로 여러 세션을 구독 ──────────────────
+//   브라우저의 origin당 HTTP/1.1 6연결 제한은 WS 에는 적용 안 된다.
+//   탭이 몇 개든 소켓 1개. 구독할 path 집합은 같은 소켓으로 {type:"subscribe",paths}.
+//   서버는 이벤트를 { path, event } 로 감싸 보낸다 (프론트가 path 로 라우팅).
+app.get(
+  "/ws",
+  upgradeWebSocket(() => {
+    const subs = new Map<string, () => void>(); // path → unsubscribe
+    let socket: { send: (data: string) => void } | null = null;
+    const sendWrapped = (path: string, event: unknown) => {
+      try {
+        socket?.send(JSON.stringify({ path, event }));
+      } catch {
+        /* 닫힌 소켓 */
+      }
+    };
+    const setSubscriptions = (paths: string[]) => {
+      const want = new Set(paths);
+      for (const [p, unsub] of subs) {
+        if (!want.has(p)) {
+          unsub();
+          subs.delete(p);
+        }
+      }
+      for (const p of want) {
+        if (subs.has(p)) continue;
+        const rt = runtimes.get(p);
+        sendWrapped(p, { type: "_connected", live: !!rt, streaming: rt?.session.isStreaming ?? false });
+        const unsub = runtimes.subscribe(p, (event) => sendWrapped(p, event));
+        subs.set(p, unsub);
+      }
+    };
+    return {
+      onOpen(_evt, ws) {
+        socket = ws;
+      },
+      onMessage(evt, ws) {
+        socket = ws;
+        let msg: { type?: string; paths?: string[] } | null = null;
+        try {
+          msg = JSON.parse(typeof evt.data === "string" ? evt.data : String(evt.data));
+        } catch {
+          return;
+        }
+        if (msg?.type === "subscribe") setSubscriptions(Array.isArray(msg.paths) ? msg.paths : []);
+      },
+      onClose() {
+        for (const unsub of subs.values()) unsub();
+        subs.clear();
+        socket = null;
+      },
+    };
+  }),
+);
+
+// ── 라이브 런타임 내리기 ─────────────────────────────────────
 app.delete("/api/session/live", async (c) => {
   const path = c.req.query("path");
   if (!path) return c.json({ error: "path query required" }, 400);
@@ -493,6 +550,8 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (i
   // (PORT=0 으로 띄우면 OS 가 고른 포트가 여기 찍힌다.)
   console.log(`PI_GUI_PORT=${info.port}`);
 });
+// WebSocket(/ws) 을 같은 http.Server 의 upgrade 이벤트에 붙인다.
+injectWebSocket(server);
 
 // 안전망: extension 콜백(자식 프로세스 exit 핸들러 등)에서 throw 가 나도
 // 백엔드 프로세스를 죽이지 않는다. pi-web 은 다수 세션을 서빙하므로

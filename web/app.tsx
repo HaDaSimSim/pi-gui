@@ -414,7 +414,6 @@ export default function App() {
                       <SessionTab
                         path={tab.path}
                         cwd={tab.cwd}
-                        active={tab.path === activeTab}
                         onTitle={(name) => setTabTitle(tab.path, name)}
                         onLive={() => {
                           // 첫 프롬프트로 파일이 생겼으니 그 cwd 세션 목록 갱신 → draft 칩 제거.

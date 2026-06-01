@@ -31,6 +31,19 @@ export function apiUrl(path: string): string {
   return `${apiBase()}${path}`;
 }
 
+// WebSocket URL (/ws). http(s) 오리진을 ws(s) 로 바꿜다.
+//  - Tauri prod: 주입된 동적 포트로 ws://127.0.0.1:<port>/ws
+//  - 그 외(dev/prod 브라저): 현재 오리진 기반 (dev 는 Vite 프록시가 /ws 를 포워딩).
+export function wsUrl(path = "/ws"): string {
+  const base = apiBase();
+  if (base) return base.replace(/^http/, "ws") + path;
+  if (typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.host}${path}`;
+  }
+  return path;
+}
+
 // Tauri prod: Rust 가 동적 포트를 주입할 때까지 기다린다.
 // (WebView 로드 직후엔 아직 window.__PI_GUI_PORT__ 가 없을 수 있음.)
 export function waitForBackendPort(timeoutMs = 10000): Promise<void> {

@@ -3,6 +3,7 @@
 // Tauri 에서는 apiUrl() 이 절대경로(127.0.0.1:4317)로 바꿜준다.
 
 import { apiUrl } from "./config";
+import { subscribePath } from "./event-bus";
 
 export interface DirectoryInfo {
   cwd: string;
@@ -313,22 +314,13 @@ export const api = {
     postJSON<SessionControls>("/api/session/rename", { path, name, force }),
 };
 
-// ── SSE 구독 ───────────────────────────────────────────────────────────
-// EventSource 는 GET 쿼리만 되므로 path 를 쿼리로 넘긴다.
-// 반환된 함수를 호출하면 연결을 닫는다.
+// ── 이벤트 구독 (WebSocket 단일 소켓 멀티플렉싱) ──────────────────────
+// 예전엔 탭마다 EventSource(SSE)를 열었으나, 브라우저 6연결 제한으로 탭을 많이
+// 열면 fetch 가 멈추었다. 이제 event-bus 의 단일 WebSocket 으로 멀티플렉싱한다.
+// 반환 함수를 호출하면 구독 해제.
 export function subscribeEvents(
   path: string,
   onEvent: (event: any) => void,
-  onError?: (e: Event) => void,
 ): () => void {
-  const es = new EventSource(apiUrl(`/api/session/events?path=${encodeURIComponent(path)}`));
-  es.onmessage = (e) => {
-    try {
-      onEvent(JSON.parse(e.data));
-    } catch {
-      /* 빈 ping 등 무시 */
-    }
-  };
-  if (onError) es.onerror = onError;
-  return () => es.close();
+  return subscribePath(path, onEvent);
 }

@@ -33,9 +33,9 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export function SessionTab({ path, cwd, active, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; active?: boolean; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
+export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd, active ?? true);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   // 메시지 윈도잉: 큰 세션은 마지막 N개만 렌더해 메인스레드 블록을 막는다.

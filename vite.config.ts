@@ -25,6 +25,12 @@ export default defineConfig({
         target: "http://127.0.0.1:4317",
         changeOrigin: true,
       },
+      // WebSocket 이벤트 버스(/ws) 프록시. ws:true 가 없으면 업그레이드가 안 된다.
+      "/ws": {
+        target: "http://127.0.0.1:4317",
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
   build: {

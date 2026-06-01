@@ -39,6 +39,7 @@ export function SubagentRunCard({ run, defaultOpen, onOpen }: { run: SubagentRun
         </div>
         <div className="mt-1 flex items-center gap-2 pl-4 text-xs text-muted-foreground">
           <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{run.agent}</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{run.runId}</span>
           {run.turns.length > 1 ? <span>{run.turns.length} turns</span> : null}
           {run.cost != null ? <span>${run.cost.toFixed(4)}</span> : null}
         </div>

@@ -4,7 +4,7 @@
 // thinking: 헤더 없이 작은 회색 미리보기 expandable. tool call: 컴팩트 한 줄 요약.
 
 import { Loader2, ChevronRight, FileText, FilePen, Terminal, Search, Globe, Wrench, FolderTree, Check, X as XIcon, ListTodo, Ban } from "lucide-react";
-import { memo, useState } from "react";
+import { createContext, memo, useContext, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -14,7 +14,11 @@ import {
 import { Markdown } from "./markdown";
 import { SubagentRunCard } from "./subagent-run";
 import type { ChatMessage, ToolCallView } from "./use-session";
+
 import { useT } from "./i18n";
+
+// 인라인 서브에이전트 카드에서 모달을 열기 위한 콜백 컨텍스트.
+export const SubagentOpenContext = createContext<((runId: string) => void) | null>(null);
 
 // tool call 인자에서 사람이 읽을 한 줄 요약을 뽑는다.
 function summarizeArgs(args: unknown): string {
@@ -139,10 +143,12 @@ function MessageViewImpl({ msg }: { msg: ChatMessage }) {
 
   // subagent run 은 채팅 흐름 안에 인라인으로 렌더한다 (그 세션에서 둔 서브에이전트).
   // info 패널 Subagents 탭에도 모아 보이지만, 대화 맥락에서 바로 보이는 게 더 자연스럽다.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const openSubagent = useContext(SubagentOpenContext);
   if (msg.subagentRun) {
     return (
       <div className="w-full">
-        <SubagentRunCard run={msg.subagentRun} />
+        <SubagentRunCard run={msg.subagentRun} onOpen={openSubagent ? () => openSubagent(msg.subagentRun!.runId) : undefined} />
       </div>
     );
   }

@@ -14,7 +14,7 @@ import { usePanelRef } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { api } from "./api";
 import { useSession } from "./use-session";
-import { MessageView } from "./message-view";
+import { MessageView, SubagentOpenContext } from "./message-view";
 import { InfoPanel } from "./info-panel";
 import { SubagentChatView } from "./subagent-chat-view";
 import type { SubagentRunView } from "./use-session";
@@ -274,7 +274,9 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
                   ? state.messages
                   : state.messages.slice(state.messages.length - visibleCount)
                 ).map((m) => (
-                  <MessageView key={m.key} msg={m} />
+                  <SubagentOpenContext.Provider key={m.key} value={(runId) => setSelectedRunId(runId)}>
+                    <MessageView msg={m} />
+                  </SubagentOpenContext.Provider>
                 ))}
               </div>
             )}

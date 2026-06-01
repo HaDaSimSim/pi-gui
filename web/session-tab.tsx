@@ -3,6 +3,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Paperclip, Send, PanelRight, X, Square, Power, Pencil, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -493,31 +499,29 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
             />
             {state.streaming ? (
               <>
-                {/* Send = steer(기본). 옆의 ▾ 메뉴로 follow-up 선택 가능. */}
-                <div className="flex shrink-0">
-                  <Button
-                    key="steer-send"
-                    size="icon"
-                    className="shrink-0 rounded-r-none"
-                    aria-label="Steer"
-                    title={t("queue.steerHint")}
-                    onClick={() => onSubmit()}
-                    disabled={!input.trim() && files.length === 0}
-                  >
-                    <Send className="size-4" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    className="size-9 shrink-0 rounded-l-none border-l-0 px-1"
-                    aria-label="Follow-up"
-                    title={t("queue.followUpHint")}
-                    onClick={() => onSubmit("followUp")}
-                    disabled={!input.trim() && files.length === 0}
-                  >
-                    <ChevronDown className="size-3.5" />
-                  </Button>
-                </div>
+                {/* 스트리밍 중: 드롭다운으로 steer / follow-up 선택 */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="icon"
+                      className="shrink-0"
+                      aria-label={t("session.send")}
+                      disabled={!input.trim() && files.length === 0}
+                    >
+                      <Send className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" side="top">
+                    <DropdownMenuItem onClick={() => onSubmit("steer")}>
+                      <span className="font-medium">{t("queue.steer")}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{t("queue.steerHint")}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onSubmit("followUp")}>
+                      <span className="font-medium">{t("queue.followUp")}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{t("queue.followUpHint")}</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   key="stop"
                   size="icon"

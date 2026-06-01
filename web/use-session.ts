@@ -617,12 +617,12 @@ export function useSession(path: string, cwd?: string) {
 
   // 프롬프트 전송 (낙관적으로 user 메시지 추가). images = data URL 배열(첨부).
   // deliverAs: 스트리밍 중일 때 steer(즉시 주입) / followUp(턴 끝난 뒤).
-  // steer 는 즉시 전달되므로 낙관적 user 메시지를 보여주고,
-  // followUp 만 대기열이므로 안 보여준다 (queue_update 로 표시됨).
+  // steer/followUp 는 둘 다 낙관적으로 안 넣는다. steer 는 현재 작업 종료 후 주입되므로
+  // 위치가 맞지 않을 수 있고, 실제 message_start(user) 이벤트가 올 때 정확한 위치에 표시.
   const send = useCallback(
     async (text: string, force = false, images?: string[], deliverAs?: "steer" | "followUp") => {
       patch({ conflict: null, error: null });
-      if (deliverAs !== "followUp") {
+      if (!deliverAs) {
         setState((s) => ({
           ...s,
           messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text, time: new Date().toISOString() }],

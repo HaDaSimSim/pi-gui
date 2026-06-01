@@ -212,8 +212,9 @@ export default function App() {
         .sessions(cwd)
         .then((sessions) => setSessionsByDir((m) => ({ ...m, [cwd!]: sessions })))
         .catch(() => undefined);
+      loadDirs();
     }
-  }, []);
+  }, [loadDirs]);
 
   // 제목 포맷: π - 세션이름 - 디렉터리(마지막 조각).
   // 세션이름 없으면 untitled, 디렉터리 없으면 생략.
@@ -448,8 +449,8 @@ export default function App() {
                         path={tab.path}
                         cwd={tab.cwd}
                         onTitle={(name) => setTabTitle(tab.path, name)}
-                        onLive={() => refreshDirSessions(tab.cwd, true)}
-                        onLiveChange={() => refreshDirSessions(tab.cwd)}
+                        onLive={() => { refreshDirSessions(tab.cwd, true); loadDirs(); }}
+                        onLiveChange={() => { refreshDirSessions(tab.cwd); loadDirs(); }}
                       />
                     </div>
                   ))}

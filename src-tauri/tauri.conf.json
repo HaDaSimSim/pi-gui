@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "pi-gui",
+  "productName": "π (pi)",
   "version": "0.1.0",
   "identifier": "me.mingeon.pi-gui",
   "build": {

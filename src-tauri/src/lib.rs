@@ -15,6 +15,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 // 자식 백엔드 프로세스 핸들 (종료 시 kill 용).
@@ -145,6 +146,59 @@ fn set_busy(busy: bool, state: tauri::State<Busy>) {
     state.0.store(busy, Ordering::SeqCst);
 }
 
+// macOS 메뉴 바. 앱 메뉴 이름은 productName("π (pi)")에서 온다.
+// View 메뉴에 DevTools 토글(Cmd+Opt+I)을 둬서 백엔드/프론트 디버깅을 쉽게 한다.
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    // 앱 메뉴 (about / hide / quit 등 표준).
+    let app_menu = SubmenuBuilder::new(app, "π (pi)")
+        .about(None)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    // 편집 메뉴 (복사/붙여넣기 — 텍스트 입력에 필요).
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    // 보기 메뉴 — DevTools 토글.
+    let devtools_item = MenuItemBuilder::with_id("toggle-devtools", "Toggle Developer Tools")
+        .accelerator("CmdOrCtrl+Alt+I")
+        .build(app)?;
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&devtools_item)
+        .separator()
+        .fullscreen()
+        .build()?;
+
+    // 창 메뉴.
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .close_window()
+        .build()?;
+
+    MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&edit_menu)
+        .item(&view_menu)
+        .item(&window_menu)
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let busy = Arc::new(AtomicBool::new(false));
@@ -159,6 +213,25 @@ pub fn run() {
             let child = spawn_backend(handle);
             let state = app.state::<Backend>();
             *state.0.lock().unwrap() = child;
+
+            // 메뉴 바 구성 + DevTools 토글 이벤트.
+            match build_menu(handle) {
+                Ok(menu) => {
+                    let _ = app.set_menu(menu);
+                    app.on_menu_event(|app, event| {
+                        if event.id() == "toggle-devtools" {
+                            if let Some(win) = app.get_webview_window("main") {
+                                if win.is_devtools_open() {
+                                    win.close_devtools();
+                                } else {
+                                    win.open_devtools();
+                                }
+                            }
+                        }
+                    });
+                }
+                Err(e) => eprintln!("[pi-gui] menu build failed: {e}"),
+            }
 
             // 창 X 닫기 → 종료 아닌 백그라운드로 hide. 탭/세션 상태가 메모리에 유지된다.
             // 실제 종료는 dock 우클릭→Quit (또는 Cmd+Q) → ExitRequested 에서만.

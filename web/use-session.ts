@@ -500,6 +500,24 @@ export function useSession(path: string, cwd?: string) {
               time: new Date().toISOString(),
             };
             flushStreaming();
+          } else if (msg?.role === "user") {
+            // steer/followUp 로 전달된 user 메시지. 이미 낙관적으로 추가된 게 아니면 넣는다.
+            const text = typeof msg.content === "string"
+              ? msg.content
+              : Array.isArray(msg.content)
+                ? msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n")
+                : "";
+            if (text.trim()) {
+              setState((s) => {
+                // 중복 방지: 낙관적으로 이미 들어간 같은 텍스트가 있으면 건너뀐.
+                const lastUser = [...s.messages].reverse().find((m) => m.role === "user");
+                if (lastUser && lastUser.text === text.trim()) return s;
+                return {
+                  ...s,
+                  messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text: text.trim(), time: new Date().toISOString() }],
+                };
+              });
+            }
           }
           break;
         }

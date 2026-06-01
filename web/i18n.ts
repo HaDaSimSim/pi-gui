@@ -270,7 +270,7 @@ const ko: Record<I18nKey, string> = {
   "session.shutdown": "세션 내리기 (락 해제)",
   "queue.steer": "Steer",
   "queue.followUp": "Follow-up",
-  "queue.steerHint": "Steer: interrupt the agent now with this message",
+  "queue.steerHint": "Steer: inject this message into the current stream (redirects the agent)",
   "queue.followUpHint": "Follow-up: deliver after the current turn ends",
   "queue.edit": "Edit",
   "queue.delete": "Remove",

@@ -317,7 +317,18 @@ export class RuntimeManager {
     } catch {
       /* 파일 읽기 실패는 기본으로 폴백 */
     }
-    // 2) 기본: 첫 가용 모델.
+    // 2) 기본: 설정의 default model → 없으면 첫 가용 모델.
+    try {
+      const dp = this.settings.getDefaultProvider?.();
+      const dm = this.settings.getDefaultModel?.();
+      if (dm) {
+        const found = this.registry.find(dp ?? "", dm);
+        if (found) return { provider: found.provider, id: found.id, name: found.name };
+        return { provider: dp ?? "", id: dm, name: dm };
+      }
+    } catch {
+      /* 설정 읽기 실패 → 첫 가용 모델로 폴백 */
+    }
     try {
       const first = this.registry.getAvailable()[0];
       if (first) return { provider: first.provider, id: first.id, name: first.name };

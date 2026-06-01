@@ -109,10 +109,15 @@ extensions never need to know about web. Already wired:
   prompt flow (the SDK intercepts it).
 
 The **UI bridge** (`web-ui-context.ts`) covers `ctx.ui.confirm/select/input/`
-`editor/notify` generically (SSE → shadcn dialog/toast → `ui-response`). But
+`editor/notify` generically (WS → shadcn dialog/toast → `ui-response`). But
 `ctx.ui.custom` is an arbitrary terminal component with no generic mapping —
-extensions that use it (btw, question/questionnaire, subagents' run overlay) need
-a bespoke web renderer each. All other terminal-only UI calls (`setWidget`,
+extensions that use it need a bespoke web renderer each. **questionnaire** is
+done: `web-ui-context.ts` adds a non-standard `ctx.ui.questionnaire(questions)`
+method, and the `question` extension (pi-skills) calls it when `PI_WEB_HOST` is
+set instead of `ctx.ui.custom`, so the structured questions cross to a dedicated
+`questionnaire-dialog.tsx` (tabs/options/multiSelect/free-text) — not the
+terminal overlay. Still bespoke-needed: btw side-question, subagents' run overlay.
+All other terminal-only UI calls (`setWidget`,
 `setFooter`, `onTerminalInput`, …) are safe no-ops in the bridge.
 
 ## Verify before declaring done

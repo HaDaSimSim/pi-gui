@@ -9,7 +9,30 @@
 // 안전한 no-op. custom 을 쓰는 우리 extension(btw/question/subagents)은 web 에서
 // 별도로 수동 대응한다.
 
-type UiRequestKind = "select" | "confirm" | "input" | "editor";
+type UiRequestKind = "select" | "confirm" | "input" | "editor" | "questionnaire";
+
+// questionnaire(구조화 질문) 교환 타입 — question 익스텐션과 합의된 모양.
+export interface WebQuestionOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+export interface WebQuestion {
+  id: string;
+  label: string;
+  prompt: string;
+  options: WebQuestionOption[];
+  multiSelect: boolean;
+}
+export interface WebAnswer {
+  id: string;
+  value: string;
+  label: string;
+  wasCustom: boolean;
+  index?: number;
+  values?: string[];
+  labels?: string[];
+}
 
 export interface UiRequest {
   type: "ui_request";
@@ -19,6 +42,7 @@ export interface UiRequest {
   message?: string; // confirm
   placeholder?: string; // input/editor prefill
   options?: string[]; // select
+  questions?: WebQuestion[]; // questionnaire
   timeout?: number;
 }
 
@@ -89,6 +113,13 @@ export class WebUIContext {
   }
   editor(title: string, prefill?: string): Promise<string | undefined> {
     return this.request<string | undefined>({ kind: "editor", title, placeholder: prefill });
+  }
+
+  // questionnaire: 구조화 질문을 그대로 브라우저로 보내 전용 다이얼로그(탭/옵션/
+  // multiSelect/자유입력)로 받는다. question 익스텐션이 PI_WEB_HOST 일 때 호출.
+  // 취소면 null, 아니면 Answer[] 를 돌려준다.
+  questionnaire(questions: WebQuestion[]): Promise<WebAnswer[] | null> {
+    return this.request<WebAnswer[] | null>({ kind: "questionnaire", title: "", questions });
   }
 
   // ── 알림: 응답 불필요 ──

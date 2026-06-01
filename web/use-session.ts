@@ -77,13 +77,36 @@ export interface SessionState {
   uiRequest: UiRequest | null; // extension 의 ctx.ui.confirm/select/input 요청 (브릿지)
 }
 
+export interface UiQuestionOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+export interface UiQuestion {
+  id: string;
+  label: string;
+  prompt: string;
+  options: UiQuestionOption[];
+  multiSelect: boolean;
+}
+export interface UiAnswer {
+  id: string;
+  value: string;
+  label: string;
+  wasCustom: boolean;
+  index?: number;
+  values?: string[];
+  labels?: string[];
+}
+
 export interface UiRequest {
   id: string;
-  kind: "select" | "confirm" | "input" | "editor";
+  kind: "select" | "confirm" | "input" | "editor" | "questionnaire";
   title: string;
   message?: string;
   placeholder?: string;
   options?: string[];
+  questions?: UiQuestion[];
 }
 
 // 세션 파일 엔트리(스크롤백)를 화면 메시지로 변환.
@@ -383,6 +406,7 @@ export function useSession(path: string, cwd?: string) {
               message: ev.message,
               placeholder: ev.placeholder,
               options: ev.options,
+              questions: ev.questions,
             },
           });
           break;

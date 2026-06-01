@@ -21,6 +21,7 @@ import type { SubagentRunView } from "./use-session";
 import { Footer } from "./footer";
 import { ModelControls } from "./model-controls";
 import { UiRequestDialog } from "./ui-request-dialog";
+import { QuestionnaireDialog } from "./questionnaire-dialog";
 import { useT } from "./i18n";
 
 // File → data URL (백엔드가 data:<mime>;base64,<data> 를 파싱).
@@ -489,7 +490,17 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
         />
       </ResizablePanel>
 
-      {state.uiRequest ? <UiRequestDialog request={state.uiRequest} onRespond={respondUi} /> : null}
+      {state.uiRequest ? (
+        state.uiRequest.kind === "questionnaire" ? (
+          <QuestionnaireDialog
+            id={state.uiRequest.id}
+            questions={state.uiRequest.questions ?? []}
+            onRespond={respondUi}
+          />
+        ) : (
+          <UiRequestDialog request={state.uiRequest} onRespond={respondUi} />
+        )
+      ) : null}
     </ResizablePanelGroup>
   );
 }

@@ -101,12 +101,13 @@ export interface UiAnswer {
 
 export interface UiRequest {
   id: string;
-  kind: "select" | "confirm" | "input" | "editor" | "questionnaire";
+  kind: "select" | "confirm" | "input" | "editor" | "questionnaire" | "btw";
   title: string;
   message?: string;
   placeholder?: string;
   options?: string[];
   questions?: UiQuestion[];
+  answer?: string;
 }
 
 // 세션 파일 엔트리(스크롤백)를 화면 메시지로 변환.
@@ -407,6 +408,7 @@ export function useSession(path: string, cwd?: string) {
               placeholder: ev.placeholder,
               options: ev.options,
               questions: ev.questions,
+              answer: ev.answer,
             },
           });
           break;

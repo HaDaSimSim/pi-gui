@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Markdown } from "./markdown";
 import type { UiRequest } from "./use-session";
 
 export function UiRequestDialog({
@@ -34,11 +35,24 @@ export function UiRequestDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && cancel()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className={request.kind === "btw" ? "sm:max-w-2xl" : "sm:max-w-md"}>
         <DialogHeader>
-          <DialogTitle>{request.title}</DialogTitle>
-          {request.message ? <DialogDescription>{request.message}</DialogDescription> : null}
+          <DialogTitle className="flex items-center gap-2">
+            {request.kind === "btw" ? <span className="text-accent-foreground">💬 by the way</span> : request.title}
+          </DialogTitle>
+          {request.kind === "btw" ? (
+            <DialogDescription>{request.title}</DialogDescription>
+          ) : request.message ? (
+            <DialogDescription>{request.message}</DialogDescription>
+          ) : null}
         </DialogHeader>
+
+        {request.kind === "btw" ? (
+          <div className="max-h-[60vh] overflow-y-auto">
+            <Markdown text={request.answer ?? ""} />
+            <p className="mt-3 text-xs text-muted-foreground">this is not saved to the conversation</p>
+          </div>
+        ) : null}
 
         {request.kind === "select" ? (
           <div className="flex flex-col gap-1.5">
@@ -84,6 +98,8 @@ export function UiRequestDialog({
               </Button>
               <Button onClick={() => onRespond(request.id, true)}>Yes</Button>
             </>
+          ) : request.kind === "btw" ? (
+            <Button onClick={() => onRespond(request.id, undefined)}>Close</Button>
           ) : request.kind === "input" || request.kind === "editor" ? (
             <>
               <Button variant="outline" onClick={cancel}>

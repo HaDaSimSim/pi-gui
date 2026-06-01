@@ -111,13 +111,16 @@ extensions never need to know about web. Already wired:
 The **UI bridge** (`web-ui-context.ts`) covers `ctx.ui.confirm/select/input/`
 `editor/notify` generically (WS → shadcn dialog/toast → `ui-response`). But
 `ctx.ui.custom` is an arbitrary terminal component with no generic mapping —
-extensions that use it need a bespoke web renderer each. **questionnaire** is
-done: `web-ui-context.ts` adds a non-standard `ctx.ui.questionnaire(questions)`
-method, and the `question` extension (pi-skills) calls it when `PI_WEB_HOST` is
-set instead of `ctx.ui.custom`, so the structured questions cross to a dedicated
-`questionnaire-dialog.tsx` (tabs/options/multiSelect/free-text) — not the
-terminal overlay. Still bespoke-needed: btw side-question, subagents' run overlay.
-All other terminal-only UI calls (`setWidget`,
+extensions that use it need a bespoke web renderer each. **questionnaire** and
+**btw** are done: `web-ui-context.ts` adds non-standard `ctx.ui.questionnaire(questions)`
+and `ctx.ui.showBtw(question, answer)` methods, and the `question`/`btw` extensions
+(pi-skills) call them when `PI_WEB_HOST` is set instead of `ctx.ui.custom`, so the
+structured questions / side-answer cross to dedicated dialogs
+(`questionnaire-dialog.tsx`, and a `btw` branch in `ui-request-dialog.tsx`) — not
+the terminal overlay. The **subagents** run-viewer shortcut (`ctx.ui.custom`
+overlay) is a harmless no-op on web because its interactive browsing already
+exists as the info-panel Subagents tab + `subagent-chat-view.tsx`. All other
+terminal-only UI calls (`setWidget`,
 `setFooter`, `onTerminalInput`, …) are safe no-ops in the bridge.
 
 ## Verify before declaring done

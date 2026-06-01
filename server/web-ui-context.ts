@@ -9,7 +9,7 @@
 // 안전한 no-op. custom 을 쓰는 우리 extension(btw/question/subagents)은 web 에서
 // 별도로 수동 대응한다.
 
-type UiRequestKind = "select" | "confirm" | "input" | "editor" | "questionnaire";
+type UiRequestKind = "select" | "confirm" | "input" | "editor" | "questionnaire" | "btw";
 
 // questionnaire(구조화 질문) 교환 타입 — question 익스텐션과 합의된 모양.
 export interface WebQuestionOption {
@@ -43,6 +43,7 @@ export interface UiRequest {
   placeholder?: string; // input/editor prefill
   options?: string[]; // select
   questions?: WebQuestion[]; // questionnaire
+  answer?: string; // btw (마크다운 답변)
   timeout?: number;
 }
 
@@ -120,6 +121,12 @@ export class WebUIContext {
   // 취소면 null, 아니면 Answer[] 를 돌려준다.
   questionnaire(questions: WebQuestion[]): Promise<WebAnswer[] | null> {
     return this.request<WebAnswer[] | null>({ kind: "questionnaire", title: "", questions });
+  }
+
+  // btw: 사이드 질문의 답변(마크다운)을 읽기전용 오버레이로 보여준다(닫기만).
+  // 대화에 저장되지 않는다. btw 익스텐션이 PI_WEB_HOST 일 때 호출.
+  showBtw(question: string, answer: string): Promise<void> {
+    return this.request<void>({ kind: "btw", title: question, answer });
   }
 
   // ── 알림: 응답 불필요 ──

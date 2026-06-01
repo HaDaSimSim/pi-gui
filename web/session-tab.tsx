@@ -1,7 +1,7 @@
 // 한 세션 탭: 메시지 + 컴포저 + 락 충돌 배너 + info 패널 토글.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Paperclip, Send, PanelRight, X, Square, Power, Pencil } from "lucide-react";
+import { Loader2, Paperclip, Send, PanelRight, X, Square, Power, Pencil, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -44,8 +44,6 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
   // (수천 메시지 × 마크다운 파싱 = 동기 렌더로 앱 멈춤) "이전 보기"로 더 로드.
   const MSG_WINDOW = 60;
   const [visibleCount, setVisibleCount] = useState(MSG_WINDOW);
-  // 스트리밍 중 메시지 전달 모드: steer(즉시 개입) / followUp(틴 끝난 뒤).
-  const [steerMode, setSteerMode] = useState<"steer" | "followUp">("steer");
   // 서브에이전트를 "메인 스레드처럼" 펼쳐볼 때 선택된 runId (읽기전용).
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [commands, setCommands] = useState<{ name: string; description?: string; source: string }[]>([]);
@@ -188,7 +186,7 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
   // 푸터 갱신 키: 스트리밍 끝날 때(false 로 전환) + 메시지 수 변화 시 다시 집계.
   const footerKey = (state.streaming ? 1 : 0) + state.messages.length;
 
-  const onSubmit = async () => {
+  const onSubmit = async (modeOverride?: "steer" | "followUp") => {
     const text = input.trim();
     if (!text && files.length === 0) return;
     lastTextRef.current = text;
@@ -198,7 +196,7 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
       images = imgs.length ? await Promise.all(imgs.map(fileToDataUrl)) : undefined;
     }
     // 스트리밍 중이면 선택한 모드(steer/followUp)로 큐잉, 아니면 일반 전송.
-    const deliverAs = state.streaming ? steerMode : undefined;
+    const deliverAs = state.streaming ? (modeOverride ?? "steer") : undefined;
     send(text, false, images, deliverAs);
     setInput("");
     setFiles([]);
@@ -491,28 +489,31 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
             />
             {state.streaming ? (
               <>
-                {/* 스트리밍 중: 전달 모드 토글 + 큐잉 전송 + 중단 */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 shrink-0 px-2 text-xs"
-                  title={steerMode === "steer" ? t("queue.steerHint") : t("queue.followUpHint")}
-                  onClick={() => setSteerMode((m) => (m === "steer" ? "followUp" : "steer"))}
-                >
-                  {steerMode === "steer" ? t("queue.steer") : t("queue.followUp")}
-                </Button>
-                <Button
-                  key="queue-send"
-                  size="icon"
-                  variant="secondary"
-                  className="shrink-0"
-                  aria-label={t("session.send")}
-                  onClick={onSubmit}
-                  disabled={!input.trim() && files.length === 0}
-                >
-                  <Send className="size-4" />
-                </Button>
+                {/* Send = steer(기본). 옆의 ▾ 메뉴로 follow-up 선택 가능. */}
+                <div className="flex shrink-0">
+                  <Button
+                    key="steer-send"
+                    size="icon"
+                    className="shrink-0 rounded-r-none"
+                    aria-label="Steer"
+                    title={t("queue.steerHint")}
+                    onClick={() => onSubmit()}
+                    disabled={!input.trim() && files.length === 0}
+                  >
+                    <Send className="size-4" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="size-9 shrink-0 rounded-l-none border-l-0 px-1"
+                    aria-label="Follow-up"
+                    title={t("queue.followUpHint")}
+                    onClick={() => onSubmit("followUp")}
+                    disabled={!input.trim() && files.length === 0}
+                  >
+                    <ChevronDown className="size-3.5" />
+                  </Button>
+                </div>
                 <Button
                   key="stop"
                   size="icon"
@@ -530,7 +531,7 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
                 size="icon"
                 className="shrink-0"
                 aria-label={t("session.send")}
-                onClick={onSubmit}
+                onClick={() => onSubmit()}
                 disabled={state.loading || (!input.trim() && files.length === 0)}
               >
                 <Send className="size-4" />

@@ -22,6 +22,7 @@ import { Footer } from "./footer";
 import { ModelControls } from "./model-controls";
 import { UiRequestDialog } from "./ui-request-dialog";
 import { QuestionnaireDialog } from "./questionnaire-dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useT } from "./i18n";
 
 // File → data URL (백엔드가 data:<mime>;base64,<data> 를 파싱).
@@ -226,9 +227,6 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
     <ResizablePanelGroup className="h-full min-h-0">
       {/* ── 채팅 영역 ── */}
       <ResizablePanel className="min-w-0">
-        {selectedRun ? (
-          <SubagentChatView run={selectedRun} onBack={() => setSelectedRunId(null)} />
-        ) : (
         <div className="flex h-full min-h-0 min-w-0 flex-col">
         {/* 상단 미니 바 */}
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-sm">
@@ -534,7 +532,6 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
         {/* 푸터 (TUI 미러링) */}
         <Footer path={path} cwd={cwd} refreshKey={footerKey} />
         </div>
-        )}
       </ResizablePanel>
 
       <ResizableHandle withHandle />
@@ -570,6 +567,19 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
           <UiRequestDialog request={state.uiRequest} onRespond={respondUi} />
         )
       ) : null}
+
+      {/* 서브에이전트 실행을 큰 모달로 (메인 스레드처럼 채팅 UI 재활용, 읽기전용) */}
+      <Dialog open={!!selectedRun} onOpenChange={(o) => !o && setSelectedRunId(null)}>
+        <DialogContent
+          className="flex h-[85vh] max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
+          aria-describedby={undefined}
+        >
+          <DialogTitle className="sr-only">{selectedRun?.title ?? "Subagent"}</DialogTitle>
+          {selectedRun ? (
+            <SubagentChatView run={selectedRun} onBack={() => setSelectedRunId(null)} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </ResizablePanelGroup>
   );
 }

@@ -424,6 +424,16 @@ export default function App() {
                               .catch(() => undefined);
                           }
                         }}
+                        onLiveChange={() => {
+                          // 락 해제/획득 등 라이브 상태가 바뀌면 사이드바 도트 갱신.
+                          const dir = tab.cwd;
+                          if (dir) {
+                            api
+                              .sessions(dir)
+                              .then((sessions) => setSessionsByDir((m) => ({ ...m, [dir]: sessions })))
+                              .catch(() => undefined);
+                          }
+                        }}
                       />
                     </div>
                   ))}

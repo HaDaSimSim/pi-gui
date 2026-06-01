@@ -533,8 +533,12 @@ export function useSession(path: string, cwd?: string) {
   }, [path]);
 
   // 런타임 내리고 락 해제 (탭은 유지). 세션은 읽기 전용으로 돌아간다.
-  const shutdown = useCallback(() => {
-    api.dispose(path).catch(() => undefined);
+  const shutdown = useCallback(async () => {
+    try {
+      await api.dispose(path); // 서버가 런타임 내리고 락 release 할 때까지 대기
+    } catch {
+      /* best-effort */
+    }
     patch({ live: false, streaming: false });
   }, [path, patch]);
 

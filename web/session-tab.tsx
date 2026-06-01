@@ -31,7 +31,7 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void }) {
+export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
   const { t } = useT();
   const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
   const [input, setInput] = useState("");
@@ -111,11 +111,18 @@ export function SessionTab({ path, cwd, onTitle, onLive }: { path: string; cwd?:
   // App 이 그 cwd 의 세션 목록을 갱신해 draft 칩을 정식 세션으로 바꿜다.
   const onLiveRef = useRef(onLive);
   onLiveRef.current = onLive;
+  const onLiveChangeRef = useRef(onLiveChange);
+  onLiveChangeRef.current = onLiveChange;
   const wasLiveRef = useRef(false);
   useEffect(() => {
     if (state.live && !wasLiveRef.current) {
       wasLiveRef.current = true;
       onLiveRef.current?.();
+      onLiveChangeRef.current?.();
+    } else if (!state.live && wasLiveRef.current) {
+      // 라이브 → 읽기전용 전환(락 해제됨): 사이드바 도트 갱신.
+      wasLiveRef.current = false;
+      onLiveChangeRef.current?.();
     }
   }, [state.live]);
 

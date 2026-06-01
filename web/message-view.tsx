@@ -12,6 +12,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Markdown } from "./markdown";
+import { SubagentRunCard } from "./subagent-run";
 import type { ChatMessage, ToolCallView } from "./use-session";
 import { useT } from "./i18n";
 
@@ -136,8 +137,15 @@ function MessageViewImpl({ msg }: { msg: ChatMessage }) {
   const { t } = useT();
   const isUser = msg.role === "user";
 
-  // subagent run 은 info 패널의 Subagents 탭에서 렌더한다 — 채팅 흐름에서는 숨긴다.
-  if (msg.subagentRun) return null;
+  // subagent run 은 채팅 흐름 안에 인라인으로 렌더한다 (그 세션에서 둔 서브에이전트).
+  // info 패널 Subagents 탭에도 모아 보이지만, 대화 맥락에서 바로 보이는 게 더 자연스럽다.
+  if (msg.subagentRun) {
+    return (
+      <div className="w-full">
+        <SubagentRunCard run={msg.subagentRun} />
+      </div>
+    );
+  }
 
   const timeStr = msg.time
     ? new Date(msg.time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })

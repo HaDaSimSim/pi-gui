@@ -30,6 +30,25 @@ const app = new Hono();
 const runtimes = new RuntimeManager();
 const { upgradeWebSocket, injectWebSocket } = createNodeWebSocket({ app });
 
+// ── 백엔드 로그 링 버퍼 (디버깅 UI 용) ─────────────────────────────────────
+// 최근 500줄을 메모리에 유지. /api/log 로 프론트가 읽을 수 있다.
+const LOG_MAX = 500;
+const logBuffer: string[] = [];
+const origStdoutWrite = process.stdout.write.bind(process.stdout);
+const origStderrWrite = process.stderr.write.bind(process.stderr);
+function captureLog(chunk: string | Uint8Array) {
+  const str = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+  for (const line of str.split("\n")) {
+    if (line.trim()) {
+      logBuffer.push(line);
+      if (logBuffer.length > LOG_MAX) logBuffer.shift();
+    }
+  }
+}
+process.stdout.write = (...args: any[]) => { captureLog(args[0]); return origStdoutWrite(...args); };
+process.stderr.write = (...args: any[]) => { captureLog(args[0]); return origStderrWrite(...args); };
+
+
 // ── CORS: 로컬 origin 만 허용 ────────────────────────────────
 // Tauri 프로덕션 빌드는 WebView 가 tauri://localhost 에서 로드되어
 // 127.0.0.1:4317 로 크로스오리진 요청을 보낸다. 그걸 허용하되,
@@ -189,6 +208,9 @@ app.get("/api/live", (c) => c.json({ live: runtimes.listLive() }));
 
 // 사전 점검: pi 설치 + 필수 extension 여부 (읽기 전용).
 app.get("/api/preflight", (c) => c.json(preflight()));
+
+// 백엔드 로그 (디버깅 UI 용). 최근 500줄 링 버퍼.
+app.get("/api/log", (c) => c.json({ lines: logBuffer }));
 
 // git 상태 (브랜치/변경파일/커밋그래프) : 읽기 전용, 런타임 0개.
 app.get("/api/git", async (c) => {

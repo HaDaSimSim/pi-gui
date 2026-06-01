@@ -220,7 +220,7 @@ export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThi
       </TabsContent>
 
       {/* ── Subagents 탭 ── */}
-      <TabsContent value="subagents" className="min-h-0 flex-1 overflow-y-auto">
+      <TabsContent value="subagents" className="min-h-0 flex-1 overflow-y-auto p-0.5">
         {subagentRuns.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">{t("info.noSubagents")}</div>
         ) : (

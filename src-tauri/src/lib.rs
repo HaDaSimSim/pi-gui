@@ -179,8 +179,12 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
     let devtools_item = MenuItemBuilder::with_id("toggle-devtools", "Toggle Developer Tools")
         .accelerator("CmdOrCtrl+Alt+I")
         .build(app)?;
+    let log_item = MenuItemBuilder::with_id("backend-log", "Backend Log")
+        .accelerator("CmdOrCtrl+Shift+L")
+        .build(app)?;
     let view_menu = SubmenuBuilder::new(app, "View")
         .item(&devtools_item)
+        .item(&log_item)
         .separator()
         .fullscreen()
         .build()?;
@@ -228,6 +232,11 @@ pub fn run() {
                                 } else {
                                     win.open_devtools();
                                 }
+                            }
+                        } else if event.id() == "backend-log" {
+                            // 프론트에 Cmd+Shift+L 키 이벤트를 주입해 로그 뷰어 토글.
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.eval("window.dispatchEvent(new KeyboardEvent('keydown',{key:'l',metaKey:true,shiftKey:true}))");
                             }
                         }
                     });

@@ -254,3 +254,30 @@ body {
 .always-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 표 (markdown) */
+.piweb-md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+}
+.piweb-md th,
+.piweb-md td {
+  border: 1px solid var(--border);
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+}
+.piweb-md th {
+  background: var(--muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.piweb-md tr:nth-child(even) {
+  background: var(--muted)/30;
+}
+.piweb-md tr:hover {
+  background: var(--accent)/50;
+}

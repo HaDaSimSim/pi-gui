@@ -10,6 +10,7 @@ import { usePanelRef } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { api, type DirectoryInfo, type SessionInfo } from "./api";
 import { SessionTab } from "./session-tab";
+import { LogViewer } from "./log-viewer";
 import { Sidebar, sessionLabel } from "./sidebar";
 import {
   DropdownMenu,
@@ -59,6 +60,20 @@ export default function App() {
       return [];
     }
   });
+  const [logOpen, setLogOpen] = useState(false);
+
+  // Cmd+Shift+L → 백엔드 로그 뷰어 토글.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        setLogOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const [activeTab, setActiveTab] = useState<string | undefined>(() => {
     try {
       const raw = localStorage.getItem(TABS_KEY);
@@ -463,6 +478,8 @@ export default function App() {
           }}
         />
       ) : null}
+      <LogViewer open={logOpen} onClose={() => setLogOpen(false)} />
+
     </div>
   );
 }

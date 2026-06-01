@@ -113,7 +113,7 @@ export function QuestionnaireDialog({
         </div>
       ) : null}
 
-      <div className="flex max-h-[55vh] flex-col gap-2 overflow-y-auto">
+      <div className="flex max-h-[55vh] flex-col gap-2 overflow-y-auto p-0.5">
         {isMulti ? <div className="text-sm font-medium">{q.prompt}</div> : null}
 
         {q.options.map((opt, oi) => {

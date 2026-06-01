@@ -118,9 +118,33 @@ export class WebUIContext {
 
   // questionnaire: 구조화 질문을 그대로 브라우저로 보내 전용 다이얼로그(탭/옵션/
   // multiSelect/자유입력)로 받는다. question 익스텐션이 PI_WEB_HOST 일 때 호출.
-  // 취소면 null, 아니면 Answer[] 를 돌려준다.
-  questionnaire(questions: WebQuestion[]): Promise<WebAnswer[] | null> {
-    return this.request<WebAnswer[] | null>({ kind: "questionnaire", title: "", questions });
+  // { promise, cancel } 을 돌려 원격(텔레그램) 응답이 먼저 오면 cancel() 로
+  // GUI 다이얼로그를 닫을 수 있게 한다. promise 는 취소 시 null.
+  questionnaire(questions: WebQuestion[]): { promise: Promise<WebAnswer[] | null>; cancel: () => void } {
+    const id = `ui-${Date.now()}-${++counter}`;
+    const promise = new Promise<WebAnswer[] | null>((resolve) => {
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, kind: "questionnaire" });
+      this.broadcast({ type: "ui_request", id, kind: "questionnaire", title: "", questions } satisfies UiRequest);
+    });
+    const cancel = () => {
+      if (this.pending.has(id)) {
+        this.pending.delete(id);
+        this.broadcast({ type: "ui_cancel", id });
+      }
+    };
+    // 취소 시 resolve(null) 그리고 클라이언트 닫기.
+    const wrapped = promise;
+    return {
+      promise: wrapped,
+      cancel: () => {
+        const p = this.pending.get(id);
+        if (p) {
+          this.pending.delete(id);
+          p.resolve(null);
+          this.broadcast({ type: "ui_cancel", id });
+        }
+      },
+    };
   }
 
   // btw: 사이드 질문의 답변(마크다운)을 읽기전용 오버레이로 보여준다(닫기만).

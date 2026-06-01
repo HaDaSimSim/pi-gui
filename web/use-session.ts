@@ -412,6 +412,10 @@ export function useSession(path: string, cwd?: string) {
             },
           });
           break;
+        case "ui_cancel":
+          // 원격(텔레그램) 응답이 먼저 와서 호스트가 닫으라고 함 → 해당 다이얼로그만 닫는다.
+          setState((s) => (s.uiRequest && s.uiRequest.id === ev.id ? { ...s, uiRequest: null } : s));
+          break;
         case "ui_notify":
           toast[ev.level === "error" ? "error" : ev.level === "warning" ? "warning" : "info"](ev.message);
           break;

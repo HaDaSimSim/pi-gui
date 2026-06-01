@@ -112,9 +112,15 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
   // (아니면 onTitle→setState→새 onTitle→effect 재실행 무한루프).
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
+  // TUI 와 동일: 이름이 없으면 첫 사용자 프롬프트를 제목으로 쓴다.
+  const firstUserMsg = useMemo(
+    () => state.messages.find((m) => m.role === "user" && m.text.trim())?.text.trim().slice(0, 60),
+    [state.messages],
+  );
   useEffect(() => {
-    if (state.name) onTitleRef.current?.(state.name);
-  }, [state.name]);
+    const title = state.name || firstUserMsg;
+    if (title) onTitleRef.current?.(title);
+  }, [state.name, firstUserMsg]);
 
   // 세션이 라이브로 전환되면(첫 프롬프트 수락 → 파일 생성) 상위에 알린다.
   // App 이 그 cwd 의 세션 목록을 갱신해 draft 칩을 정식 세션으로 바꿜다.

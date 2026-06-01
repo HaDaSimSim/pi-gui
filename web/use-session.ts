@@ -260,6 +260,62 @@ export function useSession(path: string, cwd?: string) {
     });
   }, []);
 
+  // 툴 호출을 id 로 찾아 갱신한다. 툴은 message_end 이후에 실행되므로(tool_execution_*)
+  // 그 시점엔 streamingRef 가 이미 null 일 수 있다. 그래서 스트리밍 중이면 streamingRef,
+  // 아니면 이미 커밋된 messages 에서 찾아 수정한다. (create 가 있으면 없을 때 새로 추가.)
+  const updateToolCall = useCallback(
+    (
+      toolCallId: string,
+      mutate: (tc: ToolCallView) => void,
+      create?: { id: string; name: string; args: unknown },
+    ) => {
+      const sm = streamingRef.current;
+      if (sm) {
+        sm.toolCalls = sm.toolCalls || [];
+        let tc = sm.toolCalls.find((t) => t.id === toolCallId);
+        if (!tc && create) {
+          tc = { id: create.id, name: create.name, args: create.args, status: "running" };
+          sm.toolCalls.push(tc);
+        }
+        if (tc) {
+          mutate(tc);
+          flushStreaming();
+          return;
+        }
+      }
+      // 커밋된 메시지에서 찾아 수정.
+      setState((s) => {
+        const msgs = [...s.messages];
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const m = msgs[i];
+          if (m.role !== "assistant" || !m.toolCalls?.length) continue;
+          const j = m.toolCalls.findIndex((t) => t.id === toolCallId);
+          if (j >= 0) {
+            const tcs = [...m.toolCalls];
+            const next = { ...tcs[j] };
+            mutate(next);
+            tcs[j] = next;
+            msgs[i] = { ...m, toolCalls: tcs };
+            return { ...s, messages: msgs };
+          }
+        }
+        // 못 찾았고 create 가 있으면 마지막 assistant 에 추가.
+        if (create) {
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === "assistant") {
+              const tc: ToolCallView = { id: create.id, name: create.name, args: create.args, status: "running" };
+              mutate(tc);
+              msgs[i] = { ...msgs[i], toolCalls: [...(msgs[i].toolCalls ?? []), tc] };
+              return { ...s, messages: msgs };
+            }
+          }
+        }
+        return s;
+      });
+    },
+    [flushStreaming],
+  );
+
   // 컨트롤 스냅샷을 다시 읽는다 (라이브일 때만 의미 있음).
   const refreshControls = useCallback(() => {
     api
@@ -395,60 +451,57 @@ export function useSession(path: string, cwd?: string) {
           break;
         }
         case "tool_execution_start": {
-          const sm = streamingRef.current;
-          if (sm) {
-            sm.toolCalls = sm.toolCalls || [];
-            if (!sm.toolCalls.find((t) => t.id === ev.toolCallId)) {
-              sm.toolCalls.push({
-                id: ev.toolCallId,
-                name: ev.toolName,
-                args: ev.args,
-                status: "running",
-              });
-            }
-            flushStreaming();
-          }
+          updateToolCall(ev.toolCallId, (tc) => {
+            tc.status = "running";
+          }, { id: ev.toolCallId, name: ev.toolName, args: ev.args });
           break;
         }
         case "tool_execution_end": {
-          const sm = streamingRef.current;
-          const tc = sm?.toolCalls?.find((t) => t.id === ev.toolCallId);
-          if (tc) {
+          updateToolCall(ev.toolCallId, (tc) => {
             tc.status = ev.isError ? "error" : "done";
             tc.resultText = contentToText(ev.result?.content);
-            flushStreaming();
-          }
+          });
           break;
         }
         case "message_end":
           if (streamingRef.current) {
             streamingRef.current.streaming = false;
-            // 중간 메시지(툴 호출 사이)에는 메타를 붙이지 않는다.
-            // 턴 전체의 메타(모델·소요시간)는 agent_end 에서 마지막 메시지에만 붙인다.
-            // 단, 툴이 running 인 채 끝난 건 정리(락 차단 등).
-            for (const tc of streamingRef.current.toolCalls ?? []) {
-              if (tc.status === "running") tc.status = "error";
-            }
+            // 주의: 툴은 message_end 이후에 실행된다(tool_execution_*). 여기서 running 을
+            // error 로 강제하면 아직 결과가 안 온 툴을 잘못 실패로 표시한다. 건드리지 않는다.
             flushStreaming();
             streamingRef.current = null;
           }
           break;
         case "agent_end":
-          // 턴 종료: 마지막 assistant 메시지에만 메타(소요시간)를 붙여 메타가 표시되게 한다.
+          // 턴 종료: 마지막 assistant 메시지에만 메타(소요시간)를 붙인다.
+          // 턴이 끝났는데도 running 인 툴은 그제서야 실패로 간주(중단 등).
           if (streamingRef.current) {
-            for (const tc of streamingRef.current.toolCalls ?? []) {
-              if (tc.status === "running") tc.status = "error";
-            }
             flushStreaming();
           }
           setState((s) => {
             const msgs = [...s.messages];
             const wasInterrupted = interruptedRef.current;
+            // 중단/종료 직후 생긴 빈 assistant 메시지(텍스트·thinking·툴 없음)는 버린다.
+            while (
+              msgs.length > 0 &&
+              msgs[msgs.length - 1].role === "assistant" &&
+              !msgs[msgs.length - 1].text.trim() &&
+              !msgs[msgs.length - 1].thinking &&
+              !msgs[msgs.length - 1].toolCalls?.length &&
+              !msgs[msgs.length - 1].subagentRun
+            ) {
+              msgs.pop();
+            }
+            // 내용 있는 마지막 assistant 메시지에 메타/중단 표시.
             for (let i = msgs.length - 1; i >= 0; i--) {
               if (msgs[i].role === "assistant") {
+                const tcs = msgs[i].toolCalls?.map((t) =>
+                  wasInterrupted && t.status === "running" ? { ...t, status: "error" as const } : t,
+                );
                 msgs[i] = {
                   ...msgs[i],
                   elapsedMs: turnStartRef.current > 0 ? Date.now() - turnStartRef.current : msgs[i].elapsedMs,
+                  ...(tcs ? { toolCalls: tcs } : {}),
                   ...(wasInterrupted ? { interrupted: true } : {}),
                 };
                 break;

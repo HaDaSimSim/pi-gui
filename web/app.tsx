@@ -87,6 +87,24 @@ export default function App() {
     }
   }, [tabs, activeTab]);
 
+  // 한 디렉터리의 세션 목록을 다시 읽는다. retry=true 면 파일 쓰기 지연을 감안해
+  // 몇 번 재시도한다 (첫 프롬프트 직후엔 jsonl 이 아직 안 쓰였을 수 있어 draft 가 안 떨어진다).
+  const refreshDirSessions = useCallback((dir?: string, retry = false) => {
+    if (!dir) return;
+    let attempts = retry ? 4 : 1;
+    const run = () => {
+      api
+        .sessions(dir)
+        .then((sessions) => {
+          setSessionsByDir((m) => ({ ...m, [dir]: sessions }));
+          attempts -= 1;
+          if (retry && attempts > 0) setTimeout(run, 600);
+        })
+        .catch(() => undefined);
+    };
+    run();
+  }, []);
+
   // 디렉터리의 세션 목록 lazy 로드 (한 번만)
   const ensureSessions = useCallback(
     (cwd: string) => {
@@ -415,26 +433,8 @@ export default function App() {
                         path={tab.path}
                         cwd={tab.cwd}
                         onTitle={(name) => setTabTitle(tab.path, name)}
-                        onLive={() => {
-                          // 첫 프롬프트로 파일이 생겼으니 그 cwd 세션 목록 갱신 → draft 칩 제거.
-                          const dir = tab.cwd;
-                          if (dir) {
-                            api
-                              .sessions(dir)
-                              .then((sessions) => setSessionsByDir((m) => ({ ...m, [dir]: sessions })))
-                              .catch(() => undefined);
-                          }
-                        }}
-                        onLiveChange={() => {
-                          // 락 해제/획득 등 라이브 상태가 바뀌면 사이드바 도트 갱신.
-                          const dir = tab.cwd;
-                          if (dir) {
-                            api
-                              .sessions(dir)
-                              .then((sessions) => setSessionsByDir((m) => ({ ...m, [dir]: sessions })))
-                              .catch(() => undefined);
-                          }
-                        }}
+                        onLive={() => refreshDirSessions(tab.cwd, true)}
+                        onLiveChange={() => refreshDirSessions(tab.cwd)}
                       />
                     </div>
                   ))}

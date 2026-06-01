@@ -558,6 +558,13 @@ injectWebSocket(server);
 // 한 세션/익스텐션의 오류가 서버 전체를 내리면 안 된다.
 // (예: subagents 익스텐션이 hasUI=true 로 착각해 TUI 전용 theme 을 건드리다 throw.)
 process.on("uncaughtException", (err) => {
+  // EADDRINUSE 같은 치명적 기동 오류는 삼키지 않고 즉시 종료한다.
+  // (안 그러면 포트를 못 잡은 채 좌비로 남아 다음 실행이 또 충돌한다.)
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (code === "EADDRINUSE" || code === "EACCES") {
+    console.error(`[pi-gui] 치명적 기동 오류(${code}) — 종료. 이미 다른 백엔드가 포트를 잡고 있을 수 있습니다.`);
+    process.exit(1);
+  }
   console.error("[pi-gui] uncaughtException (생존):", err?.stack || err);
   runtimes.broadcastAll({
     type: "backend_error",

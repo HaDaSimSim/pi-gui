@@ -41,7 +41,7 @@
     "tauri:build": "pnpm bundle:backend && tauri build",
     "typecheck": "tsc --noEmit",
     "test:unit": "node test/lock-test.ts && node test/i18n-test.ts",
-    "test:e2e": "node test/e2e-lock.ts && node test/e2e-sse.ts && node test/e2e-sse-lock.ts"
+    "test:e2e": "node test/e2e-lock.ts && node test/e2e-sse.ts && node test/e2e-sse-lock.ts && node test/e2e-ws.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",

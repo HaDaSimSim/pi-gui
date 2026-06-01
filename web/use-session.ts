@@ -214,7 +214,7 @@ function extractToolCalls(content: unknown): ToolCallView[] {
     .map((b: any) => ({ id: b.id, name: b.name, args: b.arguments, status: "done" as const }));
 }
 
-export function useSession(path: string, cwd?: string) {
+export function useSession(path: string, cwd?: string, active: boolean = true) {
   const [state, setState] = useState<SessionState>({
     messages: [],
     streaming: false,
@@ -296,17 +296,51 @@ export function useSession(path: string, cwd?: string) {
       })
       .catch((e) => !closed && patch({ error: String(e), loading: false }));
 
+    return () => {
+      closed = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+
+  // SSE 구독은 연결을 점유한다. 브라우저는 origin 당 HTTP/1.1 연결이 6개로
+  // 제한되므로, 탭을 많이 열면 SSE 가 연결을 다 먹어 이후 fetch 가 영원히 대기한다.
+  // 따라서 활성 탭, 또는 스트리밍 중인 탭만 SSE 를 열고 나머지는 닫는다.
+  // (탭은 활성일 때만 스트리밍을 시작하므로, 백그라운드 스트림은 끝날 때까지 유지됨.)
+  const wantSse = active || state.streaming;
+  const reactivateRef = useRef(false);
+  useEffect(() => {
+    if (!wantSse) {
+      // 비활성 + 비스트리밍 → SSE 안 열고 연결 슬롯을 반납. 재활성 시 다시 받아온다.
+      reactivateRef.current = true;
+      return;
+    }
+    let closed = false;
+    // 재활성(SSE 끚겨있던 동안 놓찔6을 수 있는 업데이트) 시 한 번 재조회.
+    if (reactivateRef.current) {
+      reactivateRef.current = false;
+      api
+        .session(path)
+        .then((detail) => {
+          if (closed) return;
+          patch({
+            messages: entriesToMessages(detail.entries),
+            live: detail.live,
+            name: detail.name ?? null,
+          });
+          refreshControls();
+        })
+        .catch(() => undefined);
+    }
     const unsub = subscribeEvents(path, (ev) => {
       if (closed) return;
       handleEvent(ev);
     });
-
     return () => {
       closed = true;
       unsub();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
+  }, [path, wantSse]);
 
   // SSE 이벤트 처리 — 스트리밍 델타 누적
   const handleEvent = useCallback(

@@ -1,6 +1,6 @@
 // 한 세션 탭: 메시지 + 컴포저 + 락 충돌 배너 + info 패널 토글.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Paperclip, Send, PanelRight, X, Square, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,9 +33,9 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
+export function SessionTab({ path, cwd, active, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; active?: boolean; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd);
+  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, respondUi, effectiveModel, effectiveThinking } = useSession(path, cwd, active ?? true);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   // 메시지 윈도잉: 큰 세션은 마지막 N개만 렌더해 메인스레드 블록을 막는다.
@@ -156,20 +156,24 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
   }, [state.messages, state.loading]);
 
   // 히스토리 자동 로드: 위로 스크롤해 상단 근처면 visibleCount 를 늘린다.
+  // 늘린 뒤 prepend 로 위쪽 콘텐츠가 커지므로, 보정해서 뷰포트가 안 튀게 한다.
+  const anchorRef = useRef<{ prevH: number; prevTop: number } | null>(null);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     if (el.scrollTop < 120 && visibleCount < state.messages.length) {
-      // 늘리기 전 높이를 기억해 점프 방지 (렌더 후 보정).
-      const prevH = el.scrollHeight;
-      const prevTop = el.scrollTop;
+      anchorRef.current = { prevH: el.scrollHeight, prevTop: el.scrollTop };
       setVisibleCount((n) => Math.min(state.messages.length, n + MSG_WINDOW));
-      requestAnimationFrame(() => {
-        const el2 = scrollRef.current;
-        if (el2) el2.scrollTop = prevTop + (el2.scrollHeight - prevH);
-      });
     }
   };
+  // visibleCount 가 바뀌어 더 옛 메시지가 prepend 되면, paint 전에 스크롤 위치 보정.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const a = anchorRef.current;
+    if (!el || !a) return;
+    el.scrollTop = a.prevTop + (el.scrollHeight - a.prevH);
+    anchorRef.current = null;
+  }, [visibleCount]);
 
   // 푸터 갱신 키: 스트리밍 끝날 때(false 로 전환) + 메시지 수 변화 시 다시 집계.
   const footerKey = (state.streaming ? 1 : 0) + state.messages.length;
@@ -244,7 +248,7 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
         </div>
 
         {/* 메시지 스크롤 영역 */}
-        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={scrollRef} onScroll={onScroll} className="always-scrollbar min-h-0 flex-1">
           <div className="mx-auto max-w-7xl px-4 py-6">
             {state.loading ? (
               <div className="flex justify-center p-6">

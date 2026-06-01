@@ -231,3 +231,26 @@ body {
   border: none;
   border-top: 1px solid var(--border);
 }
+
+/* 채팅 스크롤 영역: macOS 오버레이 스크롤바 대신 항상 보이는 스크롤바.
+   WKWebView(Tauri)·크롬 둘 다 ::-webkit-scrollbar 지원. */
+.always-scrollbar {
+  overflow-y: scroll; /* auto 가 아니라 scroll 로 트랙을 항상 차지 */
+}
+.always-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+.always-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.always-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+.always-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -21,6 +21,12 @@ import {
 
 export type ChatRole = "user" | "assistant" | "tool" | "system" | "subagent";
 
+export interface SubagentTranscriptItem {
+  kind: "thinking" | "text" | "toolCall" | "toolResult";
+  text: string;
+  toolName?: string;
+}
+
 export interface SubagentRunView {
   runId: string;
   agent: string;
@@ -28,7 +34,7 @@ export interface SubagentRunView {
   task: string;
   status: "running" | "done" | "failed";
   model?: string;
-  turns: { prompt: string; finalOutput: string; error?: string }[];
+  turns: { prompt: string; finalOutput: string; error?: string; transcript?: SubagentTranscriptItem[] }[];
   cost?: number;
 }
 
@@ -98,7 +104,7 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
             status: "running" | "done" | "failed";
             model?: string;
             usage?: { cost?: number };
-            turns?: { prompt: string; finalOutput: string; error?: string }[];
+            turns?: { prompt: string; finalOutput: string; error?: string; transcript?: { kind: string; text: string; toolName?: string }[] }[];
           }
         | undefined;
       if (r?.runId) {
@@ -114,6 +120,11 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
             prompt: tn.prompt,
             finalOutput: tn.finalOutput,
             error: tn.error,
+            transcript: (tn.transcript ?? []).map((it) => ({
+              kind: it.kind as "thinking" | "text" | "toolCall" | "toolResult",
+              text: it.text,
+              toolName: it.toolName,
+            })),
           })),
         };
         const existing = subagentIdx.get(r.runId);

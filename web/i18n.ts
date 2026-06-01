@@ -80,6 +80,11 @@ const en = {
 
   "info.title": "Session info",
   "info.subagents": "Subagents",
+  "common.back": "Back",
+  "subagent.readOnly": "Read-only — this subagent is controlled by the main thread",
+  "subagent.status.running": "running",
+  "subagent.status.done": "done",
+  "subagent.status.failed": "failed",
   "info.noSubagents": "No subagent runs in this session yet.",
   "info.model": "Model",
   "info.efficiency": "Efficiency",
@@ -279,6 +284,11 @@ const ko: Record<I18nKey, string> = {
 
   "info.title": "세션 정보",
   "info.subagents": "서브에이전트",
+  "common.back": "뒤로",
+  "subagent.readOnly": "읽기 전용 — 이 서브에이전트는 메인 스레드가 제어합니다",
+  "subagent.status.running": "실행 중",
+  "subagent.status.done": "완료",
+  "subagent.status.failed": "실패",
   "info.noSubagents": "이 세션에서 실행된 서브에이전트가 아직 없습니다.",
   "info.model": "모델",
   "info.efficiency": "효율",

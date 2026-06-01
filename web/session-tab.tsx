@@ -16,6 +16,8 @@ import { api } from "./api";
 import { useSession } from "./use-session";
 import { MessageView } from "./message-view";
 import { InfoPanel } from "./info-panel";
+import { SubagentChatView } from "./subagent-chat-view";
+import type { SubagentRunView } from "./use-session";
 import { Footer } from "./footer";
 import { ModelControls } from "./model-controls";
 import { UiRequestDialog } from "./ui-request-dialog";
@@ -40,6 +42,8 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
   // (수천 메시지 × 마크다운 파싱 = 동기 렌더로 앱 멈춤) "이전 보기"로 더 로드.
   const MSG_WINDOW = 60;
   const [visibleCount, setVisibleCount] = useState(MSG_WINDOW);
+  // 서브에이전트를 "메인 스레드처럼" 펼쳐볼 때 선택된 runId (읽기전용).
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [commands, setCommands] = useState<{ name: string; description?: string; source: string }[]>([]);
   const [cmdIndex, setCmdIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -69,6 +73,11 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
   const subagentRuns = useMemo(
     () => state.messages.filter((m) => m.subagentRun).map((m) => m.subagentRun!),
     [state.messages],
+  );
+  // 선택된 run 을 라이브 목록에서 다시 찾는다 (실행 중이면 스트리밍 갱신 반영).
+  const selectedRun = useMemo(
+    () => (selectedRunId ? subagentRuns.find((r) => r.runId === selectedRunId) ?? null : null),
+    [selectedRunId, subagentRuns],
   );
 
   // 라이브가 되면 슬래시 커맨드 목록을 불러온다 (extension 등록 커맨드).
@@ -202,6 +211,9 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
     <ResizablePanelGroup className="h-full min-h-0">
       {/* ── 채팅 영역 ── */}
       <ResizablePanel className="min-w-0">
+        {selectedRun ? (
+          <SubagentChatView run={selectedRun} onBack={() => setSelectedRunId(null)} />
+        ) : (
         <div className="flex h-full min-h-0 min-w-0 flex-col">
         {/* 상단 미니 바 */}
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-sm">
@@ -442,6 +454,7 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
         {/* 푸터 (TUI 미러링) */}
         <Footer path={path} cwd={cwd} refreshKey={footerKey} />
         </div>
+        )}
       </ResizablePanel>
 
       <ResizableHandle withHandle />
@@ -462,6 +475,7 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
           onSetModel={(provider, id) => setModel(provider, id)}
           onSetThinking={(level) => setThinking(level)}
           onRename={(name) => rename(name)}
+          onOpenSubagent={(run) => setSelectedRunId(run.runId)}
         />
       </ResizablePanel>
 

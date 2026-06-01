@@ -2,7 +2,7 @@
 // subagents extension 이 세션 파일에 남긴 subagent-run 커스텀 엔트리를 읽어 표시.
 
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -15,16 +15,28 @@ function statusDot(status: SubagentRunView["status"]): string {
   return status === "running" ? "bg-amber-500" : status === "failed" ? "bg-destructive" : "bg-emerald-500";
 }
 
-export function SubagentRunCard({ run, defaultOpen }: { run: SubagentRunView; defaultOpen?: boolean }) {
+export function SubagentRunCard({ run, defaultOpen, onOpen }: { run: SubagentRunView; defaultOpen?: boolean; onOpen?: () => void }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   return (
     <div className="rounded-lg border p-3">
       <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger className="flex w-full min-w-0 items-center gap-2 text-left">
-          <span className={cn("size-2 shrink-0 rounded-full", statusDot(run.status))} />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{run.title}</span>
-          <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
-        </CollapsibleTrigger>
+        <div className="flex w-full min-w-0 items-center gap-2">
+          <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left">
+            <span className={cn("size-2 shrink-0 rounded-full", statusDot(run.status))} />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{run.title}</span>
+            <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+          </CollapsibleTrigger>
+          {onOpen ? (
+            <button
+              onClick={onOpen}
+              className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label="open as chat"
+              title="open as chat"
+            >
+              <Maximize2 className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
         <div className="mt-1 flex items-center gap-2 pl-4 text-xs text-muted-foreground">
           <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{run.agent}</span>
           {run.turns.length > 1 ? <span>{run.turns.length} turns</span> : null}

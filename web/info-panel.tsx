@@ -28,6 +28,7 @@ interface InfoPanelProps {
   onSetModel: (provider: string, id: string) => void;
   onSetThinking: (level: ThinkingLevel) => void;
   onRename: (name: string) => void;
+  onOpenSubagent?: (run: SubagentRunView) => void;
 }
 
 function fmtNum(n: number | undefined | null): string {
@@ -65,7 +66,7 @@ function seg(color: string, value: number, total: number) {
   return <div className={color} style={{ width: `${(value / total) * 100}%` }} />;
 }
 
-export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThinking, onRename }: InfoPanelProps) {
+export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThinking, onRename, onOpenSubagent }: InfoPanelProps) {
   const { t } = useT();
   const [nameDraft, setNameDraft] = useState("");
   const [editingName, setEditingName] = useState(false);
@@ -225,7 +226,7 @@ export function InfoPanel({ state, subagentRuns, path, cwd, onSetModel, onSetThi
         ) : (
           <div className="flex flex-col gap-3 p-4">
             {subagentRuns.map((run, i) => (
-              <SubagentRunCard key={run.runId || i} run={run} defaultOpen={subagentRuns.length === 1} />
+              <SubagentRunCard key={run.runId || i} run={run} defaultOpen={subagentRuns.length === 1} onOpen={onOpenSubagent ? () => onOpenSubagent(run) : undefined} />
             ))}
           </div>
         )}

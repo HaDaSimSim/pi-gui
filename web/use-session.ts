@@ -83,6 +83,9 @@ export interface UiRequest {
 // 세션 파일 엔트리(스크롤백)를 화면 메시지로 변환.
 function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
   const out: ChatMessage[] = [];
+  // subagents extension 은 한 run 을 여러 번 append 한다(시작→턴마다→완료).
+  // 같은 runId 는 최신 스냅샷으로 덮어쓴다 (최초 등장 위치 유지) — TUI 와 동일.
+  const subagentIdx = new Map<string, number>();
   for (const e of entries) {
     // subagents extension 의 subagent-run 커스텀 엔트리 (type:"custom").
     if (e.type === "custom" && (e as any).customType === "subagent-run") {
@@ -99,26 +102,34 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
           }
         | undefined;
       if (r?.runId) {
-        out.push({
-          key: e.id,
-          role: "subagent",
-          text: "",
-          time: e.timestamp,
-          subagentRun: {
-            runId: r.runId,
-            agent: r.agent,
-            title: r.title,
-            task: r.task,
-            status: r.status,
-            model: r.model,
-            cost: r.usage?.cost,
-            turns: (r.turns ?? []).map((tn) => ({
-              prompt: tn.prompt,
-              finalOutput: tn.finalOutput,
-              error: tn.error,
-            })),
-          },
-        });
+        const view = {
+          runId: r.runId,
+          agent: r.agent,
+          title: r.title,
+          task: r.task,
+          status: r.status,
+          model: r.model,
+          cost: r.usage?.cost,
+          turns: (r.turns ?? []).map((tn) => ({
+            prompt: tn.prompt,
+            finalOutput: tn.finalOutput,
+            error: tn.error,
+          })),
+        };
+        const existing = subagentIdx.get(r.runId);
+        if (existing != null) {
+          // 같은 run 의 최신 스냅샷으로 제자리 갱신 (중복 카드 방지).
+          out[existing] = { ...out[existing], subagentRun: view };
+        } else {
+          subagentIdx.set(r.runId, out.length);
+          out.push({
+            key: e.id,
+            role: "subagent",
+            text: "",
+            time: e.timestamp,
+            subagentRun: view,
+          });
+        }
       }
       continue;
     }

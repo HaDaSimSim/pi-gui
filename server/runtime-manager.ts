@@ -60,6 +60,8 @@ export interface LiveRuntime {
   lastActivity: number;
   unsubscribe: () => void;
   ui: WebUIContext; // 인터랙티브 UI 브릿지 (select/confirm/input/notify)
+  subagentPoll?: ReturnType<typeof setInterval>; // subagent-run 엔트리 변화 감시(이벤트 없음)
+  subagentSig?: string; // 직전 시그니처(변화 시에만 broadcast)
 }
 
 export class LockedError extends Error {
@@ -216,7 +218,41 @@ export class RuntimeManager {
       ui,
     };
     this.runtimes.set(sessionPath, runtime);
+    // subagent-run 엔트리는 appendEntry 로 써져 세션 이벤트를 emit 하지 않는다
+    // (SDK 간극). 그래서 GUI 가 reload 전​엔 서브에이전트 완료를 못 본다.
+    // 보유한 런타임의 자신 세션 파일을 가벍게 폴링해 변화 시에만 broadcast 한다.
+    runtime.subagentPoll = setInterval(() => this.pollSubagents(sessionPath), 1500);
+    runtime.subagentPoll.unref?.();
     return runtime;
+  }
+
+  // 라이브 런타임의 subagent-run 엔트리(runId당 최신)를 읽어, 이전과 달라졌으면
+  // { type: "subagent_runs", runs } 로 broadcast. 프론트는 runId 로 머지한다.
+  private pollSubagents(sessionPath: string) {
+    const rt = this.runtimes.get(sessionPath);
+    if (!rt) return;
+    let entries: unknown[];
+    try {
+      entries = rt.session.sessionManager.getEntries() as unknown[];
+    } catch {
+      return;
+    }
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const e of entries) {
+      const ent = e as { type?: string; customType?: string; data?: { runId?: string } };
+      if (ent.type === "custom" && ent.customType === "subagent-run" && ent.data?.runId) {
+        byId.set(ent.data.runId, ent.data as Record<string, unknown>);
+      }
+    }
+    if (byId.size === 0) return;
+    const runs = [...byId.values()];
+    // 시그니처: runId+status+turns수+usage.cost 만 모아 비교(전체 직렬화는 비용큼).
+    const sig = runs
+      .map((r) => `${r.runId}:${r.status}:${(r.turns as unknown[] | undefined)?.length ?? 0}:${(r.usage as { cost?: number } | undefined)?.cost ?? 0}`)
+      .join("|");
+    if (sig === rt.subagentSig) return;
+    rt.subagentSig = sig;
+    this.broadcast(sessionPath, { type: "subagent_runs", runs });
   }
 
   /**
@@ -493,6 +529,7 @@ export class RuntimeManager {
   async dispose(sessionPath: string, opts: { keepLock?: boolean } = {}): Promise<void> {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return;
+    if (rt.subagentPoll) clearInterval(rt.subagentPoll); // subagent 폴러 정리
     rt.ui.cancelAll(); // 보류 중인 UI 요청을 취소로 정리
     rt.unsubscribe();
     try {

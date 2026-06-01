@@ -446,6 +446,45 @@ export function useSession(path: string, cwd?: string) {
             },
           });
           break;
+        case "subagent_runs": {
+          // 백엔드 폴러가 subagent-run 엔트리 변화를 알림(appendEntry 는 이벤트 없음).
+          // runId 로 메시지를 갱신하고, 없던 run 은 추가한다.
+          const incoming = (ev.runs ?? []) as any[];
+          if (incoming.length === 0) break;
+          setState((s) => {
+            const msgs = [...s.messages];
+            const idxByRun = new Map<string, number>();
+            msgs.forEach((m, i) => {
+              if (m.subagentRun) idxByRun.set(m.subagentRun.runId, i);
+            });
+            for (const r of incoming) {
+              if (!r?.runId) continue;
+              const view: SubagentRunView = {
+                runId: r.runId,
+                agent: r.agent,
+                title: r.title,
+                task: r.task,
+                status: r.status,
+                model: r.model,
+                cost: r.usage?.cost,
+                turns: (r.turns ?? []).map((tn: any) => ({
+                  prompt: tn.prompt,
+                  finalOutput: tn.finalOutput,
+                  error: tn.error,
+                  transcript: (tn.transcript ?? []).map((it: any) => ({ kind: it.kind, text: it.text, toolName: it.toolName })),
+                })),
+              };
+              const at = idxByRun.get(r.runId);
+              if (at != null) {
+                msgs[at] = { ...msgs[at], subagentRun: view };
+              } else {
+                msgs.push({ key: `subagent-${r.runId}`, role: "subagent", text: "", time: new Date().toISOString(), subagentRun: view });
+              }
+            }
+            return { ...s, messages: msgs };
+          });
+          break;
+        }
         case "agent_start":
           patch({ streaming: true });
           turnStartRef.current = Date.now();

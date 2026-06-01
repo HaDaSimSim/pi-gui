@@ -550,6 +550,30 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" }, (i
   // (PORT=0 으로 띄우면 OS 가 고른 포트가 여기 찍힌다.)
   console.log(`PI_GUI_PORT=${info.port}`);
 });
+
+// 부모 사망 감시(orphan 방지): 백엔드는 항상 뢌가(dev=node --watch, prod=Rust)의
+// 자식이다. 부모가 정상 종료가 아니라 크래시/SIGKILL 되면 trap 이 안 걸려
+// 백엔드가 orphan 으로 남고 포트(4317)를 잡은 채 좌비로 돌 수 있다.
+// 부모 PID 를 주기적으로 확인해 사라지면 자살한다. (PI_GUI_NO_PARENT_WATCH=1 로 끕)
+if (!process.env.PI_GUI_NO_PARENT_WATCH) {
+  // 명시 부모 PID 우선, 없으면 기동 시점의 ppid.
+  const parentPid = Number(process.env.PI_GUI_PARENT_PID) || process.ppid;
+  if (parentPid && parentPid > 1) {
+    setInterval(() => {
+      let alive = true;
+      try {
+        process.kill(parentPid, 0); // 존재 확인 (안 죽임)
+      } catch (e) {
+        alive = (e as NodeJS.ErrnoException)?.code === "EPERM"; // EPERM=살아있음
+      }
+      // ppid 가 1 로 바뀐 = 부모 죽어 init 으로 재부모화됨.
+      if (!alive || process.ppid === 1) {
+        console.error("[pi-gui] parent process gone — exiting to avoid orphan.");
+        void shutdown("PARENT_GONE");
+      }
+    }, 2000).unref();
+  }
+}
 // WebSocket(/ws) 을 같은 http.Server 의 upgrade 이벤트에 붙인다.
 injectWebSocket(server);
 

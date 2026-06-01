@@ -130,16 +130,21 @@ pnpm typecheck          # tsc --noEmit (Vite won't catch type errors)
 pnpm build:web          # vite build (also code-splits: react/markdown/settings)
 pnpm test:unit          # lock units (17) + i18n parity (8), no server needed
 # E2E need the backend up. Use a NON-DEFAULT port so you never touch a
-# user's running server on 4317:
-PORT=4318 nohup node server/index.ts > /tmp/piweb.log 2>&1 & sleep 2
+# user's running server on 4317. nohup reparents the backend to init (ppid=1),
+# which trips the parent-death watchdog — disable it for test launches:
+PORT=4318 PI_GUI_NO_PARENT_WATCH=1 nohup node server/index.ts > /tmp/piweb.log 2>&1 & sleep 2
 PORT=4318 pnpm test:e2e
 lsof -ti :4318 | xargs kill
 ```
 
-The server doesn't self-exit — launch with `nohup ... &` and poll the log;
-running it in the foreground blocks the shell. **Never `import()` the backend to
-"test boot"** — importing `server/index.ts` binds port 4317 as a side effect and
-collides with a user's dev server. Use the PORT=4318 nohup pattern instead.
+Launch with `nohup ... &` and poll the log; running it in the foreground blocks
+the shell. The backend now **self-exits when its parent dies** (parent-death
+watchdog: polls `PI_GUI_PARENT_PID`/`process.ppid`, exits if gone or reparented
+to init) — this kills dev orphans (a stale `node --watch` backend holding 4317).
+That's why nohup test launches need `PI_GUI_NO_PARENT_WATCH=1`. **Never
+`import()` the backend to "test boot"** — importing `server/index.ts` binds the
+port as a side effect and collides with a user's dev server. Use the
+PORT=4318 nohup pattern instead.
 
 ## Scope discipline
 

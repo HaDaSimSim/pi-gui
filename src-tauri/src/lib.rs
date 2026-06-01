@@ -56,6 +56,8 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     let mut cmd = Command::new(node);
     cmd.arg(&entry);
     cmd.env("PORT", &port);
+    // 백엔드가 부모(이 프로세스) 사망을 감지해 orphan 으로 안 남게 한다.
+    cmd.env("PI_GUI_PARENT_PID", std::process::id().to_string());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped()); // pipe stderr too so crash logs are not lost
     if let Some(dir) = cwd {

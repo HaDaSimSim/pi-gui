@@ -264,7 +264,7 @@ body {
 }
 .piweb-md th,
 .piweb-md td {
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   padding: 0.45rem 0.75rem;
   text-align: left;
 }

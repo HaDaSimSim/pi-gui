@@ -76,7 +76,7 @@ function ToolCall({ tc }: { tc: ToolCallView }) {
   const error = tc.status === "error";
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="my-1">
+    <Collapsible open={open} onOpenChange={setOpen} className="my-0.5">
       <CollapsibleTrigger
         className={cn(
           "group flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors",

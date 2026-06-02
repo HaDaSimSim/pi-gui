@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, lazy, Suspense } from "react";
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
 import { RefreshCw, Settings, PanelLeft, X, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -92,6 +92,20 @@ export default function App() {
       .finally(() => setDirsLoading(false));
   }, []);
   useEffect(loadDirs, [loadDirs]);
+
+  // 주기적 백그라운드 폴링: 디렉터리 목록 + 현재 보고 있는 세션 목록 갱신 (5초).
+  useEffect(() => {
+    const id = setInterval(() => {
+      api.directories().then(setDirs).catch(() => undefined);
+      if (selectedDir) {
+        api
+          .sessions(selectedDir)
+          .then((sessions) => setSessionsByDir((m) => ({ ...m, [selectedDir]: sessions })))
+          .catch(() => undefined);
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [selectedDir]);
 
   // 탭 바뀜 때마다 localStorage 에 저장 (완전 종료 후 재실행 복원용).
   useEffect(() => {
@@ -241,6 +255,27 @@ export default function App() {
         const r = await api.newSession(cwd);
         setTabs((prev) => [...prev, { path: r.path, label: t("sessions.untitled"), cwd }]);
         setActiveTab(r.path);
+        // 새 세션이 생성되는 즉시 사이드바 목록에도 올려 draft 딱지가 안 뜨도록.
+        setSessionsByDir((m) => {
+          const list = m[cwd] ?? [];
+          if (list.find((s) => s.path === r.path)) return m;
+          return {
+            ...m,
+            [cwd]: [
+              ...list,
+              {
+                path: r.path,
+                id: "",
+                name: null,
+                firstMessage: "",
+                messageCount: 0,
+                created: new Date().toISOString(),
+                modified: new Date().toISOString(),
+                live: false,
+              },
+            ],
+          };
+        });
       } catch (e) {
         console.error(e);
       }
@@ -396,18 +431,43 @@ export default function App() {
               </div>
             ) : (
               <>
-                {/* 탭 스트립 (토글 버튼 포함) */}
+                {/* 탭 스트립 (토글 버튼 포함, 드래그 재정렬 지원) */}
                 <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-1">
                   <Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label="toggle sidebar" onClick={toggleSidebar}>
                     <PanelLeft className="size-4" />
                   </Button>
-                  {tabs.map((tab) => {
+                  {tabs.map((tab, idx) => {
                     const active = tab.path === activeTab;
                     return (
                       <div
                         key={tab.path}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", String(idx));
+                          (e.currentTarget as HTMLElement).style.opacity = "0.5";
+                        }}
+                        onDragEnd={(e) => {
+                          (e.currentTarget as HTMLElement).style.opacity = "";
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const from = Number(e.dataTransfer.getData("text/plain"));
+                          const to = idx;
+                          if (from === to || isNaN(from)) return;
+                          setTabs((prev) => {
+                            const next = [...prev];
+                            const [moved] = next.splice(from, 1);
+                            next.splice(to, 0, moved);
+                            return next;
+                          });
+                        }}
                         className={cn(
-                          "group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-sm",
+                          "group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-sm select-none",
                           active ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground",
                         )}
                         onClick={() => setActiveTab(tab.path)}

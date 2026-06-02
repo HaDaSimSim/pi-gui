@@ -277,6 +277,19 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
                   <div className="py-2 text-center text-xs text-muted-foreground/60">
                     {t("session.loadingEarlier")}
                   </div>
+                ) : visibleCount > MSG_WINDOW ? (
+                  <div className="py-2 text-center">
+                    <button
+                      className="rounded-md border px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                      onClick={() => {
+                        setVisibleCount(MSG_WINDOW);
+                        const el = scrollRef.current;
+                        if (el) requestAnimationFrame(() => { el.scrollTop = 0; });
+                      }}
+                    >
+                      {t("session.unloadEarlier", { count: String(visibleCount) })}
+                    </button>
+                  </div>
                 ) : null}
                 {(visibleCount >= state.messages.length
                   ? state.messages
@@ -499,29 +512,42 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
             />
             {state.streaming ? (
               <>
-                {/* 스트리밍 중: 드롭다운으로 steer / follow-up 선택 */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size="icon"
-                      className="shrink-0"
-                      aria-label={t("session.send")}
-                      disabled={!input.trim() && files.length === 0}
-                    >
-                      <Send className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" side="top">
-                    <DropdownMenuItem onClick={() => onSubmit("steer")}>
-                      <span className="font-medium">{t("queue.steer")}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">{t("queue.steerHint")}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onSubmit("followUp")}>
-                      <span className="font-medium">{t("queue.followUp")}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">{t("queue.followUpHint")}</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* 스트리밍 중: Send 기본=steer, ▾ 메뉴로 follow-up 선택 가능. */}
+                <div className="flex shrink-0">
+                  <Button
+                    size="icon"
+                    className="shrink-0 rounded-r-none"
+                    aria-label={t("queue.steer")}
+                    title={t("queue.steerHint")}
+                    onClick={() => onSubmit("steer")}
+                    disabled={!input.trim() && files.length === 0}
+                  >
+                    <Send className="size-4" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="size-9 shrink-0 rounded-l-none border-l-0 px-1"
+                        aria-label="More send options"
+                        disabled={!input.trim() && files.length === 0}
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="top">
+                      <DropdownMenuItem onClick={() => onSubmit("steer")}>
+                        <span className="font-medium">{t("queue.steer")}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{t("queue.steerHint")}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onSubmit("followUp")}>
+                        <span className="font-medium">{t("queue.followUp")}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">{t("queue.followUpHint")}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
                 <Button
                   key="stop"
                   size="icon"

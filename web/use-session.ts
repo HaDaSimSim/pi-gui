@@ -1,28 +1,28 @@
-// 한 세션 탭의 라이브 상태를 관리하는 훅.
+// Hook that manages the live state of a single session tab.
 //
-// 동작:
-//   1. 마운트 시 기존 엔트리 로드 (스크롤백) — 런타임/락 불필요
-//   2. SSE 구독 — 보기 전용, 락 불필요
-//   3. prompt 전송 시 백엔드가 런타임+락을 띄움. 409 면 락 충돌 상태로 전이
-//   4. 스트리밍 델타(text/thinking/tool)를 누적해 화면 메시지로 합성
+// Behavior:
+//   1. On mount, load existing entries (scrollback) — no runtime/lock needed
+//   2. SSE subscription — view-only, no lock needed
+//   3. On prompt send the backend spins up a runtime+lock. 409 transitions to lock-conflict state
+//   4. Accumulate streaming deltas (text/thinking/tool) and compose them into displayed messages
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
-import { reportStreaming } from "./config";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
-  api,
-  subscribeEvents,
   ApiError,
-  type SessionEntry,
+  api,
   type LockRecord,
   type SessionControls,
+  type SessionEntry,
+  subscribeEvents,
   type ThinkingLevel,
-} from "./api";
+} from './api';
+import { reportStreaming } from './config';
 
-export type ChatRole = "user" | "assistant" | "tool" | "system" | "subagent";
+export type ChatRole = 'user' | 'assistant' | 'tool' | 'system' | 'subagent';
 
 export interface SubagentTranscriptItem {
-  kind: "thinking" | "text" | "toolCall" | "toolResult";
+  kind: 'thinking' | 'text' | 'toolCall' | 'toolResult';
   text: string;
   toolName?: string;
 }
@@ -32,9 +32,14 @@ export interface SubagentRunView {
   agent: string;
   title: string;
   task: string;
-  status: "running" | "done" | "failed";
+  status: 'running' | 'done' | 'failed';
   model?: string;
-  turns: { prompt: string; finalOutput: string; error?: string; transcript?: SubagentTranscriptItem[] }[];
+  turns: {
+    prompt: string;
+    finalOutput: string;
+    error?: string;
+    transcript?: SubagentTranscriptItem[];
+  }[];
   cost?: number;
 }
 
@@ -42,7 +47,7 @@ export interface ToolCallView {
   id: string;
   name: string;
   args: unknown;
-  status: "running" | "done" | "error";
+  status: 'running' | 'done' | 'error';
   resultText?: string;
 }
 
@@ -54,14 +59,15 @@ export interface ChatMessage {
   toolCalls?: ToolCallView[];
   streaming?: boolean;
   model?: string;
-  time?: string; // ISO timestamp (메타 표시용)
-  elapsedMs?: number; // 응답 소요 시간 (agent_start → message_end)
-  interrupted?: boolean; // 사용자가 중단(abort)한 턴인지
-  subagentRun?: SubagentRunView; // subagents extension 의 subagent-run 엔트리
+  time?: string; // ISO timestamp (for meta display)
+  elapsedMs?: number; // response elapsed time (agent_start → message_end)
+  interrupted?: boolean; // whether the turn was aborted by the user
+  errorMessage?: string; // error text when the turn ended in abort/error (TUI mirroring)
+  subagentRun?: SubagentRunView; // subagent-run entry from the subagents extension
 }
 
 export interface LockConflict {
-  kind: "locked" | "revoked";
+  kind: 'locked' | 'revoked';
   by?: LockRecord;
 }
 
@@ -72,10 +78,14 @@ export interface SessionState {
   conflict: LockConflict | null;
   error: string | null;
   loading: boolean;
-  controls: SessionControls | null; // 모델/효율/컨텍스트/이름 스냅샷 (info 패널용)
-  name: string | null; // 세션 이름 (스크롤백 + rename + 라이브 반영)
-  uiRequest: UiRequest | null; // extension 의 ctx.ui.confirm/select/input 요청 (브릿지)
-  queue: { steering: string[]; followUp: string[] }; // 스트리밍 중 대기열 메시지
+  controls: SessionControls | null; // model/effort/context/name snapshot (for info panel)
+  name: string | null; // session name (scrollback + rename + live updates)
+  uiRequest: UiRequest | null; // extension's ctx.ui.confirm/select/input request (bridge)
+  queue: { steering: string[]; followUp: string[] }; // queued messages during streaming
+  // Auto-retry (429/timeout/overload etc.) progress state. Mirrors the TUI retry loader.
+  retry: { attempt: number; maxAttempts: number; until: number; reason: string } | null;
+  // Context compaction progress state. Mirrors the TUI compaction loader.
+  compaction: { reason: 'manual' | 'threshold' | 'overflow' } | null;
 }
 
 export interface UiQuestionOption {
@@ -102,7 +112,7 @@ export interface UiAnswer {
 
 export interface UiRequest {
   id: string;
-  kind: "select" | "confirm" | "input" | "editor" | "questionnaire" | "btw";
+  kind: 'select' | 'confirm' | 'input' | 'editor' | 'questionnaire' | 'btw';
   title: string;
   message?: string;
   placeholder?: string;
@@ -111,25 +121,37 @@ export interface UiRequest {
   answer?: string;
 }
 
-// 세션 파일 엔트리(스크롤백)를 화면 메시지로 변환.
+// Convert session file entries (scrollback) into displayed messages.
 function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
   const out: ChatMessage[] = [];
-  // subagents extension 은 한 run 을 여러 번 append 한다(시작→턴마다→완료).
-  // 같은 runId 는 최신 스냅샷으로 덮어쓴다 (최초 등장 위치 유지) — TUI 와 동일.
+  // The subagents extension appends one run multiple times (start→per turn→done).
+  // The same runId is overwritten with the latest snapshot (keeping its first appearance position) — same as TUI.
   const subagentIdx = new Map<string, number>();
   for (const e of entries) {
-    // subagents extension 의 subagent-run 커스텀 엔트리 (type:"custom").
-    if (e.type === "custom" && (e as any).customType === "subagent-run") {
+    // subagent-run custom entry from the subagents extension (type:"custom").
+    // shape guard: pi has no extension identifier, so customType is a global flat namespace.
+    // To avoid breaking if a third party uses the same 'subagent-run' type with a different shape,
+    // check our producer's signature (data.runId: string) and ignore otherwise.
+    if (
+      e.type === 'custom' &&
+      (e as any).customType === 'subagent-run' &&
+      typeof (e as any).data?.runId === 'string'
+    ) {
       const r = (e as any).data as
         | {
             runId: string;
             agent: string;
             title: string;
             task: string;
-            status: "running" | "done" | "failed";
+            status: 'running' | 'done' | 'failed';
             model?: string;
             usage?: { cost?: number };
-            turns?: { prompt: string; finalOutput: string; error?: string; transcript?: { kind: string; text: string; toolName?: string }[] }[];
+            turns?: {
+              prompt: string;
+              finalOutput: string;
+              error?: string;
+              transcript?: { kind: string; text: string; toolName?: string }[];
+            }[];
           }
         | undefined;
       if (r?.runId) {
@@ -146,7 +168,7 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
             finalOutput: tn.finalOutput,
             error: tn.error,
             transcript: (tn.transcript ?? []).map((it) => ({
-              kind: it.kind as "thinking" | "text" | "toolCall" | "toolResult",
+              kind: it.kind as 'thinking' | 'text' | 'toolCall' | 'toolResult',
               text: it.text,
               toolName: it.toolName,
             })),
@@ -154,14 +176,14 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
         };
         const existing = subagentIdx.get(r.runId);
         if (existing != null) {
-          // 같은 run 의 최신 스냅샷으로 제자리 갱신 (중복 카드 방지).
+          // Update in place with the latest snapshot of the same run (avoids duplicate cards).
           out[existing] = { ...out[existing], subagentRun: view };
         } else {
           subagentIdx.set(r.runId, out.length);
           out.push({
             key: e.id,
-            role: "subagent",
-            text: "",
+            role: 'subagent',
+            text: '',
             time: e.timestamp,
             subagentRun: view,
           });
@@ -169,12 +191,14 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
       }
       continue;
     }
-    // ui-cosmetics 의 turn-meta 커스텀 엔트리: 직전 assistant 턴의 소요 시간(초).
-    // 직전 assistant 메시지에 elapsedMs 로 붙인다.
-    if (e.type === "custom_message" && (e as any).customType === "turn-meta") {
+    // turn-meta custom entry from ui-cosmetics: elapsed time (seconds) of the previous assistant turn.
+    // Attach it to the previous assistant message as elapsedMs.
+    // shape guard: details.elapsed(number) is our producer's signature. Even if a third party uses the same
+    // 'turn-meta' type, it is ignored in the branch below when elapsed is absent.
+    if (e.type === 'custom_message' && (e as any).customType === 'turn-meta') {
       const details = (e as any).details as { elapsed?: number; model?: string } | undefined;
-      if (details?.elapsed != null) {
-        const lastAssistant = [...out].reverse().find((x) => x.role === "assistant");
+      if (typeof details?.elapsed === 'number') {
+        const lastAssistant = [...out].reverse().find((x) => x.role === 'assistant');
         if (lastAssistant) {
           lastAssistant.elapsedMs = details.elapsed * 1000;
           if (!lastAssistant.model && details.model) lastAssistant.model = details.model;
@@ -182,31 +206,31 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
       }
       continue;
     }
-    if (e.type !== "message" || !e.message) continue;
+    if (e.type !== 'message' || !e.message) continue;
     const m = e.message;
     const role = m.role;
-    if (role === "user") {
-      out.push({ key: e.id, role: "user", text: contentToText(m.content), time: e.timestamp });
-    } else if (role === "assistant") {
+    if (role === 'user') {
+      out.push({ key: e.id, role: 'user', text: contentToText(m.content), time: e.timestamp });
+    } else if (role === 'assistant') {
       const text = extractAssistantText(m.content);
       const thinking = extractThinking(m.content);
       const toolCalls = extractToolCalls(m.content);
       out.push({
         key: e.id,
-        role: "assistant",
+        role: 'assistant',
         text,
         thinking: thinking || undefined,
         toolCalls: toolCalls.length ? toolCalls : undefined,
-        model: typeof m.model === "string" ? m.model : undefined,
+        model: typeof m.model === 'string' ? m.model : undefined,
         time: e.timestamp,
       });
-    } else if (role === "toolResult") {
-      // 직전 assistant 의 toolCall 에 결과를 붙인다
-      const last = [...out].reverse().find((x) => x.role === "assistant" && x.toolCalls?.length);
+    } else if (role === 'toolResult') {
+      // Attach the result to the previous assistant's toolCall
+      const last = [...out].reverse().find((x) => x.role === 'assistant' && x.toolCalls?.length);
       const callId = (m as any).toolCallId;
       const tc = last?.toolCalls?.find((t) => t.id === callId);
       if (tc) {
-        tc.status = (m as any).isError ? "error" : "done";
+        tc.status = (m as any).isError ? 'error' : 'done';
         tc.resultText = contentToText(m.content);
       }
     }
@@ -215,28 +239,34 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
 }
 
 function contentToText(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content
-      .filter((b: any) => b?.type === "text")
+      .filter((b: any) => b?.type === 'text')
       .map((b: any) => b.text)
-      .join("");
+      .join('');
   }
-  return "";
+  return '';
 }
 function extractAssistantText(content: unknown): string {
   if (!Array.isArray(content)) return contentToText(content);
-  return content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("");
+  return content
+    .filter((b: any) => b?.type === 'text')
+    .map((b: any) => b.text)
+    .join('');
 }
 function extractThinking(content: unknown): string {
-  if (!Array.isArray(content)) return "";
-  return content.filter((b: any) => b?.type === "thinking").map((b: any) => b.thinking).join("");
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b: any) => b?.type === 'thinking')
+    .map((b: any) => b.thinking)
+    .join('');
 }
 function extractToolCalls(content: unknown): ToolCallView[] {
   if (!Array.isArray(content)) return [];
   return content
-    .filter((b: any) => b?.type === "toolCall")
-    .map((b: any) => ({ id: b.id, name: b.name, args: b.arguments, status: "done" as const }));
+    .filter((b: any) => b?.type === 'toolCall')
+    .map((b: any) => ({ id: b.id, name: b.name, args: b.arguments, status: 'done' as const }));
 }
 
 export function useSession(path: string, cwd?: string) {
@@ -251,17 +281,19 @@ export function useSession(path: string, cwd?: string) {
     name: null,
     uiRequest: null,
     queue: { steering: [], followUp: [] },
+    retry: null,
+    compaction: null,
   });
 
-  // 스트리밍 중 누적 중인 assistant 메시지 (이벤트로 갱신)
+  // assistant message being accumulated during streaming (updated by events)
   const streamingRef = useRef<ChatMessage | null>(null);
-  // 턴 시작 시각 (agent_start) — message_end 에서 소요 시간 계산용 (ui-cosmetics 방식)
+  // turn start time (agent_start) — used to compute elapsed time at message_end (ui-cosmetics style)
   const turnStartRef = useRef<number>(0);
-  // 사용자 중단(abort) 플래그 — abort 호출 시 set, 다음 agent_end 에서 소비해 마지막 메시지를 interrupted 로 표시.
+  // user abort flag — set on abort call, consumed at the next agent_end to mark the last message as interrupted.
   const interruptedRef = useRef(false);
 
-  // 첫 메시지 전 draft 모델/효율 (런타임이 없어 API 로 못 바꾸므로 로컬에 들고 있다가
-  // 첫 prompt 에 함께 보낸다). 런타임이 생기면 controls 가 진짜 값을 들고 온다.
+  // draft model/effort before the first message (no runtime yet so it can't be changed via API; hold it locally
+  // and send it with the first prompt). Once a runtime exists, controls carries the real values.
   const [draftModel, setDraftModel] = useState<{ provider: string; id: string } | null>(null);
   const [draftThinking, setDraftThinking] = useState<ThinkingLevel | null>(null);
 
@@ -269,11 +301,11 @@ export function useSession(path: string, cwd?: string) {
     setState((s) => ({ ...s, ...p }));
   }, []);
 
-  // 최신 state 를 콜백에서 읽기 위한 ref (setModel/setThinking 의 live 판정용).
+  // ref to read the latest state from callbacks (for live detection in setModel/setThinking).
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // 스트리밍 메시지를 messages 배열 끝에 반영
+  // Reflect the streaming message at the end of the messages array
   const flushStreaming = useCallback(() => {
     const sm = streamingRef.current;
     setState((s) => {
@@ -286,9 +318,9 @@ export function useSession(path: string, cwd?: string) {
     });
   }, []);
 
-  // 툴 호출을 id 로 찾아 갱신한다. 툴은 message_end 이후에 실행되므로(tool_execution_*)
-  // 그 시점엔 streamingRef 가 이미 null 일 수 있다. 그래서 스트리밍 중이면 streamingRef,
-  // 아니면 이미 커밋된 messages 에서 찾아 수정한다. (create 가 있으면 없을 때 새로 추가.)
+  // Find a tool call by id and update it. Tools run after message_end (tool_execution_*),
+  // so streamingRef may already be null at that point. So use streamingRef while streaming,
+  // otherwise find and modify it in the already-committed messages. (If create is given, append a new one when missing.)
   const updateToolCall = useCallback(
     (
       toolCallId: string,
@@ -300,7 +332,7 @@ export function useSession(path: string, cwd?: string) {
         sm.toolCalls = sm.toolCalls || [];
         let tc = sm.toolCalls.find((t) => t.id === toolCallId);
         if (!tc && create) {
-          tc = { id: create.id, name: create.name, args: create.args, status: "running" };
+          tc = { id: create.id, name: create.name, args: create.args, status: 'running' };
           sm.toolCalls.push(tc);
         }
         if (tc) {
@@ -309,12 +341,12 @@ export function useSession(path: string, cwd?: string) {
           return;
         }
       }
-      // 커밋된 메시지에서 찾아 수정.
+      // Find and modify it in the committed messages.
       setState((s) => {
         const msgs = [...s.messages];
         for (let i = msgs.length - 1; i >= 0; i--) {
           const m = msgs[i];
-          if (m.role !== "assistant" || !m.toolCalls?.length) continue;
+          if (m.role !== 'assistant' || !m.toolCalls?.length) continue;
           const j = m.toolCalls.findIndex((t) => t.id === toolCallId);
           if (j >= 0) {
             const tcs = [...m.toolCalls];
@@ -325,11 +357,16 @@ export function useSession(path: string, cwd?: string) {
             return { ...s, messages: msgs };
           }
         }
-        // 못 찾았고 create 가 있으면 마지막 assistant 에 추가.
+        // Not found and create is given, so append to the last assistant.
         if (create) {
           for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].role === "assistant") {
-              const tc: ToolCallView = { id: create.id, name: create.name, args: create.args, status: "running" };
+            if (msgs[i].role === 'assistant') {
+              const tc: ToolCallView = {
+                id: create.id,
+                name: create.name,
+                args: create.args,
+                status: 'running',
+              };
               mutate(tc);
               msgs[i] = { ...msgs[i], toolCalls: [...(msgs[i].toolCalls ?? []), tc] };
               return { ...s, messages: msgs };
@@ -342,65 +379,35 @@ export function useSession(path: string, cwd?: string) {
     [flushStreaming],
   );
 
-  // 컨트롤 스냅샷을 다시 읽는다 (라이브일 때만 의미 있음).
+  // Re-read the control snapshot (only meaningful when live).
   const refreshControls = useCallback(() => {
     api
       .controls(path)
-      .then((controls) => patch({ controls, ...(controls.name ? { name: controls.name } : {}), ...(controls.queue ? { queue: controls.queue } : {}) }))
+      .then((controls) =>
+        patch({
+          controls,
+          ...(controls.name ? { name: controls.name } : {}),
+          ...(controls.queue ? { queue: controls.queue } : {}),
+        }),
+      )
       .catch(() => undefined);
   }, [path, patch]);
 
-  // 스트리밍 상태를 Tauri 에 보고 (quit 확인용 busy 카운트). 언마운트 시 감소.
+  // Report streaming state to Tauri (busy count for quit confirmation). Decremented on unmount.
   useEffect(() => {
     if (!state.streaming) return;
     reportStreaming(true);
     return () => reportStreaming(false);
   }, [state.streaming]);
 
-  // 초기 로드 + SSE 구독
-  useEffect(() => {
-    let closed = false;
-    patch({ loading: true, error: null });
-
-    api
-      .session(path)
-      .then((detail) => {
-        if (closed) return;
-        patch({
-          messages: entriesToMessages(detail.entries),
-          live: detail.live,
-          name: detail.name ?? null,
-          loading: false,
-        });
-        // 라이브가 아니어도 controls 를 불러온다 — 비-라이브엔 마지막/기본 모델을
-        // input default 로 내려주므로, 모델 셀렉터가 비어보이지 않게 한다.
-        refreshControls();
-      })
-      .catch((e) => !closed && patch({ error: String(e), loading: false }));
-
-    // 이벤트 구독은 event-bus 의 단일 WebSocket 으로 멀티플렉싱된다. 소켓 1개라
-    // 탭을 많이 열어도 연결이 고갈되지 않으므로, 모든 탭을 구독 유지한다(백그라운드
-    // 스트림도 실시간 반영). active 는 표시용일 뿐 구독 게이팅에 쓰지 않는다.
-    const unsub = subscribeEvents(path, (ev) => {
-      if (closed) return;
-      handleEvent(ev);
-    });
-
-    return () => {
-      closed = true;
-      unsub();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
-
-  // SSE 이벤트 처리 — 스트리밍 델타 누적
+  // SSE event handling — accumulate streaming deltas
   const handleEvent = useCallback(
     (ev: any) => {
       switch (ev.type) {
-        case "_connected":
+        case '_connected':
           patch({ live: ev.live, streaming: ev.streaming });
           break;
-        case "ui_request":
+        case 'ui_request':
           patch({
             uiRequest: {
               id: ev.id,
@@ -414,31 +421,35 @@ export function useSession(path: string, cwd?: string) {
             },
           });
           break;
-        case "ui_cancel":
-          // 원격(텔레그램) 응답이 먼저 와서 호스트가 닫으라고 함 → 해당 다이얼로그만 닫는다.
-          setState((s) => (s.uiRequest && s.uiRequest.id === ev.id ? { ...s, uiRequest: null } : s));
+        case 'ui_cancel':
+          // A remote (Telegram) response arrived first and the host asked to close → close only that dialog.
+          setState((s) =>
+            s.uiRequest && s.uiRequest.id === ev.id ? { ...s, uiRequest: null } : s,
+          );
           break;
-        case "ui_notify":
-          toast[ev.level === "error" ? "error" : ev.level === "warning" ? "warning" : "info"](ev.message);
+        case 'ui_notify':
+          toast[ev.level === 'error' ? 'error' : ev.level === 'warning' ? 'warning' : 'info'](
+            ev.message,
+          );
           break;
-        case "session_error":
-          // 세션 단위 에러(프롬프트/extension 등) → 에러 배너 + 토스트.
-          patch({ streaming: false, error: ev.message || "session error" });
-          toast.error(ev.message || "session error");
+        case 'session_error':
+          // session-level error (prompt/extension etc.) → error banner + toast.
+          patch({ streaming: false, error: ev.message || 'session error' });
+          toast.error(ev.message || 'session error');
           streamingRef.current = null;
           break;
-        case "backend_error":
-          // 백엔드 전역 에러(uncaughtException 등) → 토스트로 경고.
-          toast.error(`Backend error: ${ev.message || "unknown"}`);
+        case 'backend_error':
+          // backend global error (uncaughtException etc.) → warn via toast.
+          toast.error(`Backend error: ${ev.message || 'unknown'}`);
           break;
-        case "session_info_changed":
-          // 세션 이름이 바뀌면(첫 메시지 후 자동 명명 등) 라이브 반영.
+        case 'session_info_changed':
+          // When the session name changes (auto-naming after first message etc.), reflect it live.
           if (ev.name) patch({ name: ev.name });
           break;
-        case "thinking_level_changed":
+        case 'thinking_level_changed':
           refreshControls();
           break;
-        case "queue_update":
+        case 'queue_update':
           patch({
             queue: {
               steering: [...(ev.steering ?? [])],
@@ -446,9 +457,9 @@ export function useSession(path: string, cwd?: string) {
             },
           });
           break;
-        case "subagent_runs": {
-          // 백엔드 폴러가 subagent-run 엔트리 변화를 알림(appendEntry 는 이벤트 없음).
-          // runId 로 메시지를 갱신하고, 없던 run 은 추가한다.
+        case 'subagent_runs': {
+          // The backend poller notifies of subagent-run entry changes (appendEntry emits no event).
+          // Update messages by runId, and add runs that didn't exist.
           const incoming = (ev.runs ?? []) as any[];
           if (incoming.length === 0) break;
           setState((s) => {
@@ -471,117 +482,196 @@ export function useSession(path: string, cwd?: string) {
                   prompt: tn.prompt,
                   finalOutput: tn.finalOutput,
                   error: tn.error,
-                  transcript: (tn.transcript ?? []).map((it: any) => ({ kind: it.kind, text: it.text, toolName: it.toolName })),
+                  transcript: (tn.transcript ?? []).map((it: any) => ({
+                    kind: it.kind,
+                    text: it.text,
+                    toolName: it.toolName,
+                  })),
                 })),
               };
               const at = idxByRun.get(r.runId);
               if (at != null) {
                 msgs[at] = { ...msgs[at], subagentRun: view };
               } else {
-                msgs.push({ key: `subagent-${r.runId}`, role: "subagent", text: "", time: new Date().toISOString(), subagentRun: view });
+                msgs.push({
+                  key: `subagent-${r.runId}`,
+                  role: 'subagent',
+                  text: '',
+                  time: new Date().toISOString(),
+                  subagentRun: view,
+                });
               }
             }
             return { ...s, messages: msgs };
           });
           break;
         }
-        case "agent_start":
-          patch({ streaming: true });
+        case 'agent_start':
+          // When a retry succeeds and the turn starts, clear the retry state.
+          patch({ streaming: true, retry: null });
           turnStartRef.current = Date.now();
           break;
-        case "message_start": {
+        case 'auto_retry_start':
+          // Retry start for 429/timeout/overload etc. TUI style: warning-colored countdown.
+          patch({
+            retry: {
+              attempt: ev.attempt,
+              maxAttempts: ev.maxAttempts,
+              until: Date.now() + (ev.delayMs ?? 0),
+              reason: ev.errorMessage || '',
+            },
+          });
+          break;
+        case 'auto_retry_end': {
+          // Show the error only on failure (TUI: "Retry failed after N attempts: ...").
+          if (!ev.success) {
+            const m = `Retry failed after ${ev.attempt} attempt${ev.attempt > 1 ? 's' : ''}: ${ev.finalError || 'Unknown error'}`;
+            patch({ retry: null, streaming: false, error: m });
+            toast.error(m);
+          } else {
+            patch({ retry: null });
+          }
+          break;
+        }
+        case 'compaction_start':
+          patch({ compaction: { reason: ev.reason ?? 'manual' } });
+          break;
+        case 'compaction_end':
+          patch({ compaction: null });
+          if (ev.aborted) {
+            if (ev.reason === 'manual') toast.error('Compaction cancelled');
+            else toast.info('Auto-compaction cancelled');
+          } else if (ev.errorMessage) {
+            patch({ error: ev.errorMessage });
+            toast.error(ev.errorMessage);
+          }
+          // On success a new compaction-summary entry accumulates in the session, so refresh controls.
+          refreshControls();
+          break;
+        case 'message_start': {
           const msg = ev.message;
-          if (msg?.role === "assistant") {
+          if (msg?.role === 'assistant') {
             streamingRef.current = {
               key: `stream-${Date.now()}`,
-              role: "assistant",
-              text: "",
+              role: 'assistant',
+              text: '',
               streaming: true,
               time: new Date().toISOString(),
             };
             flushStreaming();
-          } else if (msg?.role === "user") {
-            // steer/followUp 로 전달된 user 메시지. 이미 낙관적으로 추가된 게 아니면 넣는다.
-            const text = typeof msg.content === "string"
-              ? msg.content
-              : Array.isArray(msg.content)
-                ? msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n")
-                : "";
+          } else if (msg?.role === 'user') {
+            // user message delivered via steer/followUp. Add it unless already added optimistically.
+            const text =
+              typeof msg.content === 'string'
+                ? msg.content
+                : Array.isArray(msg.content)
+                  ? msg.content
+                      .filter((c: any) => c.type === 'text')
+                      .map((c: any) => c.text)
+                      .join('\n')
+                  : '';
             if (text.trim()) {
               setState((s) => {
-                // 중복 방지: 낙관적으로 이미 들어간 같은 텍스트가 있으면 건너뀐.
-                const lastUser = [...s.messages].reverse().find((m) => m.role === "user");
+                // Avoid duplicates: skip if the same text was already added optimistically.
+                const lastUser = [...s.messages].reverse().find((m) => m.role === 'user');
                 if (lastUser && lastUser.text === text.trim()) return s;
                 return {
                   ...s,
-                  messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text: text.trim(), time: new Date().toISOString() }],
+                  messages: [
+                    ...s.messages,
+                    {
+                      key: `u-${Date.now()}`,
+                      role: 'user',
+                      text: text.trim(),
+                      time: new Date().toISOString(),
+                    },
+                  ],
                 };
               });
             }
           }
           break;
         }
-        case "message_update": {
+        case 'message_update': {
           const d = ev.assistantMessageEvent;
           if (!streamingRef.current) {
             streamingRef.current = {
               key: `stream-${Date.now()}`,
-              role: "assistant",
-              text: "",
+              role: 'assistant',
+              text: '',
               streaming: true,
               time: new Date().toISOString(),
             };
           }
           const sm = streamingRef.current;
-          if (d?.type === "text_delta") sm.text += d.delta;
-          else if (d?.type === "thinking_delta") sm.thinking = (sm.thinking || "") + d.delta;
-          else if (d?.type === "toolcall_end" && d.toolCall) {
+          if (d?.type === 'text_delta') sm.text += d.delta;
+          else if (d?.type === 'thinking_delta') sm.thinking = (sm.thinking || '') + d.delta;
+          else if (d?.type === 'toolcall_end' && d.toolCall) {
             sm.toolCalls = sm.toolCalls || [];
             sm.toolCalls.push({
               id: d.toolCall.id,
               name: d.toolCall.name,
               args: d.toolCall.arguments,
-              status: "running",
+              status: 'running',
             });
           }
           flushStreaming();
           break;
         }
-        case "tool_execution_start": {
-          updateToolCall(ev.toolCallId, (tc) => {
-            tc.status = "running";
-          }, { id: ev.toolCallId, name: ev.toolName, args: ev.args });
+        case 'tool_execution_start': {
+          updateToolCall(
+            ev.toolCallId,
+            (tc) => {
+              tc.status = 'running';
+            },
+            { id: ev.toolCallId, name: ev.toolName, args: ev.args },
+          );
           break;
         }
-        case "tool_execution_end": {
+        case 'tool_execution_update': {
+          // Live-update partial output of a running tool (bash stdout etc.) (TUI mirroring).
           updateToolCall(ev.toolCallId, (tc) => {
-            tc.status = ev.isError ? "error" : "done";
+            tc.status = 'running';
+            tc.resultText = contentToText((ev as any).partialResult?.content);
+          });
+          break;
+        }
+        case 'tool_execution_end': {
+          updateToolCall(ev.toolCallId, (tc) => {
+            tc.status = ev.isError ? 'error' : 'done';
             tc.resultText = contentToText(ev.result?.content);
           });
           break;
         }
-        case "message_end":
+        case 'message_end':
           if (streamingRef.current) {
             streamingRef.current.streaming = false;
-            // 주의: 툴은 message_end 이후에 실행된다(tool_execution_*). 여기서 running 을
-            // error 로 강제하면 아직 결과가 안 온 툴을 잘못 실패로 표시한다. 건드리지 않는다.
+            // Note: tools run after message_end (tool_execution_*). Forcing running to error
+            // here would wrongly mark a tool whose result hasn't arrived yet as failed. Don't touch it.
+            // But if the message ended in abort/error, attach errorMessage (TUI mirroring).
+            const stop = (ev.message as any)?.stopReason as string | undefined;
+            if (stop === 'aborted' || stop === 'error') {
+              streamingRef.current.errorMessage =
+                (ev.message as any)?.errorMessage ||
+                (stop === 'aborted' ? 'Operation aborted' : 'Error');
+            }
             flushStreaming();
             streamingRef.current = null;
           }
           break;
-        case "agent_end":
-          // 턴 종료: 마지막 assistant 메시지에만 메타(소요시간)를 붙인다.
-          // 턴이 끝났는데도 running 인 툴은 그제서야 실패로 간주(중단 등).
+        case 'agent_end':
+          // Turn end: attach meta (elapsed time) only to the last assistant message.
+          // Tools still running after the turn ended are only then treated as failed (abort etc.).
           if (streamingRef.current) {
             flushStreaming();
           }
           setState((s) => {
             const msgs = [...s.messages];
             const wasInterrupted = interruptedRef.current;
-            // 중단/종료 직후 생긴 빈 assistant 메시지(텍스트·thinking·툴 없음)는 버린다.
+            // Discard empty assistant messages (no text/thinking/tool) created right after abort/end.
             while (
               msgs.length > 0 &&
-              msgs[msgs.length - 1].role === "assistant" &&
+              msgs[msgs.length - 1].role === 'assistant' &&
               !msgs[msgs.length - 1].text.trim() &&
               !msgs[msgs.length - 1].thinking &&
               !msgs[msgs.length - 1].toolCalls?.length &&
@@ -589,15 +679,18 @@ export function useSession(path: string, cwd?: string) {
             ) {
               msgs.pop();
             }
-            // 내용 있는 마지막 assistant 메시지에 메타/중단 표시.
+            // Mark meta/interruption on the last assistant message that has content.
             for (let i = msgs.length - 1; i >= 0; i--) {
-              if (msgs[i].role === "assistant") {
+              if (msgs[i].role === 'assistant') {
                 const tcs = msgs[i].toolCalls?.map((t) =>
-                  wasInterrupted && t.status === "running" ? { ...t, status: "error" as const } : t,
+                  wasInterrupted && t.status === 'running' ? { ...t, status: 'error' as const } : t,
                 );
                 msgs[i] = {
                   ...msgs[i],
-                  elapsedMs: turnStartRef.current > 0 ? Date.now() - turnStartRef.current : msgs[i].elapsedMs,
+                  elapsedMs:
+                    turnStartRef.current > 0
+                      ? Date.now() - turnStartRef.current
+                      : msgs[i].elapsedMs,
                   ...(tcs ? { toolCalls: tcs } : {}),
                   ...(wasInterrupted ? { interrupted: true } : {}),
                 };
@@ -608,36 +701,89 @@ export function useSession(path: string, cwd?: string) {
           });
           interruptedRef.current = false;
           streamingRef.current = null;
-          refreshControls(); // 턴 끝난 뒤 컨텍스트/비용 갱신
+          refreshControls(); // refresh context/cost after the turn ends
           break;
       }
     },
-    [flushStreaming, patch, refreshControls],
+    [flushStreaming, patch, refreshControls, updateToolCall],
   );
 
-  // 프롬프트 전송 (낙관적으로 user 메시지 추가). images = data URL 배열(첨부).
-  // deliverAs: 스트리밍 중일 때 steer(즉시 주입) / followUp(턴 끝난 뒤).
-  // steer/followUp 는 둘 다 낙관적으로 안 넣는다. steer 는 현재 작업 종료 후 주입되므로
-  // 위치가 맞지 않을 수 있고, 실제 message_start(user) 이벤트가 올 때 정확한 위치에 표시.
+  // Initial load + SSE subscription
+  useEffect(() => {
+    let closed = false;
+    patch({ loading: true, error: null });
+
+    api
+      .session(path)
+      .then((detail) => {
+        if (closed) return;
+        patch({
+          messages: entriesToMessages(detail.entries),
+          live: detail.live,
+          name: detail.name ?? null,
+          loading: false,
+        });
+        // Load controls even when not live — for non-live, the last/default model is sent
+        // as the input default, so the model selector doesn't look empty.
+        refreshControls();
+      })
+      .catch((e) => !closed && patch({ error: String(e), loading: false }));
+
+    // Event subscription is multiplexed over event-bus's single WebSocket. With one socket,
+    // connections don't run out even with many open tabs, so keep all tabs subscribed (background
+    // streams update in real time too). active is just for display, not used to gate subscriptions.
+    const unsub = subscribeEvents(path, (ev) => {
+      if (closed) return;
+      handleEvent(ev);
+    });
+
+    return () => {
+      closed = true;
+      unsub();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    path, // Load controls even when not live — for non-live, the last/default model is sent
+    // as the input default, so the model selector doesn't look empty.
+    refreshControls,
+    patch,
+    handleEvent,
+  ]);
+
+  // Send a prompt (optimistically add the user message). images = array of data URLs (attachments).
+  // deliverAs: while streaming, steer (inject immediately) / followUp (after the turn ends).
+  // Neither steer nor followUp is added optimistically. steer is injected after the current work ends,
+  // so its position may not match; it's shown at the correct position when the actual message_start(user) event arrives.
   const send = useCallback(
-    async (text: string, force = false, images?: string[], deliverAs?: "steer" | "followUp") => {
+    async (text: string, force = false, images?: string[], deliverAs?: 'steer' | 'followUp') => {
       patch({ conflict: null, error: null });
       if (!deliverAs) {
         setState((s) => ({
           ...s,
-          messages: [...s.messages, { key: `u-${Date.now()}`, role: "user", text, time: new Date().toISOString() }],
+          messages: [
+            ...s.messages,
+            { key: `u-${Date.now()}`, role: 'user', text, time: new Date().toISOString() },
+          ],
         }));
       }
       try {
-        await api.prompt(path, text, force, images, cwd, {
-          model: draftModel ?? undefined,
-          thinkingLevel: draftThinking ?? undefined,
-        }, deliverAs);
+        await api.prompt(
+          path,
+          text,
+          force,
+          images,
+          cwd,
+          {
+            model: draftModel ?? undefined,
+            thinkingLevel: draftThinking ?? undefined,
+          },
+          deliverAs,
+        );
         patch({ live: true });
         refreshControls();
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-          const kind = e.body?.error === "revoked" ? "revoked" : "locked";
+          const kind = e.body?.error === 'revoked' ? 'revoked' : 'locked';
           patch({ conflict: { kind, by: e.body?.current || e.body?.by } });
         } else {
           patch({ error: String(e) });
@@ -647,16 +793,16 @@ export function useSession(path: string, cwd?: string) {
     [path, cwd, patch, refreshControls, draftModel, draftThinking],
   );
 
-  // 대기열 메시지 교체 (개별 수정/삭제). 살아남을 목록을 통째로 서버에 보낸다.
+  // Replace queued messages (individual edit/delete). Send the whole surviving list to the server.
   const editQueue = useCallback(
     (steering: string[], followUp: string[]) => {
-      patch({ queue: { steering, followUp } }); // 낙관적 반영
+      patch({ queue: { steering, followUp } }); // optimistic update
       api.setQueue(path, steering, followUp).catch(() => undefined);
     },
     [path, patch],
   );
 
-  // 강제로 가져오기 (force takeover 후 재전송 X — 그냥 락만 확보)
+  // Force takeover (no resend after force takeover — just acquire the lock)
   const takeover = useCallback(
     async (lastText?: string) => {
       try {
@@ -671,7 +817,7 @@ export function useSession(path: string, cwd?: string) {
     [path, patch, send, refreshControls],
   );
 
-  // 공통: 409 처리를 포함한 컨트롤 액션 래퍼.
+  // Common: control action wrapper that includes 409 handling.
   const runControl = useCallback(
     async (fn: () => Promise<SessionControls>) => {
       patch({ conflict: null, error: null });
@@ -680,7 +826,7 @@ export function useSession(path: string, cwd?: string) {
         patch({ controls, live: controls.live, ...(controls.name ? { name: controls.name } : {}) });
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-          const kind = e.body?.error === "revoked" ? "revoked" : "locked";
+          const kind = e.body?.error === 'revoked' ? 'revoked' : 'locked';
           patch({ conflict: { kind, by: e.body?.current || e.body?.by } });
         } else {
           patch({ error: String(e) });
@@ -692,7 +838,7 @@ export function useSession(path: string, cwd?: string) {
 
   const setModel = useCallback(
     (provider: string, id: string, force = false) => {
-      // 라이브 런타임이 있으면 즉시 반영, 없으면(첫 메시지 전) draft 로 든다.
+      // If a live runtime exists, apply immediately; otherwise (before the first message) hold it as a draft.
       setDraftModel({ provider, id });
       if (stateRef.current.live) return runControl(() => api.setModel(path, provider, id, force));
       return Promise.resolve();
@@ -700,7 +846,7 @@ export function useSession(path: string, cwd?: string) {
     [path, runControl],
   );
   const setThinking = useCallback(
-    (level: SessionControls["thinkingLevel"], force = false) => {
+    (level: SessionControls['thinkingLevel'], force = false) => {
       if (!level) return Promise.resolve();
       setDraftThinking(level);
       if (stateRef.current.live) return runControl(() => api.setThinking(path, level, force));
@@ -715,23 +861,23 @@ export function useSession(path: string, cwd?: string) {
 
   const clearError = useCallback(() => patch({ error: null }), [patch]);
 
-  // 진행 중인 응답 중단.
+  // Abort the in-progress response.
   const abort = useCallback(() => {
     interruptedRef.current = true;
     api.abort(path).catch(() => undefined);
   }, [path]);
 
-  // 런타임 내리고 락 해제 (탭은 유지). 세션은 읽기 전용으로 돌아간다.
+  // Tear down the runtime and release the lock (keep the tab). The session goes back to read-only.
   const shutdown = useCallback(async () => {
     try {
-      await api.dispose(path); // 서버가 런타임 내리고 락 release 할 때까지 대기
+      await api.dispose(path); // wait until the server tears down the runtime and releases the lock
     } catch {
       /* best-effort */
     }
     patch({ live: false, streaming: false });
   }, [path, patch]);
 
-  // UI 브릿지 응답 (confirm/select/input 다이얼로그의 결과를 백엔드로).
+  // UI bridge response (send the confirm/select/input dialog result to the backend).
   const respondUi = useCallback(
     (id: string, value: unknown) => {
       patch({ uiRequest: null });
@@ -740,7 +886,7 @@ export function useSession(path: string, cwd?: string) {
     [path, patch],
   );
 
-  // info 패널 · 컴포저 공용: 현재 모델/효율 — 라이브면 controls, 아니면 draft.
+  // Shared by the info panel and composer: current model/effort — controls if live, otherwise draft.
   const effectiveModel = state.controls?.model
     ? { provider: state.controls.model.provider, id: state.controls.model.id }
     : draftModel;

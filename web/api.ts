@@ -1,9 +1,9 @@
-// pi-gui 백엔드 API 클라이언트.
-// 모든 호출은 Vite 프록시(dev) 또는 같은 오리진(prod)의 /api 로 간다.
-// Tauri 에서는 apiUrl() 이 절대경로(127.0.0.1:4317)로 바꿜준다.
+// pi-gui backend API client.
+// All calls go to /api on the Vite proxy (dev) or the same origin (prod).
+// On Tauri, apiUrl() rewrites them to an absolute path (127.0.0.1:4317).
 
-import { apiUrl } from "./config";
-import { subscribePath } from "./event-bus";
+import { apiUrl } from './config';
+import { subscribePath } from './event-bus';
 
 export interface DirectoryInfo {
   cwd: string;
@@ -20,12 +20,12 @@ export interface SessionInfo {
   created: string;
   modified: string;
   live: boolean;
-  draft?: boolean; // 첫 메시지 전 임시 세션 (파일 아직 없음, 사이드바 임시 표시)
+  draft?: boolean; // temporary session before the first message (no file yet, shown temporarily in the sidebar)
 }
 
 export interface LockRecord {
   sessionPath: string;
-  owner: "pi" | "pi-web";
+  owner: 'pi' | 'pi-web';
   pid: number;
   host: string;
   label?: string;
@@ -42,7 +42,7 @@ export interface SessionDetail {
   live: boolean;
 }
 
-// 세션 엔트리 — 백엔드의 SessionManager.getEntries() 결과. 느슨하게 타입.
+// Session entry — result of the backend's SessionManager.getEntries(). Loosely typed.
 export interface SessionEntry {
   type: string;
   id: string;
@@ -65,7 +65,7 @@ export interface ModelInfo {
   name: string;
 }
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface FooterData {
   cwd: string;
@@ -180,8 +180,8 @@ async function getJSON<T>(url: string): Promise<T> {
 
 async function postJSON<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(apiUrl(url), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new ApiError(res.status, await safeJson(res));
@@ -207,12 +207,14 @@ export class ApiError extends Error {
 }
 
 export const api = {
-  // 사전 점검 (pi/모델/session-lock 설치 여부).
+  // Preflight check (whether pi/model/session-lock are installed).
   preflight: () =>
-    getJSON<{ ok: boolean; checks: { id: string; ok: boolean; detail: string }[] }>("/api/preflight"),
+    getJSON<{ ok: boolean; checks: { id: string; ok: boolean; detail: string }[] }>(
+      '/api/preflight',
+    ),
 
   directories: () =>
-    getJSON<{ directories: DirectoryInfo[] }>("/api/directories").then((r) => r.directories),
+    getJSON<{ directories: DirectoryInfo[] }>('/api/directories').then((r) => r.directories),
 
   sessions: (cwd: string) =>
     getJSON<{ cwd: string; sessions: SessionInfo[] }>(
@@ -222,25 +224,27 @@ export const api = {
   session: (path: string) =>
     getJSON<SessionDetail>(`/api/session?path=${encodeURIComponent(path)}`),
 
-  models: () => getJSON<{ models: ModelInfo[] }>("/api/models").then((r) => r.models),
+  models: () => getJSON<{ models: ModelInfo[] }>('/api/models').then((r) => r.models),
 
-  locks: () => getJSON<{ locks: LockRecord[] }>("/api/locks").then((r) => r.locks),
+  locks: () => getJSON<{ locks: LockRecord[] }>('/api/locks').then((r) => r.locks),
 
   live: () =>
     getJSON<{ live: { key: string; cwd: string; streaming: boolean; lockMine: boolean }[] }>(
-      "/api/live",
+      '/api/live',
     ).then((r) => r.live),
 
-  // 새 세션 경로 발급 (cwd 에서). pending: 첫 프롬프트 전엔 파일 없음.
+  // Issue a new session path (from cwd). pending: no file until the first prompt.
   newSession: (cwd: string) =>
-    postJSON<{ path: string; cwd: string; id: string; pending: boolean }>("/api/session/new", { cwd }),
+    postJSON<{ path: string; cwd: string; id: string; pending: boolean }>('/api/session/new', {
+      cwd,
+    }),
 
-  // 라이브 세션 열기 (락 확보). 409 면 ApiError(status=409, body.current)
+  // Open a live session (acquire the lock). On 409, ApiError(status=409, body.current)
   open: (path: string, force = false) =>
-    postJSON<{ live: boolean; locked: boolean }>("/api/session/open", { path, force }),
+    postJSON<{ live: boolean; locked: boolean }>('/api/session/open', { path, force }),
 
-  // 프롬프트 전송. images = data URL 배열(첨부), cwd = pending 세션 최초 생성용.
-  // model/thinkingLevel = 첫 메시지 전 draft 선택(런타임 생성 시 적용). 409 면 ApiError
+  // Send a prompt. images = array of data URLs (attachments), cwd = for first-time creation of a pending session.
+  // model/thinkingLevel = draft selection before the first message (applied when the runtime is created). On 409, ApiError
   prompt: (
     path: string,
     message: string,
@@ -248,9 +252,9 @@ export const api = {
     images?: string[],
     cwd?: string,
     draft?: { model?: { provider: string; id: string }; thinkingLevel?: string },
-    deliverAs?: "steer" | "followUp",
+    deliverAs?: 'steer' | 'followUp',
   ) =>
-    postJSON<{ accepted: boolean }>("/api/session/prompt", {
+    postJSON<{ accepted: boolean }>('/api/session/prompt', {
       path,
       message,
       force,
@@ -261,73 +265,76 @@ export const api = {
       deliverAs,
     }),
 
-  // 대기열 교체 (steering/followUp 개별 수정/삭제).
+  // Replace the queue (individual edit/delete of steering/followUp).
   setQueue: (path: string, steering: string[], followUp: string[]) =>
-    postJSON<{ ok: boolean }>("/api/session/queue", { path, steering, followUp }),
+    postJSON<{ ok: boolean }>('/api/session/queue', { path, steering, followUp }),
 
-  // 진행 중인 응답 중단.
-  abort: (path: string) => postJSON<{ aborted: boolean }>("/api/session/abort", { path }),
+  // Abort the in-progress response.
+  abort: (path: string) => postJSON<{ aborted: boolean }>('/api/session/abort', { path }),
 
-  // UI 브릿지 응답 (confirm/select/input 다이얼로그 결과).
+  // UI bridge response (confirm/select/input dialog result).
   uiResponse: (path: string, id: string, value: unknown) =>
-    postJSON<{ ok: boolean }>("/api/session/ui-response", { path, id, value }),
+    postJSON<{ ok: boolean }>('/api/session/ui-response', { path, id, value }),
 
-  // 세션 삭제 (jsonl 제거). 라이브/락 점유 중이면 409.
+  // Delete a session (remove the jsonl). 409 if live/lock-held.
   deleteSession: (path: string) =>
-    fetch(apiUrl(`/api/session?path=${encodeURIComponent(path)}`), { method: "DELETE" }),
+    fetch(apiUrl(`/api/session?path=${encodeURIComponent(path)}`), { method: 'DELETE' }),
 
   dispose: (path: string) =>
-    fetch(apiUrl(`/api/session/live?path=${encodeURIComponent(path)}`), { method: "DELETE" }),
+    fetch(apiUrl(`/api/session/live?path=${encodeURIComponent(path)}`), { method: 'DELETE' }),
 
-  // 세션 컨트롤/통계 스냅샷 (info 패널). 런타임 없으면 live:false.
+  // Session control/stats snapshot (info panel). live:false if there's no runtime.
   controls: (path: string) =>
     getJSON<SessionControls>(`/api/session/controls?path=${encodeURIComponent(path)}`),
 
-  // 슬래시 커맨드 목록 (extension + skill). 라이브 런타임 없으면 빈 배열.
+  // Slash command list (extension + skill). Empty array if there's no live runtime.
   commands: (path: string) =>
     getJSON<{ commands: { name: string; description?: string; source: string }[] }>(
       `/api/session/commands?path=${encodeURIComponent(path)}`,
     ).then((r) => r.commands),
 
-  // 푸터 데이터 (TUI 푸터 미러링). 런타임 없어도 파일에서 토큰/비용 집계.
+  // Footer data (TUI footer mirroring). Aggregates tokens/cost from the file even without a runtime.
   footer: (path: string, cwd?: string) =>
     getJSON<FooterData>(
-      `/api/session/footer?path=${encodeURIComponent(path)}${cwd ? `&cwd=${encodeURIComponent(cwd)}` : ""}`,
+      `/api/session/footer?path=${encodeURIComponent(path)}${cwd ? `&cwd=${encodeURIComponent(cwd)}` : ''}`,
     ),
 
-  // git 상태 (브랜치/변경파일/커밋그래프). 읽기 전용.
+  // git status (branch/changed files/commit graph). Read-only.
   git: (cwd: string) => getJSON<GitStatus>(`/api/git?cwd=${encodeURIComponent(cwd)}`),
 
-  // git 단일 커밋 상세. 읽기 전용.
+  // git single commit detail. Read-only.
   gitCommit: (cwd: string, hash: string) =>
-    getJSON<GitCommitDetail>(`/api/git/commit?cwd=${encodeURIComponent(cwd)}&hash=${encodeURIComponent(hash)}`),
-
-  // 디렉터리 브라우저 (새 세션 폴더 선택용). path 없으면 홈에서 시작.
-  fsList: (path?: string) =>
-    getJSON<{ path: string; parent: string | null; dirs: string[] }>(
-      `/api/fs/list${path ? `?path=${encodeURIComponent(path)}` : ""}`,
+    getJSON<GitCommitDetail>(
+      `/api/git/commit?cwd=${encodeURIComponent(cwd)}&hash=${encodeURIComponent(hash)}`,
     ),
 
-  // 모델 변경. 409 면 ApiError.
+  // Directory browser (for picking a new session folder). Starts at home if path is omitted.
+  fsList: (path?: string) =>
+    getJSON<{ path: string; parent: string | null; dirs: string[] }>(
+      `/api/fs/list${path ? `?path=${encodeURIComponent(path)}` : ''}`,
+    ),
+
+  // Change model. On 409, ApiError.
   setModel: (path: string, provider: string, id: string, force = false) =>
-    postJSON<SessionControls>("/api/session/model", { path, provider, id, force }),
+    postJSON<SessionControls>('/api/session/model', { path, provider, id, force }),
 
-  // 사고 수준(efficiency) 변경. 409 면 ApiError.
+  // Change thinking level (efficiency). On 409, ApiError.
   setThinking: (path: string, level: ThinkingLevel, force = false) =>
-    postJSON<SessionControls>("/api/session/thinking", { path, level, force }),
+    postJSON<SessionControls>('/api/session/thinking', { path, level, force }),
 
-  // 세션 이름 변경. 409 면 ApiError.
+  // Rename session. On 409, ApiError.
   rename: (path: string, name: string, force = false) =>
-    postJSON<SessionControls>("/api/session/rename", { path, name, force }),
+    postJSON<SessionControls>('/api/session/rename', { path, name, force }),
+
+  // Reload extensions/skills. 409 (streaming) if a turn is in progress.
+  reload: (path: string, force = false) =>
+    postJSON<{ ok: boolean; reason?: string }>('/api/session/reload', { path, force }),
 };
 
-// ── 이벤트 구독 (WebSocket 단일 소켓 멀티플렉싱) ──────────────────────
-// 예전엔 탭마다 EventSource(SSE)를 열었으나, 브라우저 6연결 제한으로 탭을 많이
-// 열면 fetch 가 멈추었다. 이제 event-bus 의 단일 WebSocket 으로 멀티플렉싱한다.
-// 반환 함수를 호출하면 구독 해제.
-export function subscribeEvents(
-  path: string,
-  onEvent: (event: any) => void,
-): () => void {
+// ── Event subscription (single WebSocket multiplexing) ────────────────────
+// Previously each tab opened its own EventSource (SSE), but with the browser 6-connection limit,
+// opening many tabs would stall fetch. Now it multiplexes over event-bus's single WebSocket.
+// Call the returned function to unsubscribe.
+export function subscribeEvents(path: string, onEvent: (event: any) => void): () => void {
   return subscribePath(path, onEvent);
 }

@@ -1,37 +1,43 @@
-// 한 세션 탭: 메시지 + 컴포저 + 락 충돌 배너 + info 패널 토글.
+// A single session tab: messages + composer + lock-conflict banner + info panel toggle.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Paperclip, Send, PanelRight, X, Square, Power, Pencil, ChevronDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  ChevronDown,
+  Loader2,
+  PanelRight,
+  Paperclip,
+  Pencil,
+  Power,
+  Send,
+  Square,
+  X,
+} from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { usePanelRef } from 'react-resizable-panels';
+import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable";
-import { usePanelRef } from "react-resizable-panels";
-import { cn } from "@/lib/utils";
-import { api } from "./api";
-import { useSession } from "./use-session";
-import { MessageView, SubagentOpenContext } from "./message-view";
-import { InfoPanel } from "./info-panel";
-import { SubagentChatView } from "./subagent-chat-view";
-import type { SubagentRunView } from "./use-session";
-import { Footer } from "./footer";
-import { ModelControls } from "./model-controls";
-import { UiRequestDialog } from "./ui-request-dialog";
-import { QuestionnaireDialog } from "./questionnaire-dialog";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { useT } from "./i18n";
+} from '@/components/ui/dropdown-menu';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import { api } from './api';
+import { Footer } from './footer';
+import { useT } from './i18n';
+import { InfoPanel } from './info-panel';
+import { MessageView, SubagentOpenContext } from './message-view';
+import { ModelControls } from './model-controls';
+import { QuestionnaireDialog } from './questionnaire-dialog';
+import { SubagentChatView } from './subagent-chat-view';
+import { UiRequestDialog } from './ui-request-dialog';
+import { useSession } from './use-session';
 
-// File → data URL (백엔드가 data:<mime>;base64,<data> 를 파싱).
+// File → data URL (the backend parses data:<mime>;base64,<data>).
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -41,36 +47,65 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path: string; cwd?: string; onTitle?: (name: string) => void; onLive?: () => void; onLiveChange?: () => void }) {
+export function SessionTab({
+  path,
+  cwd,
+  onTitle,
+  onLive,
+  onLiveChange,
+}: {
+  path: string;
+  cwd?: string;
+  onTitle?: (name: string) => void;
+  onLive?: () => void;
+  onLiveChange?: () => void;
+}) {
   const { t } = useT();
-  const { state, send, takeover, clearError, setModel, setThinking, rename, abort, shutdown, editQueue, respondUi, effectiveModel, effectiveThinking, turnStartRef } = useSession(path, cwd);
-  const [input, setInput] = useState("");
+  const {
+    state,
+    send,
+    takeover,
+    clearError,
+    setModel,
+    setThinking,
+    rename,
+    abort,
+    shutdown,
+    editQueue,
+    respondUi,
+    effectiveModel,
+    effectiveThinking,
+    turnStartRef,
+  } = useSession(path, cwd);
+  const [input, setInput] = useState('');
   const [files, setFiles] = useState<File[]>([]);
-  // 메시지 윈도잉: 큰 세션은 마지막 N개만 렌더해 메인스레드 블록을 막는다.
-  // (수천 메시지 × 마크다운 파싱 = 동기 렌더로 앱 멈춤) "이전 보기"로 더 로드.
+  // Message windowing: large sessions only render the last N to avoid blocking the main thread.
+  // (thousands of messages × markdown parsing = app freeze on sync render) Load more via "view earlier".
   const MSG_WINDOW = 60;
   const [visibleCount, setVisibleCount] = useState(MSG_WINDOW);
-  // 서브에이전트를 "메인 스레드처럼" 펼쳐볼 때 선택된 runId (읽기전용).
+  // selected runId when expanding a subagent "like the main thread" (read-only).
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [commands, setCommands] = useState<{ name: string; description?: string; source: string }[]>([]);
+  const [commands, setCommands] = useState<
+    { name: string; description?: string; source: string }[]
+  >([]);
   const [cmdIndex, setCmdIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastTextRef = useRef<string>("");
+  const lastTextRef = useRef<string>('');
 
-  // 스트리밍 경과 시간 — turnStartRef(turn 시작 시각) 기준으로 1초마다 재렌더.
-  // turnStartRef 는 agent_start 에서 1회 세팅되므로 중간에 초기화되지 않는다.
+  // Streaming elapsed time — re-render every second based on turnStartRef (turn start time).
+  // turnStartRef is set once at agent_start, so it isn't reset mid-turn.
+  // The retry countdown and compaction spinner also need per-second updates, so they tick together.
   const [, tick] = useState(0);
   useEffect(() => {
-    if (!state.streaming) return;
+    if (!state.streaming && !state.retry && !state.compaction) return;
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
-  }, [state.streaming]);
-  const streamElapsed = state.streaming && turnStartRef.current > 0
-    ? Date.now() - turnStartRef.current
-    : 0;
+  }, [state.streaming, state.retry, state.compaction]);
+  const streamElapsed =
+    state.streaming && turnStartRef.current > 0 ? Date.now() - turnStartRef.current : 0;
 
-  // info 패널은 항상 열림 + 리사이즈 가능. 토글 버튼으로 접을 수 있다.
+  // The info panel is always open + resizable. It can be collapsed with the toggle button.
   const infoRef = usePanelRef();
   const toggleInfo = () => {
     const p = infoRef.current;
@@ -79,52 +114,66 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
     else p.collapse();
   };
 
-  // 세션 안의 subagent-run 엔트리를 모아 info 패널로 넘긴다 (최신이 아래).
+  // Collect subagent-run entries in the session and pass them to the info panel (newest at the bottom).
   const subagentRuns = useMemo(
     () => state.messages.filter((m) => m.subagentRun).map((m) => m.subagentRun!),
     [state.messages],
   );
-  // 선택된 run 을 라이브 목록에서 다시 찾는다 (실행 중이면 스트리밍 갱신 반영).
+  // Re-find the selected run in the live list (reflects streaming updates while running).
   const selectedRun = useMemo(
-    () => (selectedRunId ? subagentRuns.find((r) => r.runId === selectedRunId) ?? null : null),
+    () => (selectedRunId ? (subagentRuns.find((r) => r.runId === selectedRunId) ?? null) : null),
     [selectedRunId, subagentRuns],
   );
 
-  // 라이브가 되면 슬래시 커맨드 목록을 불러온다 (extension 등록 커맨드).
+  // Load the slash command list once live (extension-registered commands).
   useEffect(() => {
     if (!state.live) {
       setCommands([]);
       return;
     }
-    api.commands(path).then(setCommands).catch(() => undefined);
+    api
+      .commands(path)
+      .then(setCommands)
+      .catch(() => undefined);
   }, [state.live, path]);
 
-  // "/" 로 시작하면 커맨드 메뉴 (첫 토큰만, 공백 전). 필터링.
+  // If it starts with "/", show the command menu (first token only, before whitespace). Filter.
+  // Besides extension/skill commands, always include the host builtin /reload.
   const commandMenu = (() => {
-    if (!commands.length) return null;
+    const all = state.live
+      ? [
+          ...commands,
+          { name: 'reload', description: t('reload.menuDesc'), source: 'builtin' as const },
+        ]
+      : commands;
+    if (!all.length) return null;
     const m = /^\/(\S*)$/.exec(input);
     if (!m) return null;
     const q = m[1].toLowerCase();
-    const matches = commands.filter((c) => c.name.toLowerCase().startsWith(q));
+    const matches = all.filter((c) => c.name.toLowerCase().startsWith(q));
     return matches.length ? matches.slice(0, 8) : null;
   })();
 
-  // 메뉴 내용이 바뀐 때 하이라이트 인덱스를 리셋.
+  // Reset the highlight index when the menu contents change.
   useEffect(() => {
     setCmdIndex(0);
-  }, [input]);
+  }, []);
 
-  // 커맨드를 입력창에 채운다 (아직 전송은 안 함 — 인자 입력 여지).
+  // Fill the command into the input (don't send yet — leaves room for arguments).
   const applyCommand = (name: string) => setInput(`/${name} `);
 
-  // 세션 이름이 정해지면 상위(App)로 올려 탭 label/브라우저 제목 갱신.
-  // onTitle 은 매 렌더 새 함수일 수 있으므로 ref 로 고정해 의존성에서 뺀다
-  // (아니면 onTitle→setState→새 onTitle→effect 재실행 무한루프).
+  // When the session name is decided, propagate up to App to update tab label/browser title.
+  // onTitle may be a new function each render, so pin it via ref and exclude it from deps
+  // (otherwise onTitle→setState→new onTitle→effect re-run infinite loop).
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
-  // TUI 와 동일: 이름이 없으면 첫 사용자 프롬프트를 제목으로 쓴다.
+  // Same as TUI: if there's no name, use the first user prompt as the title.
   const firstUserMsg = useMemo(
-    () => state.messages.find((m) => m.role === "user" && m.text.trim())?.text.trim().slice(0, 60),
+    () =>
+      state.messages
+        .find((m) => m.role === 'user' && m.text.trim())
+        ?.text.trim()
+        .slice(0, 60),
     [state.messages],
   );
   useEffect(() => {
@@ -132,8 +181,8 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
     if (title) onTitleRef.current?.(title);
   }, [state.name, firstUserMsg]);
 
-  // 세션이 라이브로 전환되면(첫 프롬프트 수락 → 파일 생성) 상위에 알린다.
-  // App 이 그 cwd 의 세션 목록을 갱신해 draft 칩을 정식 세션으로 바꿜다.
+  // When the session transitions to live (first prompt accepted → file created), notify the parent.
+  // App refreshes the session list for that cwd to turn the draft chip into a real session.
   const onLiveRef = useRef(onLive);
   onLiveRef.current = onLive;
   const onLiveChangeRef = useRef(onLiveChange);
@@ -145,22 +194,22 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
       onLiveRef.current?.();
       onLiveChangeRef.current?.();
     } else if (!state.live && wasLiveRef.current) {
-      // 라이브 → 읽기전용 전환(락 해제됨): 사이드바 도트 갱신.
+      // live → read-only transition (lock released): update the sidebar dot.
       wasLiveRef.current = false;
       onLiveChangeRef.current?.();
     }
   }, [state.live]);
 
-  // 새 메시지/스트리밍 시 맨 아래로 — 단, 사용자가 이미 하단 근처에 있을 때만.
-  // (위로 스크롤해 히스토리 볼 때 확 끝으로 이동되는 거 방지)
-  // 단, 처음 열릴 때(메시지 최초 로드)는 무조건 맨 아래로.
+  // Scroll to bottom on new message/streaming — but only when the user is already near the bottom.
+  // (prevents jumping to the end while scrolling up to view history)
+  // But on first open (initial message load), always scroll to the bottom.
   const didInitialScrollRef = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (!didInitialScrollRef.current && state.messages.length > 0 && !state.loading) {
       didInitialScrollRef.current = true;
-      // 레이아웃 후 맨 아래로 (초기 열림).
+      // Scroll to bottom after layout (initial open).
       requestAnimationFrame(() => {
         const e = scrollRef.current;
         if (e) e.scrollTop = e.scrollHeight;
@@ -171,8 +220,8 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [state.messages, state.loading]);
 
-  // 히스토리 자동 로드: 위로 스크롤해 상단 근처면 visibleCount 를 늘린다.
-  // 늘린 뒤 prepend 로 위쪽 콘텐츠가 커지므로, 보정해서 뷰포트가 안 튀게 한다.
+  // Auto-load history: when scrolled up near the top, increase visibleCount.
+  // After increasing, prepended content grows the top, so compensate to avoid viewport jumps.
   const anchorRef = useRef<{ prevH: number; prevTop: number } | null>(null);
   const onScroll = () => {
     const el = scrollRef.current;
@@ -182,401 +231,491 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
       setVisibleCount((n) => Math.min(state.messages.length, n + MSG_WINDOW));
     }
   };
-  // visibleCount 가 바뀌어 더 옛 메시지가 prepend 되면, paint 전에 스크롤 위치 보정.
+  // When visibleCount changes and older messages are prepended, fix scroll position before paint.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const a = anchorRef.current;
     if (!el || !a) return;
     el.scrollTop = a.prevTop + (el.scrollHeight - a.prevH);
     anchorRef.current = null;
-  }, [visibleCount]);
+  }, []);
 
-  // 푸터 갱신 키: 스트리밍 끝날 때(false 로 전환) + 메시지 수 변화 시 다시 집계.
+  // Footer refresh key: re-aggregate when streaming ends (transitions to false) + on message count change.
   const footerKey = (state.streaming ? 1 : 0) + state.messages.length;
 
-  const onSubmit = async (modeOverride?: "steer" | "followUp") => {
+  const onSubmit = async (modeOverride?: 'steer' | 'followUp') => {
     const text = input.trim();
     if (!text && files.length === 0) return;
+    // builtin /reload — calls the extension reload API, not a prompt.
+    if (text === '/reload') {
+      setInput('');
+      try {
+        const r = await api.reload(path);
+        if (r.ok) {
+          toast.success(t('reload.done'));
+          api
+            .commands(path)
+            .then(setCommands)
+            .catch(() => undefined);
+        } else if (r.reason === 'streaming') {
+          toast.error(t('reload.streaming'));
+        }
+      } catch {
+        toast.error(t('reload.failed'));
+      }
+      return;
+    }
     lastTextRef.current = text;
     let images: string[] | undefined;
     if (files.length) {
-      const imgs = files.filter((f) => f.type.startsWith("image/"));
+      const imgs = files.filter((f) => f.type.startsWith('image/'));
       images = imgs.length ? await Promise.all(imgs.map(fileToDataUrl)) : undefined;
     }
-    // 스트리밍 중이면 선택한 모드(steer/followUp)로 큐잉, 아니면 일반 전송.
-    const deliverAs = state.streaming ? (modeOverride ?? "steer") : undefined;
+    // While streaming, queue with the selected mode (steer/followUp); otherwise send normally.
+    const deliverAs = state.streaming ? (modeOverride ?? 'steer') : undefined;
     send(text, false, images, deliverAs);
-    setInput("");
+    setInput('');
     setFiles([]);
   };
 
   const statusLine = useMemo(() => {
+    // While retrying (429/timeout/overload) — TUI-style warning-colored countdown.
+    if (state.retry) {
+      const secs = Math.max(0, Math.ceil((state.retry.until - Date.now()) / 1000));
+      return (
+        <span className="flex items-center gap-1.5 text-amber-500">
+          <Loader2 className="size-3 animate-spin" />
+          {t('retry.status', {
+            a: String(state.retry.attempt),
+            max: String(state.retry.maxAttempts),
+            s: String(secs),
+          })}
+        </span>
+      );
+    }
+    // While compacting — TUI-style accent-colored spinner.
+    if (state.compaction) {
+      const label =
+        state.compaction.reason === 'manual'
+          ? t('compaction.compacting')
+          : state.compaction.reason === 'overflow'
+            ? t('compaction.overflow')
+            : t('compaction.auto');
+      return (
+        <span className="flex items-center gap-1.5 text-sky-500">
+          <Loader2 className="size-3 animate-spin" /> {label}
+        </span>
+      );
+    }
     if (state.streaming) {
       const sec = Math.floor(streamElapsed / 1000);
       const elapsed = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
       return (
         <span className="flex items-center gap-1.5 text-amber-500">
-          <Loader2 className="size-3 animate-spin" /> {t("session.streaming")}
+          <Loader2 className="size-3 animate-spin" /> {t('session.streaming')}
           {sec > 0 ? <span className="tabular-nums text-muted-foreground">{elapsed}</span> : null}
         </span>
       );
     }
-    if (state.live) return <span className="text-emerald-500">{t("session.liveLockHeld")}</span>;
-    return <span className="text-muted-foreground">{t("session.idle")}</span>;
-  }, [state.streaming, state.live, streamElapsed, t]);
+    if (state.live) return <span className="text-emerald-500">{t('session.liveLockHeld')}</span>;
+    return <span className="text-muted-foreground">{t('session.idle')}</span>;
+  }, [state.streaming, state.live, state.retry, state.compaction, streamElapsed, t]);
 
   const lockedBy =
     state.conflict?.by?.label ||
-    (state.conflict?.by ? `${state.conflict.by.owner} (pid ${state.conflict.by.pid})` : t("session.anotherClient"));
+    (state.conflict?.by
+      ? `${state.conflict.by.owner} (pid ${state.conflict.by.pid})`
+      : t('session.anotherClient'));
 
   return (
     <ResizablePanelGroup className="h-full min-h-0">
-      {/* ── 채팅 영역 ── */}
+      {/* ── Chat area ── */}
       <ResizablePanel className="min-w-0">
         <div className="flex h-full min-h-0 min-w-0 flex-col">
-        {/* 상단 미니 바 */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-sm">
-          <div>{statusLine}</div>
-          <div className="flex items-center gap-1">
-            {state.live ? (
+          {/* Top mini bar */}
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2 text-sm">
+            <div>{statusLine}</div>
+            <div className="flex items-center gap-1">
+              {state.live ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-destructive"
+                  aria-label={t('session.shutdown')}
+                  title={t('session.shutdown')}
+                  onClick={shutdown}
+                >
+                  <Power className="size-4" />
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 text-muted-foreground hover:text-destructive"
-                aria-label={t("session.shutdown")}
-                title={t("session.shutdown")}
-                onClick={shutdown}
+                className="size-7"
+                aria-label={t('info.title')}
+                onClick={toggleInfo}
               >
-                <Power className="size-4" />
+                <PanelRight className="size-4" />
               </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              aria-label={t("info.title")}
-              onClick={toggleInfo}
-            >
-              <PanelRight className="size-4" />
-            </Button>
-          </div>
-        </div>
-
-        {/* 메시지 스크롤 영역 */}
-        <div ref={scrollRef} onScroll={onScroll} className="always-scrollbar min-h-0 flex-1">
-          <div className="mx-auto max-w-7xl px-4 py-6">
-            {state.loading ? (
-              <div className="flex justify-center p-6">
-                <Loader2 className="size-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : state.messages.length === 0 ? (
-              <div className="p-10 text-center text-sm text-muted-foreground">{t("session.noMessages")}</div>
-            ) : (
-              <div className="flex w-full flex-col gap-7">
-                {state.messages.length > visibleCount ? (
-                  <div className="py-2 text-center text-xs text-muted-foreground/60">
-                    {t("session.loadingEarlier")}
-                  </div>
-                ) : visibleCount > MSG_WINDOW ? (
-                  <div className="py-2 text-center">
-                    <button
-                      className="rounded-md border px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => {
-                        setVisibleCount(MSG_WINDOW);
-                        const el = scrollRef.current;
-                        if (el) requestAnimationFrame(() => { el.scrollTop = 0; });
-                      }}
-                    >
-                      {t("session.unloadEarlier", { count: String(visibleCount) })}
-                    </button>
-                  </div>
-                ) : null}
-                {(visibleCount >= state.messages.length
-                  ? state.messages
-                  : state.messages.slice(state.messages.length - visibleCount)
-                ).map((m) => (
-                  <SubagentOpenContext.Provider key={m.key} value={(runId) => setSelectedRunId(runId)}>
-                    <MessageView msg={m} />
-                  </SubagentOpenContext.Provider>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 락 충돌 배너 */}
-        {state.conflict ? (
-          <div className="mx-4 mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-            <div className="mb-1 font-medium">
-              {state.conflict.kind === "revoked" ? t("session.revokedHeader") : t("session.lockedHeader")}
             </div>
-            <div className="mb-2 text-muted-foreground">{t("session.lockBody", { who: lockedBy })}</div>
-            <Button size="sm" onClick={() => takeover(lastTextRef.current || undefined)}>
-              {t("session.forceTakeover")}
-            </Button>
           </div>
-        ) : null}
 
-        {state.error ? (
-          <div className="mx-4 mt-2 flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
-            <span>{state.error}</span>
-            <button onClick={clearError} aria-label="dismiss" className="text-muted-foreground hover:text-foreground">
-              <X className="size-4" />
-            </button>
-          </div>
-        ) : null}
-
-        {/* 컴포저 (또는 questionnaire 인라인 — TUI 처럼 입력창 자리에 질문이 뜨다) */}
-        {state.uiRequest?.kind === "questionnaire" ? (
-          <div className="shrink-0 px-4 py-4">
-            <QuestionnaireDialog
-              id={state.uiRequest.id}
-              questions={state.uiRequest.questions ?? []}
-              onRespond={respondUi}
-              inline
-            />
-          </div>
-        ) : (
-        <div className="relative shrink-0 px-4 py-4">
-          {/* 슬래시 커맨드 메뉴 ("/" 입력 시) */}
-          {commandMenu ? (
-            <div className="absolute bottom-full left-4 right-4 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
-              {commandMenu.map((c, i) => (
-                <button
-                  key={c.name}
-                  className={cn(
-                    "flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm",
-                    i === cmdIndex ? "bg-accent" : "hover:bg-accent",
-                  )}
-                  onMouseEnter={() => setCmdIndex(i)}
-                  onClick={() => applyCommand(c.name)}
-                >
-                  <span className="font-mono font-medium">/{c.name}</span>
-                  {c.source === "skill" ? (
-                    <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">skill</span>
+          {/* Message scroll area */}
+          <div ref={scrollRef} onScroll={onScroll} className="always-scrollbar min-h-0 flex-1">
+            <div className="mx-auto max-w-7xl px-4 py-6">
+              {state.loading ? (
+                <div className="flex justify-center p-6">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : state.messages.length === 0 ? (
+                <div className="p-10 text-center text-sm text-muted-foreground">
+                  {t('session.noMessages')}
+                </div>
+              ) : (
+                <div className="flex w-full flex-col gap-7">
+                  {state.messages.length > visibleCount ? (
+                    <div className="py-2 text-center text-xs text-muted-foreground/60">
+                      {t('session.loadingEarlier')}
+                    </div>
+                  ) : visibleCount > MSG_WINDOW ? (
+                    <div className="py-2 text-center">
+                      <button
+                        type="button"
+                        className="rounded-md border px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                        onClick={() => {
+                          setVisibleCount(MSG_WINDOW);
+                          const el = scrollRef.current;
+                          if (el)
+                            requestAnimationFrame(() => {
+                              el.scrollTop = 0;
+                            });
+                        }}
+                      >
+                        {t('session.unloadEarlier', { count: String(visibleCount) })}
+                      </button>
+                    </div>
                   ) : null}
-                  {c.description ? (
-                    <span className="truncate text-xs text-muted-foreground">{c.description}</span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {/* 스트리밍 중 대기열: steering/followUp 메시지 (수정·삭제 가능) */}
-          {state.queue.steering.length + state.queue.followUp.length > 0 ? (
-            <div className="mb-2 flex flex-col gap-1">
-              {(["steering", "followUp"] as const).flatMap((bucket) =>
-                state.queue[bucket].map((msg, i) => (
-                  <div
-                    key={`${bucket}-${i}`}
-                    className="flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1 text-xs"
-                  >
-                    <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">
-                      {bucket === "steering" ? t("queue.steer") : t("queue.followUp")}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{msg}</span>
-                    <button
-                      aria-label={t("queue.edit")}
-                      title={t("queue.edit")}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => {
-                        setInput(msg);
-                        const next = { ...state.queue, [bucket]: state.queue[bucket].filter((_, j) => j !== i) };
-                        editQueue(next.steering, next.followUp);
-                      }}
+                  {(visibleCount >= state.messages.length
+                    ? state.messages
+                    : state.messages.slice(state.messages.length - visibleCount)
+                  ).map((m) => (
+                    <SubagentOpenContext.Provider
+                      key={m.key}
+                      value={(runId) => setSelectedRunId(runId)}
                     >
-                      <Pencil className="size-3" />
-                    </button>
-                    <button
-                      aria-label={t("queue.delete")}
-                      title={t("queue.delete")}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => {
-                        const next = { ...state.queue, [bucket]: state.queue[bucket].filter((_, j) => j !== i) };
-                        editQueue(next.steering, next.followUp);
-                      }}
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </div>
-                )),
+                      <MessageView msg={m} />
+                    </SubagentOpenContext.Provider>
+                  ))}
+                </div>
               )}
             </div>
-          ) : null}
-          {files.length ? (
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {files.map((f, i) => (
-                <Badge key={i} variant="secondary" className="gap-1">
-                  <span className="max-w-[160px] truncate">{f.name}</span>
-                  <button
-                    aria-label={t("composer.removeAttachment")}
-                    onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              ))}
+          </div>
+
+          {/* Lock-conflict banner */}
+          {state.conflict ? (
+            <div className="mx-4 mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <div className="mb-1 font-medium">
+                {state.conflict.kind === 'revoked'
+                  ? t('session.revokedHeader')
+                  : t('session.lockedHeader')}
+              </div>
+              <div className="mb-2 text-muted-foreground">
+                {t('session.lockBody', { who: lockedBy })}
+              </div>
+              <Button size="sm" onClick={() => takeover(lastTextRef.current || undefined)}>
+                {t('session.forceTakeover')}
+              </Button>
             </div>
           ) : null}
-          {/* 모델/효율 셀렉터 (항상 표시, 첫 메시지 전에도 변경 가능) */}
-          <div className="mb-1.5">
-            <ModelControls
-              model={effectiveModel}
-              thinking={effectiveThinking}
-              onSetModel={(provider, id) => setModel(provider, id)}
-              onSetThinking={(level) => setThinking(level)}
-            />
-          </div>
-          <div className="flex items-end gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                if (e.target.files) setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              variant="outline"
-              size="icon"
-              className="shrink-0"
-              aria-label={t("composer.attach")}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={state.loading}
-            >
-              <Paperclip className="size-4" />
-            </Button>
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onPaste={(e) => {
-                // 스크린샷/이미지 붙여넣기 대응.
-                // 브라우저마다 이미지를 files 가 아니라 items(kind="file")에만 넣는
-                // 경우가 있으므로 둘 다 확인한다.
-                const imgs: File[] = [];
-                for (const f of Array.from(e.clipboardData.files)) {
-                  if (f.type.startsWith("image/")) imgs.push(f);
-                }
-                if (imgs.length === 0) {
-                  for (const it of Array.from(e.clipboardData.items)) {
-                    if (it.kind === "file" && it.type.startsWith("image/")) {
-                      const f = it.getAsFile();
-                      if (f) imgs.push(f);
+
+          {state.error ? (
+            <div className="mx-4 mt-2 flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              <span>{state.error}</span>
+              <button
+                type="button"
+                onClick={clearError}
+                aria-label="dismiss"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : null}
+
+          {/* Composer (or inline questionnaire — like TUI, the question appears in place of the input) */}
+          {state.uiRequest?.kind === 'questionnaire' ? (
+            <div className="shrink-0 px-4 py-4">
+              <QuestionnaireDialog
+                id={state.uiRequest.id}
+                questions={state.uiRequest.questions ?? []}
+                onRespond={respondUi}
+                inline
+              />
+            </div>
+          ) : (
+            <div className="relative shrink-0 px-4 py-4">
+              {/* Slash command menu (when typing "/") */}
+              {commandMenu ? (
+                <div className="absolute bottom-full left-4 right-4 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
+                  {commandMenu.map((c, i) => (
+                    <button
+                      type="button"
+                      key={c.name}
+                      className={cn(
+                        'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm',
+                        i === cmdIndex ? 'bg-accent' : 'hover:bg-accent',
+                      )}
+                      onMouseEnter={() => setCmdIndex(i)}
+                      onClick={() => applyCommand(c.name)}
+                    >
+                      <span className="font-mono font-medium">/{c.name}</span>
+                      {c.source === 'skill' ? (
+                        <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">
+                          skill
+                        </span>
+                      ) : null}
+                      {c.description ? (
+                        <span className="truncate text-xs text-muted-foreground">
+                          {c.description}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {/* Queue during streaming: steering/followUp messages (editable/deletable) */}
+              {state.queue.steering.length + state.queue.followUp.length > 0 ? (
+                <div className="mb-2 flex flex-col gap-1">
+                  {(['steering', 'followUp'] as const).flatMap((bucket) =>
+                    state.queue[bucket].map((msg, i) => (
+                      <div
+                        key={`${bucket}-${msg}`}
+                        className="flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+                      >
+                        <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">
+                          {bucket === 'steering' ? t('queue.steer') : t('queue.followUp')}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{msg}</span>
+                        <button
+                          type="button"
+                          aria-label={t('queue.edit')}
+                          title={t('queue.edit')}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={() => {
+                            setInput(msg);
+                            const next = {
+                              ...state.queue,
+                              [bucket]: state.queue[bucket].filter((_, j) => j !== i),
+                            };
+                            editQueue(next.steering, next.followUp);
+                          }}
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={t('queue.delete')}
+                          title={t('queue.delete')}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => {
+                            const next = {
+                              ...state.queue,
+                              [bucket]: state.queue[bucket].filter((_, j) => j !== i),
+                            };
+                            editQueue(next.steering, next.followUp);
+                          }}
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </div>
+                    )),
+                  )}
+                </div>
+              ) : null}
+              {files.length ? (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {files.map((f, i) => (
+                    <Badge
+                      key={`${f.name}-${f.size}-${f.lastModified}`}
+                      variant="secondary"
+                      className="gap-1"
+                    >
+                      <span className="max-w-[160px] truncate">{f.name}</span>
+                      <button
+                        type="button"
+                        aria-label={t('composer.removeAttachment')}
+                        onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+              {/* Model/effort selector (always shown, changeable even before the first message) */}
+              <div className="mb-1.5">
+                <ModelControls
+                  model={effectiveModel}
+                  thinking={effectiveThinking}
+                  onSetModel={(provider, id) => setModel(provider, id)}
+                  onSetThinking={(level) => setThinking(level)}
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    if (e.target.files)
+                      setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+                    e.target.value = '';
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  aria-label={t('composer.attach')}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={state.loading}
+                >
+                  <Paperclip className="size-4" />
+                </Button>
+                <Textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onPaste={(e) => {
+                    // Handle screenshot/image paste.
+                    // Some browsers put images only in items(kind="file") rather than files,
+                    // so check both.
+                    const imgs: File[] = [];
+                    for (const f of Array.from(e.clipboardData.files)) {
+                      if (f.type.startsWith('image/')) imgs.push(f);
                     }
-                  }
-                }
-                if (imgs.length) {
-                  e.preventDefault();
-                  setFiles((prev) => [...prev, ...imgs]);
-                }
-              }}
-              onKeyDown={(e) => {
-                // 한글/IME 조합 중에는 Enter 를 가로채지 않는다.
-                // composition 중 Enter 는 글자 확정용이므로 전송하면 마지막 글자가 잘린다.
-                // (Chrome known issue — isComposing / keyCode 229 로 방어)
-                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                // 커맨드 메뉴가 떠 있으면 키보드로 탐색/선택.
-                if (commandMenu) {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setCmdIndex((i) => (i + 1) % commandMenu.length);
-                    return;
-                  }
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setCmdIndex((i) => (i - 1 + commandMenu.length) % commandMenu.length);
-                    return;
-                  }
-                  if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-                    e.preventDefault();
-                    applyCommand(commandMenu[cmdIndex]?.name ?? commandMenu[0].name);
-                    return;
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setInput("");
-                    return;
-                  }
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  onSubmit();
-                }
-              }}
-              placeholder={t("session.placeholder")}
-              disabled={state.loading}
-              rows={1}
-              className="max-h-40 min-h-9 flex-1 resize-none"
-            />
-            {state.streaming ? (
-              <>
-                {/* 스트리밍 중: Send 기본=steer, ▾ 메뉴로 follow-up 선택 가능. */}
-                <div className="flex shrink-0">
+                    if (imgs.length === 0) {
+                      for (const it of Array.from(e.clipboardData.items)) {
+                        if (it.kind === 'file' && it.type.startsWith('image/')) {
+                          const f = it.getAsFile();
+                          if (f) imgs.push(f);
+                        }
+                      }
+                    }
+                    if (imgs.length) {
+                      e.preventDefault();
+                      setFiles((prev) => [...prev, ...imgs]);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    // Don't intercept Enter during Korean/IME composition.
+                    // Enter during composition commits the character, so sending would cut off the last char.
+                    // (Chrome known issue — guard via isComposing / keyCode 229)
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    // If the command menu is open, navigate/select with the keyboard.
+                    if (commandMenu) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setCmdIndex((i) => (i + 1) % commandMenu.length);
+                        return;
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setCmdIndex((i) => (i - 1 + commandMenu.length) % commandMenu.length);
+                        return;
+                      }
+                      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                        e.preventDefault();
+                        applyCommand(commandMenu[cmdIndex]?.name ?? commandMenu[0].name);
+                        return;
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setInput('');
+                        return;
+                      }
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      onSubmit();
+                    }
+                  }}
+                  placeholder={t('session.placeholder')}
+                  disabled={state.loading}
+                  rows={1}
+                  className="max-h-40 min-h-9 flex-1 resize-none"
+                />
+                {state.streaming ? (
+                  <>
+                    {/* While streaming: Send default=steer, ▾ menu lets you pick follow-up. */}
+                    <div className="flex shrink-0">
+                      <Button
+                        size="icon"
+                        className="shrink-0 rounded-r-none"
+                        aria-label={t('queue.steer')}
+                        title={t('queue.steerHint')}
+                        onClick={() => onSubmit('steer')}
+                        disabled={!input.trim() && files.length === 0}
+                      >
+                        <Send className="size-4" />
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="size-9 shrink-0 rounded-l-none border-l-0 px-1"
+                            aria-label="More send options"
+                            disabled={!input.trim() && files.length === 0}
+                          >
+                            <ChevronDown className="size-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" side="top">
+                          <DropdownMenuItem onClick={() => onSubmit('steer')}>
+                            <span className="font-medium">{t('queue.steer')}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {t('queue.steerHint')}
+                            </span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onSubmit('followUp')}>
+                            <span className="font-medium">{t('queue.followUp')}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {t('queue.followUpHint')}
+                            </span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <Button
+                      key="stop"
+                      size="icon"
+                      variant="destructive"
+                      className="shrink-0"
+                      aria-label={t('session.stop')}
+                      onClick={abort}
+                    >
+                      <Square className="size-4" />
+                    </Button>
+                  </>
+                ) : (
                   <Button
+                    key="send"
                     size="icon"
-                    className="shrink-0 rounded-r-none"
-                    aria-label={t("queue.steer")}
-                    title={t("queue.steerHint")}
-                    onClick={() => onSubmit("steer")}
-                    disabled={!input.trim() && files.length === 0}
+                    className="shrink-0"
+                    aria-label={t('session.send')}
+                    onClick={() => onSubmit()}
+                    disabled={state.loading || (!input.trim() && files.length === 0)}
                   >
                     <Send className="size-4" />
                   </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="size-9 shrink-0 rounded-l-none border-l-0 px-1"
-                        aria-label="More send options"
-                        disabled={!input.trim() && files.length === 0}
-                      >
-                        <ChevronDown className="size-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="top">
-                      <DropdownMenuItem onClick={() => onSubmit("steer")}>
-                        <span className="font-medium">{t("queue.steer")}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{t("queue.steerHint")}</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onSubmit("followUp")}>
-                        <span className="font-medium">{t("queue.followUp")}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{t("queue.followUpHint")}</span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                <Button
-                  key="stop"
-                  size="icon"
-                  variant="destructive"
-                  className="shrink-0"
-                  aria-label={t("session.stop")}
-                  onClick={abort}
-                >
-                  <Square className="size-4" />
-                </Button>
-              </>
-            ) : (
-              <Button
-                key="send"
-                size="icon"
-                className="shrink-0"
-                aria-label={t("session.send")}
-                onClick={() => onSubmit()}
-                disabled={state.loading || (!input.trim() && files.length === 0)}
-              >
-                <Send className="size-4" />
-              </Button>
-            )}
-          </div>
-        </div>
-        )}
+                )}
+              </div>
+            </div>
+          )}
 
-        {/* 푸터 (TUI 미러링) */}
-        <Footer path={path} cwd={cwd} refreshKey={footerKey} />
+          {/* Footer (TUI mirroring) */}
+          <Footer path={path} cwd={cwd} refreshKey={footerKey} />
         </div>
       </ResizablePanel>
 
@@ -602,18 +741,18 @@ export function SessionTab({ path, cwd, onTitle, onLive, onLiveChange }: { path:
         />
       </ResizablePanel>
 
-      {/* questionnaire 는 컴포저 자리에 인라인으로 뜨므로 여기서 제외. 나머지 ui 요청은 다이얼로그. */}
-      {state.uiRequest && state.uiRequest.kind !== "questionnaire" ? (
+      {/* questionnaire appears inline in place of the composer, so it's excluded here. Other ui requests use the dialog. */}
+      {state.uiRequest && state.uiRequest.kind !== 'questionnaire' ? (
         <UiRequestDialog request={state.uiRequest} onRespond={respondUi} />
       ) : null}
 
-      {/* 서브에이전트 실행을 큰 모달로 (메인 스레드처럼 채팅 UI 재활용, 읽기전용) */}
+      {/* Subagent run in a large modal (reuses the chat UI like the main thread, read-only) */}
       <Dialog open={!!selectedRun} onOpenChange={(o) => !o && setSelectedRunId(null)}>
         <DialogContent
           className="flex h-[85vh] max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
           aria-describedby={undefined}
         >
-          <DialogTitle className="sr-only">{selectedRun?.title ?? "Subagent"}</DialogTitle>
+          <DialogTitle className="sr-only">{selectedRun?.title ?? 'Subagent'}</DialogTitle>
           {selectedRun ? (
             <SubagentChatView run={selectedRun} onBack={() => setSelectedRunId(null)} />
           ) : null}

@@ -6,6 +6,15 @@
 
 import { useEffect, useState } from 'react';
 import { api, type FooterData } from './api';
+import type { GoalStateView, TodoStateView } from './use-session';
+
+const GOAL_EMOJI: Record<GoalStateView['status'], string> = {
+  pursuing: '🎯',
+  paused: '⏸',
+  achieved: '✅',
+  blocked: '🚧',
+  'budget-limited': '⛔',
+};
 
 function fmtTokens(n: number): string {
   // Exactly the same as ui-cosmetics formatTokens
@@ -24,10 +33,14 @@ export function Footer({
   path,
   cwd,
   refreshKey,
+  goal,
+  todo,
 }: {
   path: string;
   cwd?: string;
   refreshKey?: number;
+  goal?: GoalStateView | null;
+  todo?: TodoStateView | null;
 }) {
   const [data, setData] = useState<FooterData | null>(null);
 
@@ -85,10 +98,21 @@ export function Footer({
 
   if (!pwd && !statsLine && !model) return null;
 
+  // goal/todo status (mirrors the extensions' footer status).
+  const goalText = goal
+    ? `${GOAL_EMOJI[goal.status]} goal ${goal.status}${goal.status === 'pursuing' ? ` #${goal.iteration}` : ''}`
+    : '';
+  const todoText = todo?.todos.length
+    ? `${todo.todos.filter((x) => x.status === 'completed').length}/${todo.todos.length} todos`
+    : '';
+  const stateLine = [goalText, todoText].filter(Boolean).join('   ');
+
   return (
     <div className="flex shrink-0 flex-col gap-0.5 border-t bg-background px-6 py-1.5 font-mono text-[11px] text-muted-foreground/70">
       {/* Line 1: pwd (branch) • name */}
       {pwd ? <div className="truncate">{pwd}</div> : null}
+      {/* goal / todo status */}
+      {stateLine ? <div className="truncate">{stateLine}</div> : null}
       {/* Line 2: stats ··· model • thinking (justified to both ends, wraps when narrow) */}
       {statsLine || model ? (
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">

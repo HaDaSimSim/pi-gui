@@ -16,10 +16,13 @@ import {
   type AgentSession,
   AuthStorage,
   createAgentSession,
+  DefaultResourceLoader,
+  getAgentDir,
   ModelRegistry,
   SessionManager,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent';
+import { type GoalState, makeGuiStateExtension, type TodoState } from './gui-state-extension.ts';
 
 // Same minimal set as pi-ai's ImageContent (pi-ai is not a direct dependency, so declared locally).
 export interface ImageContent {
@@ -193,11 +196,32 @@ export class RuntimeManager {
       if (!acquired) throw new LockedError(current);
     }
 
+    // Inject a GUI-only in-process extension via a custom resource loader. It
+    // bridges todo/goal state (persisted by file extensions via appendEntry,
+    // which emits no event) to the browser without polling. We rebuild the
+    // loader the same way createAgentSession would (cwd + agentDir + settings)
+    // and just add our factory; file-based extensions still load as usual.
+    const agentDir = getAgentDir();
+    const settingsManager = SettingsManager.create(cwd, agentDir);
+    const guiExt = makeGuiStateExtension({
+      todo: (state: TodoState | null) => this.broadcast(sessionPath, { type: 'todo', state }),
+      goal: (state: GoalState | null) => this.broadcast(sessionPath, { type: 'goal', state }),
+    });
+    const resourceLoader = new DefaultResourceLoader({
+      cwd,
+      agentDir,
+      settingsManager,
+      extensionFactories: [guiExt as never],
+    });
+    await resourceLoader.reload();
+
     const { session } = await createAgentSession({
       cwd,
       authStorage: this.auth,
       modelRegistry: this.registry,
       sessionManager,
+      settingsManager,
+      resourceLoader,
       // Apply the model/efficiency chosen before the first message at runtime creation (draft -> actual).
       ...(opts.model
         ? { model: this.registry.find(opts.model.provider, opts.model.id) ?? undefined }

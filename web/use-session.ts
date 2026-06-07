@@ -86,6 +86,27 @@ export interface SessionState {
   retry: { attempt: number; maxAttempts: number; until: number; reason: string } | null;
   // Context compaction progress state. Mirrors the TUI compaction loader.
   compaction: { reason: 'manual' | 'threshold' | 'overflow' } | null;
+  // Latest todo list (todo extension, via the GUI-state bridge). null = none.
+  todo: TodoStateView | null;
+  // Latest goal state (goal extension, via the GUI-state bridge). null = none.
+  goal: GoalStateView | null;
+}
+
+export interface TodoItemView {
+  content: string;
+  activeForm?: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+export interface TodoStateView {
+  todos: TodoItemView[];
+}
+export interface GoalStateView {
+  objective: string;
+  status: 'pursuing' | 'paused' | 'achieved' | 'blocked' | 'budget-limited';
+  iteration: number;
+  tokenBudget?: number;
+  note?: string;
+  createdAt: number;
 }
 
 export interface UiQuestionOption {
@@ -283,6 +304,8 @@ export function useSession(path: string, cwd?: string) {
     queue: { steering: [], followUp: [] },
     retry: null,
     compaction: null,
+    todo: null,
+    goal: null,
   });
 
   // assistant message being accumulated during streaming (updated by events)
@@ -441,6 +464,14 @@ export function useSession(path: string, cwd?: string) {
         case 'backend_error':
           // backend global error (uncaughtException etc.) → warn via toast.
           toast.error(`Backend error: ${ev.message || 'unknown'}`);
+          break;
+        case 'todo':
+          // GUI-state bridge: latest todo list (or null when cleared).
+          patch({ todo: (ev.state ?? null) as SessionState['todo'] });
+          break;
+        case 'goal':
+          // GUI-state bridge: latest goal state (or null when cleared).
+          patch({ goal: (ev.state ?? null) as SessionState['goal'] });
           break;
         case 'session_info_changed':
           // When the session name changes (auto-naming after first message etc.), reflect it live.

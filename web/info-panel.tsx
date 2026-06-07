@@ -13,7 +13,7 @@ import { GitPanel } from './git-panel';
 import { useT } from './i18n';
 import { ModelControls } from './model-controls';
 import { SubagentRunCard } from './subagent-run';
-import type { SessionState, SubagentRunView } from './use-session';
+import type { GoalStateView, SessionState, SubagentRunView, TodoItemView } from './use-session';
 
 interface InfoPanelProps {
   state: SessionState;
@@ -102,6 +102,18 @@ export function InfoPanel({
           {subagentRuns.length ? (
             <span className="ml-1 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">
               {subagentRuns.length}
+            </span>
+          ) : null}
+        </TabsTrigger>
+        <TabsTrigger
+          value="tasks"
+          className="flex-none rounded-none border-0 bg-transparent px-0 pb-2 text-muted-foreground shadow-none data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-0 dark:data-[state=active]:bg-transparent"
+        >
+          {t('tasks.title')}
+          {state.todo?.todos.length ? (
+            <span className="ml-1 rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground">
+              {state.todo.todos.filter((x) => x.status === 'completed').length}/
+              {state.todo.todos.length}
             </span>
           ) : null}
         </TabsTrigger>
@@ -261,10 +273,111 @@ export function InfoPanel({
         )}
       </TabsContent>
 
+      {/* ── Tasks tab (goal + todo, mirrors the TUI) ── */}
+      <TabsContent value="tasks" className="min-h-0 flex-1 overflow-y-auto">
+        <TasksPanel state={state} />
+      </TabsContent>
+
       {/* ── Git tab ── */}
       <TabsContent value="git" className="min-h-0 flex-1 overflow-y-auto">
         <GitPanel path={path} cwd={cwd} />
       </TabsContent>
     </Tabs>
+  );
+}
+
+// ── Tasks panel: goal state + todo list, mirroring the TUI ──
+const GOAL_EMOJI: Record<GoalStateView['status'], string> = {
+  pursuing: '🎯',
+  paused: '⏸',
+  achieved: '✅',
+  blocked: '🚧',
+  'budget-limited': '⛔',
+};
+
+// TUI display order: in_progress → pending → completed.
+const TODO_ORDER: Record<TodoItemView['status'], number> = {
+  in_progress: 0,
+  pending: 1,
+  completed: 2,
+};
+const TODO_MARK: Record<TodoItemView['status'], string> = {
+  pending: '[ ]',
+  in_progress: '[~]',
+  completed: '[x]',
+};
+
+function TasksPanel({ state }: { state: SessionState }) {
+  const { t } = useT();
+  const goal = state.goal;
+  const todos = state.todo?.todos ?? [];
+  const sorted = [...todos].sort((a, b) => TODO_ORDER[a.status] - TODO_ORDER[b.status]);
+  const done = todos.filter((x) => x.status === 'completed').length;
+
+  if (!goal && todos.length === 0) {
+    return <div className="p-4 text-sm text-muted-foreground">{t('tasks.empty')}</div>;
+  }
+
+  return (
+    <div className="flex flex-col gap-6 p-4">
+      {goal ? (
+        <div>
+          <Label>{t('tasks.goal')}</Label>
+          <div className="flex items-baseline gap-2">
+            <span>{GOAL_EMOJI[goal.status]}</span>
+            <span className="text-sm font-medium">{goal.status}</span>
+            {goal.status === 'pursuing' ? (
+              <span className="text-sm text-muted-foreground">#{goal.iteration}</span>
+            ) : null}
+          </div>
+          <div className="mt-1 text-sm">{goal.objective}</div>
+          {goal.note ? <div className="mt-1 text-sm text-muted-foreground">{goal.note}</div> : null}
+        </div>
+      ) : null}
+
+      {todos.length ? (
+        <div>
+          <Label>
+            {t('tasks.todo')}{' '}
+            <span className="text-muted-foreground">
+              {done}/{todos.length}
+            </span>
+          </Label>
+          <ul className="flex flex-col gap-1">
+            {sorted.map((item) => (
+              <li
+                key={`${item.status}-${item.activeForm ?? item.content}`}
+                className="flex items-start gap-2 text-sm"
+              >
+                <span
+                  className={
+                    item.status === 'completed'
+                      ? 'font-mono text-emerald-500'
+                      : item.status === 'in_progress'
+                        ? 'font-mono text-sky-500'
+                        : 'font-mono text-muted-foreground'
+                  }
+                >
+                  {TODO_MARK[item.status]}
+                </span>
+                <span
+                  className={
+                    item.status === 'completed'
+                      ? 'text-muted-foreground line-through'
+                      : item.status === 'pending'
+                        ? 'text-muted-foreground'
+                        : ''
+                  }
+                >
+                  {item.status === 'in_progress' && item.activeForm
+                    ? item.activeForm
+                    : item.content}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }

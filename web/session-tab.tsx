@@ -34,6 +34,7 @@ import { MessageView, SubagentOpenContext } from './message-view';
 import { ModelControls } from './model-controls';
 import { QuestionnaireDialog } from './questionnaire-dialog';
 import { SubagentChatView } from './subagent-chat-view';
+import { TodoWidget, todoHasUnfinished } from './todo-widget';
 import { UiRequestDialog } from './ui-request-dialog';
 import { useSession } from './use-session';
 
@@ -454,6 +455,10 @@ export function SessionTab({
             </div>
           ) : (
             <div className="relative shrink-0 px-4 py-4">
+              {/* Todo widget above the editor while working (mirrors the TUI aboveEditor widget) */}
+              {state.streaming && todoHasUnfinished(state.todo) && state.todo ? (
+                <TodoWidget todo={state.todo} />
+              ) : null}
               {/* Slash command menu (when typing "/") */}
               {commandMenu ? (
                 <div className="absolute bottom-full left-4 right-4 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
@@ -715,7 +720,13 @@ export function SessionTab({
           )}
 
           {/* Footer (TUI mirroring) */}
-          <Footer path={path} cwd={cwd} refreshKey={footerKey} />
+          <Footer
+            path={path}
+            cwd={cwd}
+            refreshKey={footerKey}
+            goal={state.goal}
+            todo={state.todo}
+          />
         </div>
       </ResizablePanel>
 

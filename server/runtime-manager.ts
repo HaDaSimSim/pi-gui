@@ -1,38 +1,39 @@
-// 세션 ID(파일 경로) → 살아있는 AgentSession 런타임 매핑.
+// Maps session ID (file path) -> a live AgentSession runtime.
 //
-// 비용 모델 (PoC 에서 실증):
-//   - 목록 보기 / 과거 세션 읽기 = 런타임 불필요 (파일 I/O)
-//   - 프롬프트를 보내는 순간에만 런타임이 뜬다
+// Cost model (proven in the PoC):
+//   - listing / reading past sessions = no runtime needed (file I/O)
+//   - a runtime spins up only the moment a prompt is sent
 //
-// 락 모델 (extension 과 공유하는 SessionLock 규약):
-//   - 라이브로 띄우려면 그 세션 파일의 배타 락을 잡아야 한다.
-//   - 이미 다른 쪽(TUI/다른 pi-web)이 점유 중이면 거부한다. 자동 탈취 없음.
-//   - 호출자가 force=true 로 명시하면 강제 탈취(takeover)한다.
-//   - "매번 프롬프트 보내기 직전" 에 락이 여전히 내 것인지 확인한다.
-//     누가 뺏어갔으면(revoked) 그 런타임을 즉시 내리고 거부한다.
+// Lock model (the SessionLock protocol shared with the extension):
+//   - to go live you must grab the exclusive lock on that session file.
+//   - if another side (TUI / another pi-web) already holds it, refuse. No auto-takeover.
+//   - if the caller passes force=true explicitly, take it over.
+//   - "right before every prompt send", re-verify the lock is still mine.
+//     if someone took it (revoked), tear down that runtime immediately and refuse.
 
+import { existsSync } from 'node:fs';
 import {
-  createAgentSession,
+  type AgentSession,
   AuthStorage,
+  createAgentSession,
   ModelRegistry,
   SessionManager,
   SettingsManager,
-  type AgentSession,
-} from "@earendil-works/pi-coding-agent";
-import { existsSync } from "node:fs";
+} from '@earendil-works/pi-coding-agent';
 
-// pi-ai 의 ImageContent 와 동일한 최소 셋 (pi-ai 는 직접 의존이 아니라 로컬로 선언).
+// Same minimal set as pi-ai's ImageContent (pi-ai is not a direct dependency, so declared locally).
 export interface ImageContent {
-  type: "image";
+  type: 'image';
   data: string;
   mimeType: string;
 }
-import { SessionLock, type LockRecord } from "../shared/session-lock.ts";
-import { WebUIContext } from "./web-ui-context.ts";
+
+import { type LockRecord, SessionLock } from '../shared/session-lock.ts';
+import { WebUIContext } from './web-ui-context.ts';
 
 export type Subscriber = (event: unknown) => void;
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface ModelView {
   provider: string;
@@ -40,7 +41,7 @@ export interface ModelView {
   name: string;
 }
 
-// 세션 컨트롤/통계 스냅샷 (info 패널용). 런타임이 있어야 채워진다.
+// Session controls/stats snapshot (for the info panel). Filled only when a runtime exists.
 export interface SessionControls {
   live: boolean;
   model: ModelView | null;
@@ -48,27 +49,27 @@ export interface SessionControls {
   availableThinkingLevels: ThinkingLevel[];
   supportsThinking: boolean;
   name: string | null;
-  stats: unknown; // SessionStats (tokens/cost/contextUsage 포함)
-  queue?: { steering: string[]; followUp: string[] }; // 스트리밍 중 대기열 메시지
+  stats: unknown; // SessionStats (includes tokens/cost/contextUsage)
+  queue?: { steering: string[]; followUp: string[] }; // queued messages while streaming
 }
 
 export interface LiveRuntime {
-  key: string; // 세션 파일 경로
+  key: string; // session file path
   session: AgentSession;
   cwd: string;
   lock: SessionLock;
   lastActivity: number;
   unsubscribe: () => void;
-  ui: WebUIContext; // 인터랙티브 UI 브릿지 (select/confirm/input/notify)
-  subagentPoll?: ReturnType<typeof setInterval>; // subagent-run 엔트리 변화 감시(이벤트 없음)
-  subagentSig?: string; // 직전 시그니처(변화 시에만 broadcast)
+  ui: WebUIContext; // interactive UI bridge (select/confirm/input/notify)
+  subagentPoll?: ReturnType<typeof setInterval>; // watches subagent-run entries for changes (no events)
+  subagentSig?: string; // previous signature (broadcast only on change)
 }
 
 export class LockedError extends Error {
   current?: LockRecord;
   constructor(current?: LockRecord) {
-    super("session is locked by another owner");
-    this.name = "LockedError";
+    super('session is locked by another owner');
+    this.name = 'LockedError';
     this.current = current;
   }
 }
@@ -76,8 +77,8 @@ export class LockedError extends Error {
 export class RevokedError extends Error {
   by?: LockRecord;
   constructor(by?: LockRecord) {
-    super("session lock was lost (taken over or removed)");
-    this.name = "RevokedError";
+    super('session lock was lost (taken over or removed)');
+    this.name = 'RevokedError';
     this.by = by;
   }
 }
@@ -86,13 +87,13 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class RuntimeManager {
   private runtimes = new Map<string, LiveRuntime>();
-  // 구독 채널: 세션 경로별 subscriber Set. 런타임 존재와 무관하게
-  // 존재한다 — 런타임 없이도 SSE 가 붙을 수 있고(보기/수신), 런타임이
-  // 뜨면 그 이벤트가 이 채널로 브로드캐스트된다.
+  // Subscription channels: a subscriber Set per session path. It exists independently
+  // of any runtime - an SSE client can attach without a runtime (view/receive), and when
+  // a runtime spins up, its events are broadcast onto this channel.
   private channels = new Map<string, Set<Subscriber>>();
   private auth = AuthStorage.create();
   private registry = ModelRegistry.create(this.auth);
-  // 기본 효율(thinking) 값을 읽기 위한 설정 매니저 (non-live input default 용).
+  // Settings manager used to read the default efficiency (thinking) value (for the non-live input default).
   private settings = SettingsManager.create(process.cwd());
   private reaper: ReturnType<typeof setInterval>;
 
@@ -102,8 +103,8 @@ export class RuntimeManager {
   }
 
   /**
-   * 이벤트 채널에 구독한다. 락도 런타임도 필요 없다 (수신 전용).
-   * 반환하는 함수를 호출하면 구독이 해제된다.
+   * Subscribe to an event channel. Needs neither a lock nor a runtime (receive only).
+   * Call the returned function to unsubscribe.
    */
   subscribe(sessionPath: string, fn: Subscriber): () => void {
     let set = this.channels.get(sessionPath);
@@ -120,7 +121,7 @@ export class RuntimeManager {
     };
   }
 
-  /** 한 세션 채널의 모든 구독자에게 이벤트를 뿌린다. */
+  /** Broadcast an event to every subscriber of one session channel. */
   private broadcast(sessionPath: string, event: unknown) {
     const set = this.channels.get(sessionPath);
     if (!set) return;
@@ -128,37 +129,42 @@ export class RuntimeManager {
       try {
         fn(event);
       } catch {
-        /* 구독자 격리 */
+        /* subscriber isolation */
       }
     }
   }
 
-  /** 모든 세션 채널의 구독자에게 뾌린다 (전역 알림용). */
+  /** Broadcast to subscribers of all session channels (for global notifications). */
   broadcastAll(event: unknown) {
     for (const set of this.channels.values()) {
       for (const fn of set) {
         try {
           fn(event);
         } catch {
-          /* 구독자 격리 */
+          /* subscriber isolation */
         }
       }
     }
   }
 
   /**
-   * 세션을 라이브로 띄운다. 락을 잡아야 성공한다.
-   * @param force true 면 기존 점유자로부터 강제 탈취.
-   * @param cwd  pending 세션(파일 아직 없음)을 띄울 때 쓸 작업 디렉터리.
-   * @throws LockedError 락이 남에게 있고 force 가 아닐 때.
+   * Spin a session up live. Succeeds only if the lock is grabbed.
+   * @param force if true, forcibly take over from the existing holder.
+   * @param cwd  working directory to use when launching a pending session (no file yet).
+   * @throws LockedError when the lock is held by someone else and force is not set.
    */
   async getOrCreate(
     sessionPath: string,
-    opts: { force?: boolean; cwd?: string; model?: { provider: string; id: string }; thinkingLevel?: string } = {},
+    opts: {
+      force?: boolean;
+      cwd?: string;
+      model?: { provider: string; id: string };
+      thinkingLevel?: string;
+    } = {},
   ): Promise<LiveRuntime> {
     const existing = this.runtimes.get(sessionPath);
     if (existing) {
-      // 내가 이미 띄운 런타임이라도, 그 사이 뺏겼을 수 있다.
+      // Even a runtime I already spun up may have been taken from me in the meantime.
       if (existing.lock.isLost()) {
         await this.dispose(sessionPath, { keepLock: true });
         throw new RevokedError(this.recordOf(existing.lock));
@@ -167,18 +173,18 @@ export class RuntimeManager {
       return existing;
     }
 
-    // 세션 파일을 열고 락을 시도한다. pending 세션이면(파일 없음) cwd 로 새로 만든다.
+    // Open the session file and try to lock it. For a pending session (no file), create it under cwd.
     const sessionManager =
       !existsSync(sessionPath) && opts.cwd
         ? SessionManager.create(opts.cwd, undefined, { id: undefined })
         : SessionManager.open(sessionPath);
-    // create 가 발급한 경로가 요청된 sessionPath 와 다를 수 있으므로 고정시킨다.
+    // The path minted by create may differ from the requested sessionPath, so pin it.
     if (!existsSync(sessionPath) && opts.cwd) {
       sessionManager.setSessionFile?.(sessionPath);
     }
     const cwd = sessionManager.getCwd() || opts.cwd || process.cwd();
     const name = sessionManager.getSessionName?.();
-    const lock = new SessionLock(sessionPath, "pi-web", name ? `pi-web: ${name}` : "pi-web");
+    const lock = new SessionLock(sessionPath, 'pi-web', name ? `pi-web: ${name}` : 'pi-web');
 
     if (opts.force) {
       lock.takeover();
@@ -192,8 +198,10 @@ export class RuntimeManager {
       authStorage: this.auth,
       modelRegistry: this.registry,
       sessionManager,
-      // 첫 메시지 전에 고른 모델/효율을 런타임 생성 시 적용 (draft → 실제).
-      ...(opts.model ? { model: this.registry.find(opts.model.provider, opts.model.id) ?? undefined } : {}),
+      // Apply the model/efficiency chosen before the first message at runtime creation (draft -> actual).
+      ...(opts.model
+        ? { model: this.registry.find(opts.model.provider, opts.model.id) ?? undefined }
+        : {}),
       ...(opts.thinkingLevel ? { thinkingLevel: opts.thinkingLevel as never } : {}),
     });
 
@@ -203,8 +211,8 @@ export class RuntimeManager {
       this.broadcast(sessionPath, event);
     });
 
-    // 인터랙티브 UI 브릿지: extension 의 ctx.ui.confirm/select/input/notify 를
-    // SSE 로 브라우저에 전달한다 (같은 채널로 broadcast).
+    // Interactive UI bridge: relays the extension's ctx.ui.confirm/select/input/notify
+    // to the browser over SSE (broadcast on the same channel).
     const ui = new WebUIContext((event) => this.broadcast(sessionPath, event));
     await session.bindExtensions({ uiContext: ui as never });
 
@@ -218,16 +226,16 @@ export class RuntimeManager {
       ui,
     };
     this.runtimes.set(sessionPath, runtime);
-    // subagent-run 엔트리는 appendEntry 로 써져 세션 이벤트를 emit 하지 않는다
-    // (SDK 간극). 그래서 GUI 가 reload 전​엔 서브에이전트 완료를 못 본다.
-    // 보유한 런타임의 자신 세션 파일을 가벍게 폴링해 변화 시에만 broadcast 한다.
+    // subagent-run entries are written via appendEntry and do not emit session events
+    // (an SDK gap). So the GUI can't see subagent completion until a reload.
+    // Lightly poll our own session file from the owned runtime and broadcast only on change.
     runtime.subagentPoll = setInterval(() => this.pollSubagents(sessionPath), 1500);
     runtime.subagentPoll.unref?.();
     return runtime;
   }
 
-  // 라이브 런타임의 subagent-run 엔트리(runId당 최신)를 읽어, 이전과 달라졌으면
-  // { type: "subagent_runs", runs } 로 broadcast. 프론트는 runId 로 머지한다.
+  // Read the live runtime's subagent-run entries (latest per runId) and, if changed from before,
+  // broadcast { type: "subagent_runs", runs }. The frontend merges by runId.
   private pollSubagents(sessionPath: string) {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return;
@@ -240,59 +248,62 @@ export class RuntimeManager {
     const byId = new Map<string, Record<string, unknown>>();
     for (const e of entries) {
       const ent = e as { type?: string; customType?: string; data?: { runId?: string } };
-      if (ent.type === "custom" && ent.customType === "subagent-run" && ent.data?.runId) {
+      if (ent.type === 'custom' && ent.customType === 'subagent-run' && ent.data?.runId) {
         byId.set(ent.data.runId, ent.data as Record<string, unknown>);
       }
     }
     if (byId.size === 0) return;
     const runs = [...byId.values()];
-    // 시그니처: runId+status+turns수+usage.cost 만 모아 비교(전체 직렬화는 비용큼).
+    // Signature: gather only runId+status+turns count+usage.cost to compare (full serialization is costly).
     const sig = runs
-      .map((r) => `${r.runId}:${r.status}:${(r.turns as unknown[] | undefined)?.length ?? 0}:${(r.usage as { cost?: number } | undefined)?.cost ?? 0}`)
-      .join("|");
+      .map(
+        (r) =>
+          `${r.runId}:${r.status}:${(r.turns as unknown[] | undefined)?.length ?? 0}:${(r.usage as { cost?: number } | undefined)?.cost ?? 0}`,
+      )
+      .join('|');
     if (sig === rt.subagentSig) return;
     rt.subagentSig = sig;
-    this.broadcast(sessionPath, { type: "subagent_runs", runs });
+    this.broadcast(sessionPath, { type: 'subagent_runs', runs });
   }
 
   /**
-   * 프롬프트를 보낸다. 핵심 강제 지점:
-   * "매번 메시지 보내기 직전에 락이 나한테 있는지" 확인한다.
-   * @throws RevokedError 락을 뺏긴 경우 (런타임도 내려간다).
+   * Send a prompt. The core enforcement point:
+   * verify "the lock is mine right before sending every message".
+   * @throws RevokedError if the lock was taken away (the runtime is also torn down).
    */
   async prompt(
     sessionPath: string,
     message: string,
     images?: ImageContent[],
-    deliverAs?: "steer" | "followUp",
+    deliverAs?: 'steer' | 'followUp',
   ): Promise<void> {
     const rt = this.runtimes.get(sessionPath);
-    if (!rt) throw new Error("no live runtime; call getOrCreate first");
+    if (!rt) throw new Error('no live runtime; call getOrCreate first');
 
-    // ── 쓰기 직전 락 확인 ──
+    // -- Lock check right before writing --
     if (!rt.lock.isMine()) {
       const by = this.recordOf(rt.lock);
-      await this.dispose(sessionPath, { keepLock: true }); // 내 락 아니므로 남의 락 건드리지 않음
+      await this.dispose(sessionPath, { keepLock: true }); // not my lock, so don't touch someone else's
       throw new RevokedError(by);
     }
 
     rt.lastActivity = Date.now();
     const hasImages = !!images && images.length > 0;
     if (rt.session.isStreaming) {
-      // 스트리밍 중: steer(기본, 즉시 개입) 또는 followUp(틴 끝난 뒤 전달).
-      if (deliverAs === "followUp") {
+      // While streaming: steer (default, immediate intervention) or followUp (delivered after the turn ends).
+      if (deliverAs === 'followUp') {
         await rt.session.followUp(message, hasImages ? images : undefined);
       } else {
         await rt.session.steer(message, hasImages ? images : undefined);
       }
     } else {
       rt.session.prompt(message, hasImages ? { images } : undefined).catch((e) => {
-        // 프롬프트 도중 에러는 이벤트 스트림으로도 나가지만, 로깅도 남긴다.
+        // An error during the prompt also goes out on the event stream, but log it too.
         console.error(`[prompt error ${sessionPath}]`, e);
-        // GUI 에 알린다: 해당 세션 탭에 경고 배너를 띄울 수 있게.
+        // Notify the GUI: so it can show a warning banner on that session tab.
         this.broadcast(sessionPath, {
-          type: "session_error",
-          scope: "prompt",
+          type: 'session_error',
+          scope: 'prompt',
           message: e instanceof Error ? e.message : String(e),
         });
       });
@@ -300,8 +311,8 @@ export class RuntimeManager {
   }
 
   /**
-   * 진행 중인 응답을 중단한다. 락이 내 것일 때만 (쓰기성 작업).
-   * 런타임이 없거나 스트리밍 중이 아니면 no-op.
+   * Abort an in-progress response. Only when the lock is mine (a write-type operation).
+   * No-op if there's no runtime or it isn't streaming.
    */
   async abort(sessionPath: string): Promise<{ aborted: boolean }> {
     const rt = this.runtimes.get(sessionPath);
@@ -316,10 +327,10 @@ export class RuntimeManager {
     }
   }
   /**
-   * 런타임이 내 것이도록 보장한다. 없으면 띄우고(락 획득), 있으면 락 재확인.
-   * 쓰기성 작업(모델/사고수준/이름 변경) 전에 호출한다.
-   * @throws LockedError 남이 점유 중 + force 아님
-   * @throws RevokedError 내 런타임인데 락을 뺏긴 경우
+   * Ensure the runtime is mine. If absent, spin it up (acquire lock); if present, re-verify the lock.
+   * Call this before any write-type operation (changing model/thinking level/name).
+   * @throws LockedError held by someone else + not force
+   * @throws RevokedError it's my runtime but the lock was taken away
    */
   private async ensureMine(sessionPath: string, force?: boolean): Promise<LiveRuntime> {
     const rt = await this.getOrCreate(sessionPath, { force });
@@ -334,27 +345,30 @@ export class RuntimeManager {
   private modelViewOf(rt: LiveRuntime): ModelView | null {
     const m = rt.session.model as { provider?: string; id?: string; name?: string } | undefined;
     if (!m) return null;
-    return { provider: m.provider ?? "", id: m.id ?? "", name: m.name ?? m.id ?? "" };
+    return { provider: m.provider ?? '', id: m.id ?? '', name: m.name ?? m.id ?? '' };
   }
 
-  // 라이브 아닌 세션의 "input default 모델"을 정한다:
-  //  1) 세션 파일의 마지막 assistant 응답 provider+model (이어서 쓸 때 그 모델로 열림)
-  //  2) 없으면(새 세션) 레지스트리의 첫 가용 모델(기본)
+  // Decide the "input default model" for a non-live session:
+  //  1) the provider+model of the last assistant response in the session file (it opens with that model to continue)
+  //  2) if none (new session), the first available model in the registry (default)
   private resolveModelForView(
     sessionPath: string,
   ): { provider: string; id: string; name: string } | null {
-    // 1) 파일에서 마지막 assistant 모델.
+    // 1) Last assistant model from the file.
     try {
       if (existsSync(sessionPath)) {
         const sm = SessionManager.open(sessionPath);
         const entries = sm.getEntries();
         for (let i = entries.length - 1; i >= 0; i--) {
-          const e = entries[i] as { type: string; message?: { role?: string; provider?: string; model?: string } };
-          if (e.type === "message" && e.message?.role === "assistant" && e.message.model) {
-            const found = this.registry.find(e.message.provider ?? "", e.message.model);
+          const e = entries[i] as {
+            type: string;
+            message?: { role?: string; provider?: string; model?: string };
+          };
+          if (e.type === 'message' && e.message?.role === 'assistant' && e.message.model) {
+            const found = this.registry.find(e.message.provider ?? '', e.message.model);
             if (found) return { provider: found.provider, id: found.id, name: found.name };
             return {
-              provider: e.message.provider ?? "",
+              provider: e.message.provider ?? '',
               id: e.message.model,
               name: e.message.model,
             };
@@ -362,48 +376,48 @@ export class RuntimeManager {
         }
       }
     } catch {
-      /* 파일 읽기 실패는 기본으로 폴백 */
+      /* file read failure falls back to default */
     }
-    // 2) 기본: 설정의 default model → 없으면 첫 가용 모델.
+    // 2) Default: the configured default model -> if none, the first available model.
     try {
       const dp = this.settings.getDefaultProvider?.();
       const dm = this.settings.getDefaultModel?.();
       if (dm) {
-        const found = this.registry.find(dp ?? "", dm);
+        const found = this.registry.find(dp ?? '', dm);
         if (found) return { provider: found.provider, id: found.id, name: found.name };
-        return { provider: dp ?? "", id: dm, name: dm };
+        return { provider: dp ?? '', id: dm, name: dm };
       }
     } catch {
-      /* 설정 읽기 실패 → 첫 가용 모델로 폴백 */
+      /* settings read failure -> fall back to first available model */
     }
     try {
       const first = this.registry.getAvailable()[0];
       if (first) return { provider: first.provider, id: first.id, name: first.name };
     } catch {
-      /* 모델 목록 없음 */
+      /* no model list */
     }
     return null;
   }
 
-  /** 세션 컨트롤/통계 스냅샷. 런타임 없으면 live:false 만. */
+  /** Session controls/stats snapshot. Only live:false if there's no runtime. */
   controls(sessionPath: string): SessionControls {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) {
-      // 라이브 아니면: 세션 파일의 마지막 assistant 응답 모델(없으면 기본 모델)을
-      // input default 로 내려준다 (런타임 안 띄우고 파일만 읽음).
+      // If not live: return the model of the last assistant response in the session file
+      // (or the default model if none) as the input default (reads the file only, no runtime).
       const model = this.resolveModelForView(sessionPath);
-      // 기본 효율: 설정값 또는 medium. input default 로 내려준다.
-      let defThinking: ThinkingLevel = "medium";
+      // Default efficiency: the configured value or medium. Returned as the input default.
+      let defThinking: ThinkingLevel = 'medium';
       try {
-        defThinking = (this.settings.getDefaultThinkingLevel?.() as ThinkingLevel) ?? "medium";
+        defThinking = (this.settings.getDefaultThinkingLevel?.() as ThinkingLevel) ?? 'medium';
       } catch {
-        /* 설정 읽기 실패 → medium */
+        /* settings read failure -> medium */
       }
       return {
         live: false,
         model,
         thinkingLevel: defThinking,
-        availableThinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+        availableThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
         supportsThinking: true,
         name: null,
         stats: null,
@@ -413,7 +427,7 @@ export class RuntimeManager {
     try {
       stats = rt.session.getSessionStats();
     } catch {
-      /* 통계 산출 실패는 무시 */
+      /* ignore stats computation failure */
     }
     return {
       live: true,
@@ -430,8 +444,8 @@ export class RuntimeManager {
     };
   }
 
-  /** 대기열을 통째로 교체한다(개별 수정/삭제용). SDK 는 clearQueue 후 재추가만 지원.
-  // 순서 유지: steering 먼저, 그다음 followUp. 락이 내 것일 때만.
+  /** Replace the entire queue (for editing/deleting individual items). The SDK only supports clearQueue then re-add.
+  // Preserve order: steering first, then followUp. Only when the lock is mine.
   setQueue(sessionPath: string, steering: string[], followUp: string[]): { ok: boolean } {
     const rt = this.runtimes.get(sessionPath);
     if (!rt || !rt.lock.isMine()) return { ok: false };
@@ -446,39 +460,48 @@ export class RuntimeManager {
   }
 
   /**
-   * 이 세션의 사용 가능한 슬래시 커맨드 목록. 라이브 런타임 필요.
-   *   - extension 등록 커맨드 (getRegisteredCommands)  → /name
-   *   - skill 커맨드 (resourceLoader.getSkills)         → /skill:name
-   * 실행은 기존 prompt 플로우로 "/..." 를 보내면 SDK 가 가로채다
-   * (skill 은 _expandSkillCommand, extension 은 command 핸들러).
+   * The list of slash commands available for this session. Requires a live runtime.
+   *   - extension-registered commands (getRegisteredCommands)  -> /name
+   *   - skill commands (resourceLoader.getSkills)              -> /skill:name
+   * Execution: send "/..." through the existing prompt flow and the SDK intercepts it
+   * (skill via _expandSkillCommand, extension via the command handler).
    */
   commands(sessionPath: string): { name: string; description?: string; source: string }[] {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return [];
     const out: { name: string; description?: string; source: string }[] = [];
-    // extension 커맨드
+    // extension commands
     try {
       const cmds = rt.session.extensionRunner?.getRegisteredCommands?.() ?? [];
       for (const c of cmds as { name: string; invocationName?: string; description?: string }[]) {
-        out.push({ name: c.invocationName || c.name, description: c.description, source: "extension" });
+        out.push({
+          name: c.invocationName || c.name,
+          description: c.description,
+          source: 'extension',
+        });
       }
     } catch {
-      /* extension 커맨드 없음 */
+      /* no extension commands */
     }
-    // skill 커맨드 (/skill:name)
+    // skill commands (/skill:name)
     try {
       const skills = rt.session.resourceLoader?.getSkills?.()?.skills ?? [];
       for (const s of skills as { name: string; description?: string }[]) {
-        out.push({ name: `skill:${s.name}`, description: s.description, source: "skill" });
+        out.push({ name: `skill:${s.name}`, description: s.description, source: 'skill' });
       }
     } catch {
-      /* skill 없음 */
+      /* no skills */
     }
     return out;
   }
 
-  /** 모델 변경 (런타임+락 필요). */
-  async setModel(sessionPath: string, provider: string, id: string, force?: boolean): Promise<SessionControls> {
+  /** Change model (runtime + lock required). */
+  async setModel(
+    sessionPath: string,
+    provider: string,
+    id: string,
+    force?: boolean,
+  ): Promise<SessionControls> {
     const rt = await this.ensureMine(sessionPath, force);
     const model = this.registry.find(provider, id);
     if (!model) throw new Error(`unknown model: ${provider}/${id}`);
@@ -487,15 +510,19 @@ export class RuntimeManager {
     return this.controls(sessionPath);
   }
 
-  /** 사고 수준(efficiency) 변경 (런타임+락 필요). */
-  async setThinkingLevel(sessionPath: string, level: ThinkingLevel, force?: boolean): Promise<SessionControls> {
+  /** Change thinking level (efficiency) (runtime + lock required). */
+  async setThinkingLevel(
+    sessionPath: string,
+    level: ThinkingLevel,
+    force?: boolean,
+  ): Promise<SessionControls> {
     const rt = await this.ensureMine(sessionPath, force);
     rt.session.setThinkingLevel(level as never);
     rt.lastActivity = Date.now();
     return this.controls(sessionPath);
   }
 
-  /** 세션 이름 변경 (런타임+락 필요 — 세션 파일 쓰기). */
+  /** Change session name (runtime + lock required - writes the session file). */
   async rename(sessionPath: string, name: string, force?: boolean): Promise<SessionControls> {
     const rt = await this.ensureMine(sessionPath, force);
     rt.session.setSessionName(name);
@@ -503,7 +530,24 @@ export class RuntimeManager {
     return this.controls(sessionPath);
   }
 
-  /** 현재 떠 있는 라이브 런타임 목록. */
+  /**
+   * Reload extensions/skills (runtime + lock required).
+   *   - refuse if a turn is in progress (streaming): reload swaps the extensionRunner,
+   *     so the tool-call path must not be shaken while streaming.
+   *   - session.reload() swaps in a new runner without recreating the session
+   *     (keeps lock/scrollback). Afterward getRegisteredCommands/getSkills are refreshed.
+   */
+  async reload(sessionPath: string, force?: boolean): Promise<{ ok: boolean; reason?: string }> {
+    const rt = await this.ensureMine(sessionPath, force);
+    if (rt.session.isStreaming) {
+      return { ok: false, reason: 'streaming' };
+    }
+    await rt.session.reload();
+    rt.lastActivity = Date.now();
+    return { ok: true };
+  }
+
+  /** The list of currently live runtimes. */
   listLive() {
     return [...this.runtimes.values()].map((rt) => ({
       key: rt.key,
@@ -518,24 +562,24 @@ export class RuntimeManager {
     return this.runtimes.get(sessionPath);
   }
 
-  /** 브라우저의 UI 응답을 해당 세션의 보류 Promise 로 전달. */
+  /** Forward the browser's UI response to that session's pending Promise. */
   respondUi(sessionPath: string, id: string, value: unknown): boolean {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return false;
     return rt.ui.respond(id, value);
   }
 
-  /** 런타임을 내린다. keepLock=true 면 락 파일은 건드리지 않는다(이미 남의 것일 때). */
+  /** Tear down the runtime. With keepLock=true, don't touch the lock file (when it's already someone else's). */
   async dispose(sessionPath: string, opts: { keepLock?: boolean } = {}): Promise<void> {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return;
-    if (rt.subagentPoll) clearInterval(rt.subagentPoll); // subagent 폴러 정리
-    rt.ui.cancelAll(); // 보류 중인 UI 요청을 취소로 정리
+    if (rt.subagentPoll) clearInterval(rt.subagentPoll); // clean up the subagent poller
+    rt.ui.cancelAll(); // clear pending UI requests as cancelled
     rt.unsubscribe();
     try {
       await rt.session.abort();
     } catch {
-      /* 이미 idle */
+      /* already idle */
     }
     rt.session.dispose?.();
     if (!opts.keepLock) rt.lock.release();
@@ -544,14 +588,14 @@ export class RuntimeManager {
 
   private recordOf(lock: SessionLock): LockRecord | undefined {
     const st = lock.state();
-    return "record" in st ? st.record : undefined;
+    return 'record' in st ? st.record : undefined;
   }
 
   private async reapIdle() {
     const now = Date.now();
     for (const [path, rt] of this.runtimes) {
       if (rt.session.isStreaming) continue;
-      // 뺏긴 런타임은 즉시 정리
+      // immediately clean up a revoked runtime
       if (rt.lock.isLost()) {
         await this.dispose(path, { keepLock: true });
         continue;

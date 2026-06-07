@@ -36,7 +36,7 @@ import { QuestionnaireDialog } from './questionnaire-dialog';
 import { SubagentChatView } from './subagent-chat-view';
 import { TodoWidget, todoHasUnfinished } from './todo-widget';
 import { UiRequestDialog } from './ui-request-dialog';
-import { useSession } from './use-session';
+import { type NotifyKind, useSession } from './use-session';
 
 // File → data URL (the backend parses data:<mime>;base64,<data>).
 function fileToDataUrl(file: File): Promise<string> {
@@ -54,12 +54,14 @@ export function SessionTab({
   onTitle,
   onLive,
   onLiveChange,
+  onNotify,
 }: {
   path: string;
   cwd?: string;
   onTitle?: (name: string) => void;
   onLive?: () => void;
   onLiveChange?: () => void;
+  onNotify?: (n: NotifyKind) => void;
 }) {
   const { t } = useT();
   const {
@@ -77,7 +79,7 @@ export function SessionTab({
     effectiveModel,
     effectiveThinking,
     turnStartRef,
-  } = useSession(path, cwd);
+  } = useSession(path, cwd, onNotify);
   const [input, setInput] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   // Message windowing: large sessions only render the last N to avoid blocking the main thread.
@@ -443,7 +445,7 @@ export function SessionTab({
             </div>
           ) : null}
 
-          {/* Composer (or inline questionnaire — like TUI, the question appears in place of the input) */}
+          {/* Composer (or inline question/prompt — like TUI, the request appears in place of the input) */}
           {state.uiRequest?.kind === 'questionnaire' ? (
             <div className="shrink-0 px-4 py-4">
               <QuestionnaireDialog
@@ -452,6 +454,10 @@ export function SessionTab({
                 onRespond={respondUi}
                 inline
               />
+            </div>
+          ) : state.uiRequest ? (
+            <div className="shrink-0 px-4 py-4">
+              <UiRequestDialog request={state.uiRequest} onRespond={respondUi} />
             </div>
           ) : (
             <div className="relative shrink-0 px-4 py-4">
@@ -752,10 +758,7 @@ export function SessionTab({
         />
       </ResizablePanel>
 
-      {/* questionnaire appears inline in place of the composer, so it's excluded here. Other ui requests use the dialog. */}
-      {state.uiRequest && state.uiRequest.kind !== 'questionnaire' ? (
-        <UiRequestDialog request={state.uiRequest} onRespond={respondUi} />
-      ) : null}
+      {/* questionnaire and other ui requests both render inline in the composer slot above. */}
 
       {/* Subagent run in a large modal (reuses the chat UI like the main thread, read-only) */}
       <Dialog open={!!selectedRun} onOpenChange={(o) => !o && setSelectedRunId(null)}>

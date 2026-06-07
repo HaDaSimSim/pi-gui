@@ -16,9 +16,16 @@ import { IS_TAURI } from './config';
 import { DirectoryPicker } from './directory-picker';
 import { useT } from './i18n';
 import { LogViewer } from './log-viewer';
+import {
+  initNotifications,
+  notifySession,
+  onNotificationActivate,
+  windowFocused,
+} from './notifications';
 import { SessionTab } from './session-tab';
 import { Sidebar, sessionLabel } from './sidebar';
 import { Titlebar } from './titlebar';
+import type { NotifyKind } from './use-session';
 
 // The settings modal is only needed when opened — split out via lazy to exclude it from the initial bundle.
 const SettingsModal = lazy(() =>
@@ -57,6 +64,22 @@ export default function App() {
     }
   });
   const [logOpen, setLogOpen] = useState(false);
+  // Tabs with unread activity (notified while inactive/unfocused). Cleared on activation.
+  const [unread, setUnread] = useState<Set<string>>(new Set());
+
+  // Request notification permission once at startup and route notification clicks
+  // to the matching session tab (Tauri only; no-op in the browser).
+  useEffect(() => {
+    void initNotifications();
+    onNotificationActivate((path) => {
+      setActiveTab(path);
+      setUnread((s) => {
+        const n = new Set(s);
+        n.delete(path);
+        return n;
+      });
+    });
+  }, []);
 
   // Cmd+Shift+L → toggle the backend log viewer.
   useEffect(() => {
@@ -78,6 +101,40 @@ export default function App() {
       return undefined;
     }
   });
+
+  // A session reported a notify-worthy event. Fire a desktop notification only
+  // when the window is unfocused OR that tab isn't active, and flag it unread.
+  const handleNotify = useCallback(
+    async (path: string, label: string, n: NotifyKind) => {
+      const focused = await windowFocused();
+      if (focused && path === activeTab) return; // user is already looking at it
+      setUnread((s) => new Set(s).add(path));
+      const title = label;
+      let body: string;
+      if (n.kind === 'task-complete') {
+        const m = Math.floor(n.durationSec / 60);
+        const sec = n.durationSec % 60;
+        body = t('notify.taskComplete', { dur: m > 0 ? `${m}m ${sec}s` : `${sec}s` });
+      } else if (n.kind === 'goal') {
+        body = `${t(`notify.goal.${n.status}` as never)} — ${n.objective}`;
+      } else {
+        body = t('notify.question');
+      }
+      void notifySession(path, title, body);
+    },
+    [activeTab, t],
+  );
+
+  // Clear unread when a tab becomes active (whether via click or notification).
+  useEffect(() => {
+    if (!activeTab) return;
+    setUnread((s) => {
+      if (!s.has(activeTab)) return s;
+      const n = new Set(s);
+      n.delete(activeTab);
+      return n;
+    });
+  }, [activeTab]);
 
   const loadDirs = useCallback(() => {
     setDirsLoading(true);
@@ -509,6 +566,13 @@ export default function App() {
                           }}
                         >
                           <span className="max-w-[120px] truncate">{tab.label}</span>
+                          {unread.has(tab.path) && tab.path !== activeTab ? (
+                            <span
+                              className="size-1.5 shrink-0 rounded-full bg-sky-500"
+                              role="status"
+                              aria-label={t('tabs.unread')}
+                            />
+                          ) : null}
                           <button
                             type="button"
                             aria-label={t('sessions.closeSession')}
@@ -564,6 +628,7 @@ export default function App() {
                             refreshDirSessions(tab.cwd);
                             loadDirs();
                           }}
+                          onNotify={(n) => handleNotify(tab.path, tab.label, n)}
                         />
                       </div>
                     ))}

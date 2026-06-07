@@ -290,7 +290,14 @@ function extractToolCalls(content: unknown): ToolCallView[] {
     .map((b: any) => ({ id: b.id, name: b.name, args: b.arguments, status: 'done' as const }));
 }
 
-export function useSession(path: string, cwd?: string) {
+export type NotifyKind =
+  | { kind: 'task-complete'; durationSec: number }
+  | { kind: 'goal'; status: 'achieved' | 'blocked' | 'budget-limited'; objective: string }
+  | { kind: 'question' };
+
+export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind) => void) {
+  const onNotifyRef = useRef(onNotify);
+  onNotifyRef.current = onNotify;
   const [state, setState] = useState<SessionState>({
     messages: [],
     streaming: false,
@@ -443,6 +450,8 @@ export function useSession(path: string, cwd?: string) {
               answer: ev.answer,
             },
           });
+          // Desktop notification: a turn is waiting on user input.
+          onNotifyRef.current?.({ kind: 'question' });
           break;
         case 'ui_cancel':
           // A remote (Telegram) response arrived first and the host asked to close → close only that dialog.
@@ -472,6 +481,16 @@ export function useSession(path: string, cwd?: string) {
         case 'goal':
           // GUI-state bridge: latest goal state (or null when cleared).
           patch({ goal: (ev.state ?? null) as SessionState['goal'] });
+          // Desktop notification on terminal goal transitions (mirrors telegram).
+          {
+            const g = ev.state as SessionState['goal'];
+            if (
+              g &&
+              (g.status === 'achieved' || g.status === 'blocked' || g.status === 'budget-limited')
+            ) {
+              onNotifyRef.current?.({ kind: 'goal', status: g.status, objective: g.objective });
+            }
+          }
           break;
         case 'session_info_changed':
           // When the session name changes (auto-naming after first message etc.), reflect it live.
@@ -733,6 +752,14 @@ export function useSession(path: string, cwd?: string) {
           interruptedRef.current = false;
           streamingRef.current = null;
           refreshControls(); // refresh context/cost after the turn ends
+          // Desktop notification: mirror telegram's "task complete" (>=30s, not aborted).
+          {
+            const elapsedSec =
+              turnStartRef.current > 0 ? (Date.now() - turnStartRef.current) / 1000 : 0;
+            if (elapsedSec >= 30) {
+              onNotifyRef.current?.({ kind: 'task-complete', durationSec: Math.round(elapsedSec) });
+            }
+          }
           break;
       }
     },

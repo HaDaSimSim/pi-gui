@@ -1,18 +1,20 @@
-// node 런타임을 받아 Tauri sidecar 로 번들할 바이너리를 만든다.
+// Fetch the node runtime and build the binary to bundle as a Tauri sidecar.
 //
-// macOS GUI 앱은 셸 PATH 를 상속하지 않아 시스템 `node` 를 못 찾는 경우가 많다.
-// 그래서 node 를 .app 안에 직접 번들한다(externalBin). 백엔드가 .ts 를 native
-// strip 으로 직접 실행하므로 번들 node 는 반드시 >=22.19 여야 한다.
+// macOS GUI apps don't inherit the shell PATH, so they often can't find the
+// system `node`. We therefore bundle node directly inside the .app (externalBin).
+// The backend runs .ts directly via native strip, so the bundled node must be
+// >=22.19.
 //
-// 공식 nodejs.org/dist 에서 arm64 + x64 를 받아 SHASUMS256 으로 검증하고,
-// lipo 로 universal 을 만든 뒤, 세 바이너리 모두 ad-hoc 코드서명한다.
-//   - node 는 universal 바이너리를 배포하지 않으므로 lipo fuse 가 필수.
-//   - lipo 는 서명을 무효화한다 → 재서명 안 하면 Apple Silicon 에서 "killed: 9".
+// Download arm64 + x64 from the official nodejs.org/dist, verify with SHASUMS256,
+// fuse a universal with lipo, then ad-hoc code-sign all three binaries.
+//   - node ships no universal binary, so the lipo fuse is required.
+//   - lipo invalidates the signature → without re-signing, "killed: 9" on Apple Silicon.
 //
-// 결과물: src-tauri/binaries/node-{aarch64,x86_64,universal}-apple-darwin
-// (Tauri externalBin 이 빌드 target triple 을 붙여 찾는다.)
+// Output: src-tauri/binaries/node-{aarch64,x86_64,universal}-apple-darwin
+// (Tauri externalBin appends the build target triple when looking it up.)
 //
-// 캐시: 세 바이너리가 다 있고 버전이 맞으면 skip. CI 는 tauri build 전에 돌려야 함.
+// Cache: skip if all three binaries exist and the version matches. CI must run
+// this before tauri build.
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -60,7 +62,7 @@ function binVersion(path: string): string | null {
 const universalOut = join(OUT, 'node-universal-apple-darwin');
 const archOuts = ARCHES.map((a) => join(OUT, `node-${a.triple}`));
 
-// 캐시 체크: 모든 산출물이 존재하고 universal 버전이 일치하면 skip.
+// Cache check: skip if all outputs exist and the universal version matches.
 const allExist = [universalOut, ...archOuts].every(existsSync);
 if (allExist && binVersion(universalOut) === NODE_VERSION) {
   console.log(`[fetch-node] up to date (${NODE_VERSION}) — skipping.`);
@@ -91,7 +93,7 @@ const work = join(tmpdir(), `pi-gui-node-${Date.now()}`);
 mkdirSync(work, { recursive: true });
 
 try {
-  // SHASUMS256.txt (검증용)
+  // SHASUMS256.txt (for verification)
   const shaPath = join(work, 'SHASUMS256.txt');
   await download(`${BASE}/SHASUMS256.txt`, shaPath);
   const sums = (await readFile(shaPath, 'utf8'))
@@ -119,7 +121,7 @@ try {
     }
     console.log(`[fetch-node] verified ${tarName}`);
 
-    // tar 에서 bin/node 만 추출.
+    // Extract only bin/node from the tar.
     const extractDir = join(work, `x-${node}`);
     mkdirSync(extractDir, { recursive: true });
     sh('tar', ['-xzf', tarPath, '-C', extractDir]);
@@ -136,13 +138,13 @@ try {
   sh('lipo', ['-create', ...archOuts, '-output', universalOut]);
   chmodSync(universalOut, 0o755);
 
-  // lipo 가 서명을 무효화 → 셋 다 ad-hoc 재서명 (없으면 arm64 "killed: 9").
-  // 정식 서명은 Tauri 가 app 번들 단계에서 identity 로 다시 한다.
+  // lipo invalidates the signature → ad-hoc re-sign all three (else arm64 "killed: 9").
+  // The real signing is redone by Tauri with an identity during the app bundle step.
   for (const p of [...archOuts, universalOut]) {
     sh('codesign', ['--force', '--sign', '-', p]);
   }
 
-  // 바이너리는 커밋 제외 (스크립트가 재생성).
+  // Exclude the binaries from commits (the script regenerates them).
   writeFileSync(join(OUT, '.gitignore'), 'node-*\n');
 
   console.log(`[fetch-node] ready → ${OUT} (node ${NODE_VERSION}, arm64+x64+universal)`);

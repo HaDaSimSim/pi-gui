@@ -1,15 +1,17 @@
-// 빌드 후처리 — 두 가지를 한다.
+// Build post-processing — does two things.
 //
-// 1) dmg 파일명에서 공백 제거. Tauri 는 productName("π (pi)") 을 그대로
-//    파일명에 박아 "π (pi)_<ver>_<arch>.dmg" 를 만든다. 앱 번들/실행파일
-//    이름(브랜딩)은 그대로 두고, 배포물 dmg 만 "pi-gui_<ver>_<arch>.dmg" 로
-//    rename 한다. (Tauri v2 엔 dmg 전용 파일명 옵션이 없어 후처리로 한다.)
+// 1) Remove spaces from the dmg filename. Tauri embeds productName("π (pi)")
+//    verbatim into the filename, producing "π (pi)_<ver>_<arch>.dmg". We leave
+//    the app bundle/executable name (branding) as-is and only rename the
+//    distributed dmg to "pi-gui_<ver>_<arch>.dmg". (Tauri v2 has no dmg-specific
+//    filename option, so we do it in post-processing.)
 //
-// 2) 버전 단일 소스 확인. package.json 이 source of truth. tauri.conf.json 은
-//    "../package.json" 을 가리켜 자동 상속한다. Cargo.toml 만 자동 동기화가
-//    안 되므로, 어긋나면 경고한다(빌드는 막지 않음).
+// 2) Verify the single version source. package.json is the source of truth.
+//    tauri.conf.json points at "../package.json" and inherits automatically.
+//    Only Cargo.toml isn't auto-synced, so warn if it diverges (without
+//    blocking the build).
 //
-// dmg 가 없으면(=app-only 빌드) 조용히 넘어간다.
+// If there's no dmg (= app-only build), silently skip.
 
 import { existsSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -20,7 +22,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const version: string = pkg.version;
 
-// --- 1) Cargo.toml 버전 점검 (단일 소스 = package.json) ---
+// --- 1) Cargo.toml version check (single source = package.json) ---
 const cargoPath = join(root, 'src-tauri', 'Cargo.toml');
 if (existsSync(cargoPath)) {
   const cargo = readFileSync(cargoPath, 'utf8');
@@ -33,13 +35,13 @@ if (existsSync(cargoPath)) {
   }
 }
 
-// --- 2) dmg rename (모든 target 디렉터리 훑기) ---
-// aarch64 / x86_64 / universal 어느 빌드든 잡히도록 release/bundle/dmg 를 찾는다.
+// --- 2) dmg rename (scan all target directories) ---
+// Find release/bundle/dmg so any aarch64 / x86_64 / universal build is caught.
 const targetRoot = join(root, 'src-tauri', 'target');
 const dmgDirs: string[] = [];
 function findDmgDirs(base: string) {
   if (!existsSync(base)) return;
-  // target/<triple?>/release/bundle/dmg  또는  target/release/bundle/dmg
+  // target/<triple?>/release/bundle/dmg  or  target/release/bundle/dmg
   for (const entry of readdirSync(base, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const direct = join(base, entry.name, 'release', 'bundle', 'dmg');
@@ -54,9 +56,10 @@ let renamed = 0;
 for (const dir of dmgDirs) {
   for (const file of readdirSync(dir)) {
     if (!file.endsWith('.dmg')) continue;
-    if (file.startsWith('pi-gui_') || file === 'pi-gui.dmg') continue; // 이미 배포명
-    // productName 이 "pi" 라 dmg 원본은 "pi_<ver>_<arch>.dmg" (또는 공백 포함 구판).
-    // 끝쪽 "_<ver>_<arch>.dmg" 만 보존해 배포명 "pi-gui_<ver>_<arch>.dmg" 로 바꿼다.
+    if (file.startsWith('pi-gui_') || file === 'pi-gui.dmg') continue; // already the distribution name
+    // productName is "pi", so the original dmg is "pi_<ver>_<arch>.dmg" (or an
+    // older version with spaces). Preserve only the trailing "_<ver>_<arch>.dmg"
+    // and change it to the distribution name "pi-gui_<ver>_<arch>.dmg".
     const tail = file.match(/_([^_]+)_([^_]+)\.dmg$/);
     const suffix = tail ? `_${tail[1]}_${tail[2]}` : `_${version}`;
     const next = `pi-gui${suffix}.dmg`;

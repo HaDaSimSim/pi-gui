@@ -1,14 +1,16 @@
-// THIRD-PARTY-NOTICES.md 생성 — dist-backend/node_modules 에 실제로 번들되는
-// 패키지들의 라이선스 고지를 모은다.
+// Generate THIRD-PARTY-NOTICES.md — collect the license notices for the packages
+// actually bundled into dist-backend/node_modules.
 //
-// MIT/Apache-2.0/ISC 등은 재배포 시 원저작권 고지를 함께 실어야 한다. 대부분
-// 패키지는 자체 LICENSE 파일을 동봉하지만(그건 cpSync 로 그대로 번들됨),
-// 일부(pi SDK 등)는 tarball 에 LICENSE 가 없다. 이 스크립트는 각 패키지의
-// package.json(license/author) 을 읽고, 동봉된 LICENSE 본문이 있으면 그대로,
-// 없으면 SPDX 라이선스명 + 저작자만이라도 고지에 넣어 누락을 막는다.
+// MIT/Apache-2.0/ISC and friends require shipping the original copyright notice
+// on redistribution. Most packages ship their own LICENSE file (which cpSync
+// bundles as-is), but some (the pi SDK, etc.) have no LICENSE in the tarball.
+// This script reads each package's package.json (license/author) and includes
+// the bundled LICENSE text when present; otherwise it puts at least the SPDX
+// license name + author into the notice to avoid omissions.
 //
-// bundle:backend 이후에 돌린다 (dist-backend 가 있어야 함). dist-backend 가
-// 없으면 루트 node_modules 를 대신 훑어 개발 중에도 미리 만들 수 있다.
+// Run after bundle:backend (dist-backend must exist). If dist-backend is
+// missing, fall back to scanning the root node_modules so it can be generated
+// ahead of time during development.
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -16,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// 번들 우선, 없으면 루트 node_modules.
+// Prefer the bundle; fall back to the root node_modules.
 const nmDir = existsSync(join(root, 'dist-backend', 'node_modules'))
   ? join(root, 'dist-backend', 'node_modules')
   : join(root, 'node_modules');
@@ -80,7 +82,7 @@ function readPkg(pkgDir: string): Pkg | null {
   };
 }
 
-// node_modules 를 한 단계(스코프 포함) 훑어 패키지를 모은다.
+// Scan node_modules one level deep (including scopes) to collect packages.
 function collect(): Pkg[] {
   const out: Pkg[] = [];
   if (!existsSync(nmDir)) return out;
@@ -114,7 +116,7 @@ lines.push('');
 lines.push(`Generated from \`${nmDir.replace(`${root}/`, '')}\` — ${pkgs.length} packages.`);
 lines.push('');
 
-// 라이선스 요약 표.
+// License summary table.
 lines.push('## Summary');
 lines.push('');
 lines.push('| Package | Version | License |');
@@ -124,7 +126,7 @@ for (const p of pkgs) {
 }
 lines.push('');
 
-// 비-permissive 경고 (배포 차단 가능성).
+// Non-permissive warning (may block distribution).
 const COPYLEFT = /GPL|AGPL|LGPL|MPL|EUPL|CDDL|EPL/i;
 const flagged = pkgs.filter((p) => COPYLEFT.test(p.license));
 if (flagged.length) {

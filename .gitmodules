@@ -1,0 +1,3 @@
+[submodule "vendor/pi-skills"]
+	path = vendor/pi-skills
+	url = https://github.com/HaDaSimSim/pi-skills.git

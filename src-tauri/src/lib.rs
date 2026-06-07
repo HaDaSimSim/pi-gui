@@ -1,14 +1,16 @@
-// pi-gui — Tauri 네이티브 셸.
+// pi-gui — Tauri native shell.
 //
-// 백엔드(server/index.ts, Hono + pi SDK)는 Node 로 돌아가야 하므로
-// 앱 시작 시 자식 프로세스로 띄우고, 종료 시 같이 내린다.
-// 프론트(WebView)는 그 백엔드로 fetch/EventSource 한다.
+// The backend (server/index.ts, Hono + pi SDK) must run on Node, so we
+// spawn it as a child process on app startup and shut it down on exit.
+// The frontend (WebView) does fetch/EventSource against that backend.
 //
-// 포트는 동적이다: 백엔드를 PORT=0 으로 띄우면 OS 가 빈 포트를 골라주고,
-// 백엔드가 stdout 에 "PI_GUI_PORT=<n>" 을 출력한다. 그걸 읽어 WebView 에
-// window.__PI_GUI_PORT__ 로 주입한다 → 포트 충돌(EADDRINUSE)이 사라진다.
+// The port is dynamic: spawning the backend with PORT=0 lets the OS pick a
+// free port, and the backend prints "PI_GUI_PORT=<n>" on stdout. We read that
+// and inject it into the WebView as window.__PI_GUI_PORT__ → port collisions
+// (EADDRINUSE) disappear.
 //
-// SECURITY: 백엔드는 127.0.0.1 에만 바인딩 (로컬 전용). Tauri 가 감싸도 동일.
+// SECURITY: the backend binds to 127.0.0.1 only (local-only). Same even when
+// wrapped by Tauri.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
@@ -18,24 +20,49 @@ use std::sync::{Arc, Mutex};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
-// 자식 백엔드 프로세스 핸들 (종료 시 kill 용).
+// Child backend process handle (for kill on exit).
 struct Backend(Mutex<Option<Child>>);
 
-// 진행 중(스트리밍/라이브) 세션이 있는지 — 프론트에서 갱신. quit 확인용.
+// Whether there is an in-progress (streaming/live) session — updated by the
+// frontend. Used for the quit confirmation.
 struct Busy(Arc<AtomicBool>);
 
-// 실제로 종료 진행 중인지 (확인 통과 후 재진입 방지).
+// Whether a quit is actually in progress (prevents re-entry after the
+// confirmation passes).
 static QUITTING: AtomicBool = AtomicBool::new(false);
+
+// Determine the Node executable location. macOS GUI apps do not inherit the
+// shell PATH, so we prefer the bundled sidecar (Contents/MacOS/node) first.
+//  1) PI_GUI_NODE       — explicit override (test/dev)
+//  2) sidecar next to the main executable (prod .app: Contents/MacOS/node;
+//     dev/per-arch build: target/<profile>/node)
+//  3) "node" on PATH — last-resort fallback on a machine with node installed
+fn resolve_node() -> std::path::PathBuf {
+    if let Ok(n) = std::env::var("PI_GUI_NODE") {
+        return std::path::PathBuf::from(n);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let cand = dir.join("node");
+            if cand.exists() {
+                return cand;
+            }
+        }
+    }
+    std::path::PathBuf::from("node")
+}
 
 fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     if std::env::var("PI_GUI_NO_SPAWN").is_ok() {
-        // dev: 외부에서 이미 백엔드를 띄운 경우(pnpm dev). 포트는 4317 고정 가정.
+        // dev: the backend is already spawned externally (pnpm dev). Assumes the
+        // port is fixed at 4317.
         return None;
     }
 
-    // 백엔드 진입점(server/index.ts)과 node 실행 파일 위치를 결정한다.
-    //  - dev: PI_GUI_BACKEND_ENTRY 로 지정
-    //  - prod: 리소스로 번들된 backend/server/index.ts
+    // Determine the backend entry point (server/index.ts) and the node
+    // executable location.
+    //  - dev: specified via PI_GUI_BACKEND_ENTRY
+    //  - prod: backend/server/index.ts bundled as a resource
     let resource_dir = app.path().resource_dir().ok().map(|p| p.join("backend"));
     let dev_entry = std::env::var("PI_GUI_BACKEND_ENTRY").ok();
 
@@ -50,13 +77,14 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
         (std::path::PathBuf::from("server/index.ts"), cwd)
     };
 
-    let node = std::env::var("PI_GUI_NODE").unwrap_or_else(|_| "node".to_string());
+    let node = resolve_node();
     // PORT=0 -> OS picks a free port. PI_GUI_PORT forces a fixed port (test use).
     let port = std::env::var("PI_GUI_PORT").unwrap_or_else(|_| "0".to_string());
-    let mut cmd = Command::new(node);
+    let mut cmd = Command::new(&node);
     cmd.arg(&entry);
     cmd.env("PORT", &port);
-    // 백엔드가 부모(이 프로세스) 사망을 감지해 orphan 으로 안 남게 한다.
+    // Lets the backend detect the death of its parent (this process) so it does
+    // not linger as an orphan.
     cmd.env("PI_GUI_PARENT_PID", std::process::id().to_string());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped()); // pipe stderr too so crash logs are not lost
@@ -108,7 +136,7 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     if let Some(stdout) = child.stdout.take() {
         let handle = app.clone();
         let lf = log_file.clone();
-        let wl = write_log.clone();
+        let wl = write_log;
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines().map_while(Result::ok) {
@@ -118,7 +146,7 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
                     if let Ok(p) = rest.trim().parse::<u16>() {
                         let _ = handle.emit("pi-gui://port", p);
                         if let Some(win) = handle.get_webview_window("main") {
-                            let _ = win.eval(&format!("window.__PI_GUI_PORT__ = {p};"));
+                            let _ = win.eval(format!("window.__PI_GUI_PORT__ = {p};"));
                         }
                     }
                 }
@@ -129,7 +157,7 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     // Read stderr too (Node crash/exception messages come out here).
     if let Some(stderr) = child.stderr.take() {
         let lf = log_file.clone();
-        let wl = write_log.clone();
+        let wl = write_log;
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().map_while(Result::ok) {
@@ -142,16 +170,18 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
     Some(child)
 }
 
-// 프론트가 진행 중(스트리밍/라이브) 세션 여부를 알려준다. quit 확인용.
+// The frontend reports whether there is an in-progress (streaming/live)
+// session. Used for the quit confirmation.
 #[tauri::command]
 fn set_busy(busy: bool, state: tauri::State<Busy>) {
     state.0.store(busy, Ordering::SeqCst);
 }
 
-// macOS 메뉴 바. 앱 메뉴 이름은 productName("π (pi)")에서 온다.
-// View 메뉴에 DevTools 토글(Cmd+Opt+I)을 둬서 백엔드/프론트 디버깅을 쉽게 한다.
+// macOS menu bar. The app menu name comes from productName("π (pi)").
+// A DevTools toggle (Cmd+Opt+I) is placed in the View menu to ease
+// backend/frontend debugging.
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    // 앱 메뉴 (about / hide / quit 등 표준).
+    // App menu (standard about / hide / quit, etc.).
     let app_menu = SubmenuBuilder::new(app, "π (pi)")
         .about(None)
         .separator()
@@ -164,7 +194,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .quit()
         .build()?;
 
-    // 편집 메뉴 (복사/붙여넣기 — 텍스트 입력에 필요).
+    // Edit menu (copy/paste — needed for text input).
     let edit_menu = SubmenuBuilder::new(app, "Edit")
         .undo()
         .redo()
@@ -175,7 +205,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .select_all()
         .build()?;
 
-    // 보기 메뉴 — DevTools 토글.
+    // View menu — DevTools toggle.
     let devtools_item = MenuItemBuilder::with_id("toggle-devtools", "Toggle Developer Tools")
         .accelerator("CmdOrCtrl+Alt+I")
         .build(app)?;
@@ -189,7 +219,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .fullscreen()
         .build()?;
 
-    // 창 메뉴.
+    // Window menu.
     let window_menu = SubmenuBuilder::new(app, "Window")
         .minimize()
         .maximize()
@@ -220,7 +250,7 @@ pub fn run() {
             let state = app.state::<Backend>();
             *state.0.lock().unwrap() = child;
 
-            // 메뉴 바 구성 + DevTools 토글 이벤트.
+            // Build the menu bar + DevTools toggle event.
             match build_menu(handle) {
                 Ok(menu) => {
                     let _ = app.set_menu(menu);
@@ -234,7 +264,7 @@ pub fn run() {
                                 }
                             }
                         } else if event.id() == "backend-log" {
-                            // 프론트에 Cmd+Shift+L 키 이벤트를 주입해 로그 뷰어 토글.
+                            // Inject a Cmd+Shift+L key event into the frontend to toggle the log viewer.
                             if let Some(win) = app.get_webview_window("main") {
                                 let _ = win.eval("window.dispatchEvent(new KeyboardEvent('keydown',{key:'l',metaKey:true,shiftKey:true}))");
                             }
@@ -244,8 +274,10 @@ pub fn run() {
                 Err(e) => eprintln!("[pi-gui] menu build failed: {e}"),
             }
 
-            // 창 X 닫기 → 종료 아닌 백그라운드로 hide. 탭/세션 상태가 메모리에 유지된다.
-            // 실제 종료는 dock 우클릭→Quit (또는 Cmd+Q) → ExitRequested 에서만.
+            // Window X close → hide to background instead of quitting. Tab/session
+            // state is kept in memory.
+            // Actual quit only happens via dock right-click→Quit (or Cmd+Q) →
+            // ExitRequested.
             if let Some(win) = app.get_webview_window("main") {
                 let w = win.clone();
                 win.on_window_event(move |event| {
@@ -263,7 +295,7 @@ pub fn run() {
         .expect("error while running pi-gui")
         .run(move |app_handle, event| {
             if let RunEvent::ExitRequested { api, .. } = event {
-                // 이미 확인 통과해 종료 중이면 그대로 진행.
+                // If a quit is already in progress (confirmation passed), proceed.
                 if QUITTING.load(Ordering::SeqCst) {
                     if let Some(state) = app_handle.try_state::<Backend>() {
                         if let Some(mut child) = state.0.lock().unwrap().take() {
@@ -272,7 +304,7 @@ pub fn run() {
                     }
                     return;
                 }
-                // 진행 중인 세션이 있으면 네이티브 확인 다이얼로그.
+                // If there are running sessions, show a native confirmation dialog.
                 if busy.load(Ordering::SeqCst) {
                     api.prevent_exit();
                     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -290,7 +322,7 @@ pub fn run() {
                             }
                         });
                 } else {
-                    // 진행 중 세션 없음 → 그대로 종료 + 백엔드 kill.
+                    // No running sessions → quit directly + kill the backend.
                     QUITTING.store(true, Ordering::SeqCst);
                     if let Some(state) = app_handle.try_state::<Backend>() {
                         if let Some(mut child) = state.0.lock().unwrap().take() {

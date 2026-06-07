@@ -1,9 +1,9 @@
-// Tauri 커스텀 타이틀바.
+// Tauri custom titlebar.
 //
-// macOS 기본 타이틀바(titleBarStyle: Overlay + hiddenTitle) 대신,
-// 직접 그린 얇은 바에 "π - 세션이름 - 디렉터리" 를 가운데 띄운다.
-// 전체가 드래그 영역(data-tauri-drag-region)이라 창 이동이 된다.
-// 왼쪽은 신호등 버튼 자리라 비워둔다(pl-[78px]).
+// Instead of the default macOS titlebar (titleBarStyle: Overlay + hiddenTitle),
+// a hand-drawn thin bar centers "π - session name - directory".
+// The whole thing is a drag region (data-tauri-drag-region) so the window can be moved.
+// The left is left empty for the traffic-light buttons (pl-[78px]).
 
 export function Titlebar({ name, dir }: { name: string; dir?: string }) {
   return (

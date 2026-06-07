@@ -1,17 +1,17 @@
-// pi-gui 용 ExtensionUIContext 구현.
+// ExtensionUIContext implementation for pi-gui.
 //
-// 터미널이 없으므로 인터랙티브 UI(select/confirm/input/editor)는 SSE 로 브라우저에
-// "ui_request" 이벤트를 보내고, 브라우저가 shadcn 다이얼로그로 받아 응답하면
-// POST /api/session/ui-response 로 돌아와 Promise 를 resolve 한다.
+// Since there's no terminal, interactive UI (select/confirm/input/editor) sends a
+// "ui_request" event to the browser over SSE; the browser receives it as a shadcn dialog,
+// and the answer comes back via POST /api/session/ui-response to resolve the Promise.
 //
-// notify 는 응답이 필요 없어 "ui_notify" 이벤트(toast)만 보낸다.
-// 나머지 터미널 전용 메서드(setWidget/setFooter/custom/onTerminalInput 등)는
-// 안전한 no-op. custom 을 쓰는 우리 extension(btw/question/subagents)은 web 에서
-// 별도로 수동 대응한다.
+// notify needs no response, so it only sends a "ui_notify" event (toast).
+// The remaining terminal-only methods (setWidget/setFooter/custom/onTerminalInput, etc.)
+// are safe no-ops. Our extensions that use custom (btw/question/subagents) are handled
+// manually and separately on web.
 
-type UiRequestKind = "select" | "confirm" | "input" | "editor" | "questionnaire" | "btw";
+type UiRequestKind = 'select' | 'confirm' | 'input' | 'editor' | 'questionnaire' | 'btw';
 
-// questionnaire(구조화 질문) 교환 타입 — question 익스텐션과 합의된 모양.
+// questionnaire (structured questions) exchange type - the shape agreed on with the question extension.
 export interface WebQuestionOption {
   value: string;
   label: string;
@@ -35,7 +35,7 @@ export interface WebAnswer {
 }
 
 export interface UiRequest {
-  type: "ui_request";
+  type: 'ui_request';
   id: string;
   kind: UiRequestKind;
   title: string;
@@ -43,13 +43,13 @@ export interface UiRequest {
   placeholder?: string; // input/editor prefill
   options?: string[]; // select
   questions?: WebQuestion[]; // questionnaire
-  answer?: string; // btw (마크다운 답변)
+  answer?: string; // btw (markdown answer)
   timeout?: number;
 }
 
 export interface UiNotify {
-  type: "ui_notify";
-  level: "info" | "warning" | "error";
+  type: 'ui_notify';
+  level: 'info' | 'warning' | 'error';
   message: string;
 }
 
@@ -68,7 +68,7 @@ export class WebUIContext {
     this.broadcast = broadcast;
   }
 
-  /** 브라우저 응답을 받아 보류 중인 Promise 를 resolve. 알 수 없는 id 면 false. */
+  /** Receive the browser's response and resolve the pending Promise. false for an unknown id. */
   respond(id: string, value: unknown): boolean {
     const p = this.pending.get(id);
     if (!p) return false;
@@ -77,62 +77,89 @@ export class WebUIContext {
     return true;
   }
 
-  /** 보류 중인 모든 요청을 취소(undefined/false)로 정리. 런타임 dispose 시 호출. */
+  /** Clear all pending requests as cancelled (undefined/false). Called on runtime dispose. */
   cancelAll() {
     for (const [, p] of this.pending) {
-      p.resolve(p.kind === "confirm" ? false : undefined);
+      p.resolve(p.kind === 'confirm' ? false : undefined);
     }
     this.pending.clear();
   }
 
-  private request<T>(req: Omit<UiRequest, "type" | "id">): Promise<T> {
+  private request<T>(req: Omit<UiRequest, 'type' | 'id'>): Promise<T> {
     const id = `ui-${Date.now()}-${++counter}`;
     return new Promise<T>((resolve) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, kind: req.kind });
-      this.broadcast({ type: "ui_request", id, ...req } satisfies UiRequest);
-      // timeout 지원: 지정 시 자동 해제 (confirm=false, 그 외 undefined)
+      this.broadcast({ type: 'ui_request', id, ...req } satisfies UiRequest);
+      // timeout support: auto-release when set (confirm=false, otherwise undefined)
       if (req.timeout && req.timeout > 0) {
         setTimeout(() => {
           if (this.pending.has(id)) {
             this.pending.delete(id);
-            resolve((req.kind === "confirm" ? false : undefined) as T);
+            resolve((req.kind === 'confirm' ? false : undefined) as T);
           }
         }, req.timeout);
       }
     });
   }
 
-  // ── 인터랙티브: SSE 브릿지 ──
-  select(title: string, options: string[], opts?: { timeout?: number }): Promise<string | undefined> {
-    return this.request<string | undefined>({ kind: "select", title, options, timeout: opts?.timeout });
+  // -- Interactive: SSE bridge --
+  select(
+    title: string,
+    options: string[],
+    opts?: { timeout?: number },
+  ): Promise<string | undefined> {
+    return this.request<string | undefined>({
+      kind: 'select',
+      title,
+      options,
+      timeout: opts?.timeout,
+    });
   }
   confirm(title: string, message: string, opts?: { timeout?: number }): Promise<boolean> {
-    return this.request<boolean>({ kind: "confirm", title, message, timeout: opts?.timeout });
+    return this.request<boolean>({ kind: 'confirm', title, message, timeout: opts?.timeout });
   }
-  input(title: string, placeholder?: string, opts?: { timeout?: number }): Promise<string | undefined> {
-    return this.request<string | undefined>({ kind: "input", title, placeholder, timeout: opts?.timeout });
+  input(
+    title: string,
+    placeholder?: string,
+    opts?: { timeout?: number },
+  ): Promise<string | undefined> {
+    return this.request<string | undefined>({
+      kind: 'input',
+      title,
+      placeholder,
+      timeout: opts?.timeout,
+    });
   }
   editor(title: string, prefill?: string): Promise<string | undefined> {
-    return this.request<string | undefined>({ kind: "editor", title, placeholder: prefill });
+    return this.request<string | undefined>({ kind: 'editor', title, placeholder: prefill });
   }
 
-  // questionnaire: 구조화 질문을 그대로 브라우저로 보내 전용 다이얼로그(탭/옵션/
-  // multiSelect/자유입력)로 받는다. question 익스텐션이 PI_WEB_HOST 일 때 호출.
-  // { promise, cancel } 을 돌려 원격(텔레그램) 응답이 먼저 오면 cancel() 로
-  // GUI 다이얼로그를 닫을 수 있게 한다. promise 는 취소 시 null.
-  questionnaire(questions: WebQuestion[]): { promise: Promise<WebAnswer[] | null>; cancel: () => void } {
+  // questionnaire: sends structured questions as-is to the browser, received in a dedicated
+  // dialog (tabs/options/multiSelect/free input). Called by the question extension when PI_WEB_HOST.
+  // Returns { promise, cancel } so that if a remote (Telegram) answer arrives first, cancel()
+  // can close the GUI dialog. promise is null on cancel.
+  questionnaire(questions: WebQuestion[]): {
+    promise: Promise<WebAnswer[] | null>;
+    cancel: () => void;
+  } {
     const id = `ui-${Date.now()}-${++counter}`;
     const promise = new Promise<WebAnswer[] | null>((resolve) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, kind: "questionnaire" });
-      this.broadcast({ type: "ui_request", id, kind: "questionnaire", title: "", questions } satisfies UiRequest);
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, kind: 'questionnaire' });
+      this.broadcast({
+        type: 'ui_request',
+        id,
+        kind: 'questionnaire',
+        title: '',
+        questions,
+      } satisfies UiRequest);
     });
-    const cancel = () => {
+    const _cancel = () => {
       if (this.pending.has(id)) {
         this.pending.delete(id);
-        this.broadcast({ type: "ui_cancel", id });
+        this.broadcast({ type: 'ui_cancel', id });
       }
     };
-    // 취소 시 resolve(null) 그리고 클라이언트 닫기.
+    // On cancel, resolve(null) and close the client.
     const wrapped = promise;
     return {
       promise: wrapped,
@@ -141,24 +168,24 @@ export class WebUIContext {
         if (p) {
           this.pending.delete(id);
           p.resolve(null);
-          this.broadcast({ type: "ui_cancel", id });
+          this.broadcast({ type: 'ui_cancel', id });
         }
       },
     };
   }
 
-  // btw: 사이드 질문의 답변(마크다운)을 읽기전용 오버레이로 보여준다(닫기만).
-  // 대화에 저장되지 않는다. btw 익스텐션이 PI_WEB_HOST 일 때 호출.
+  // btw: shows the side question's answer (markdown) in a read-only overlay (close only).
+  // It is not saved to the conversation. Called by the btw extension when PI_WEB_HOST.
   showBtw(question: string, answer: string): Promise<void> {
-    return this.request<void>({ kind: "btw", title: question, answer });
+    return this.request<void>({ kind: 'btw', title: question, answer });
   }
 
-  // ── 알림: 응답 불필요 ──
-  notify(message: string, type: "info" | "warning" | "error" = "info") {
-    this.broadcast({ type: "ui_notify", level: type, message } satisfies UiNotify);
+  // -- Notification: no response needed --
+  notify(message: string, type: 'info' | 'warning' | 'error' = 'info') {
+    this.broadcast({ type: 'ui_notify', level: type, message } satisfies UiNotify);
   }
 
-  // ── 터미널 전용: 안전한 no-op (반환 타입만 맞춤) ──
+  // -- Terminal-only: safe no-ops (matching the return types only) --
   onTerminalInput(): () => void {
     return () => {};
   }
@@ -171,15 +198,15 @@ export class WebUIContext {
   setFooter(): void {}
   setHeader(): void {}
   setTitle(): void {}
-  // custom: 터미널 컴포넌트라 web 에서 그릴 수 없다. no-op 컴포넌트 like 객체를 돌려
-  // 호출부가 깨지지 않게 한다 (우리 extension 은 web 에서 수동 대응).
+  // custom: a terminal component, so it can't be rendered on web. Return a no-op component-like
+  // object so the call site doesn't break (our extensions are handled manually on web).
   custom(): { dispose?: () => void } {
     return { dispose() {} };
   }
   pasteToEditor(): void {}
   setEditorText(): void {}
   getEditorText(): string {
-    return "";
+    return '';
   }
   addAutocompleteProvider(): void {}
   setEditorComponent(): void {}

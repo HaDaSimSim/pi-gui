@@ -1,26 +1,32 @@
-// 마크다운 렌더 — unified 파이프라인을 직접 구성한다.
+// Markdown render — builds the unified pipeline directly.
 //
-//   remark-parse   : markdown(텍스트) → mdast
-//   remark-gfm     : GFM 확장 (표/체크박스/취소선/자동링크)
+//   remark-parse   : markdown (text) → mdast
+//   remark-gfm     : GFM extensions (tables/checkboxes/strikethrough/autolinks)
 //   remark-rehype  : mdast → hast (HTML AST)
-//   rehype-sanitize: AI 출력이므로 위험 노드/속성 제거 (XSS 방어)
-//   rehype-react   : hast → React 엘리먼트
+//   rehype-sanitize: AI output, so strip dangerous nodes/attributes (XSS defense)
+//   rehype-react   : hast → React elements
 //
-// AI 응답은 신뢰 불가 입력이라 sanitize 단계가 필수다.
+// AI responses are untrusted input, so the sanitize step is mandatory.
 
-import { Fragment, jsx, jsxs } from "react/jsx-runtime";
-import { useMemo } from "react";
-import { unified } from "unified";
-import remarkParse from "remark-parse";
-import remarkGfm from "remark-gfm";
-import remarkRehype from "remark-rehype";
-import rehypeSanitize from "rehype-sanitize";
-import rehypeReact from "rehype-react";
+import { useMemo } from 'react';
+import { Fragment, jsx, jsxs } from 'react/jsx-runtime';
+import rehypeReact from 'rehype-react';
+import rehypeSanitize from 'rehype-sanitize';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import remarkRehype from 'remark-rehype';
+import { unified } from 'unified';
 
-// 링크는 새 탭 + 안전 rel 로 열고, 긴 URL 은 레이아웃을 깨지 않게 break.
-function MdLink({ href, children, ...rest }: React.ComponentProps<"a">) {
+// Links open in a new tab + safe rel, and long URLs break so they don't break layout.
+function MdLink({ href, children, ...rest }: React.ComponentProps<'a'>) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="break-all" {...rest}>
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer nofollow"
+      className="break-all"
+      {...rest}
+    >
       {children}
     </a>
   );
@@ -38,7 +44,7 @@ export function Markdown({ text }: { text: string }) {
     try {
       return processor.processSync(text).result as React.ReactNode;
     } catch {
-      // 파싱 실패 시 평문 폴백
+      // Plain-text fallback on parse failure
       return text;
     }
   }, [text]);

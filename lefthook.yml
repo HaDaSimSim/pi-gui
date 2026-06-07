@@ -1,0 +1,30 @@
+# lefthook — code-quality gates.
+# pre-commit runs on staged files only (fast). biome = JS/TS/CSS, rustfmt+clippy = Rust.
+# commit-msg enforces Conventional Commits v1.0.0.
+#
+# Install: `pnpm exec lefthook install` (runs automatically via the prepare script).
+# Bypass (emergency): git commit --no-verify
+
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: "*.{js,jsx,ts,tsx,css,json,jsonc}"
+      run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+    rustfmt:
+      glob: "src-tauri/**/*.rs"
+      run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+    clippy:
+      glob: "src-tauri/**/*.rs"
+      run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+pre-push:
+  commands:
+    typecheck:
+      run: pnpm typecheck
+
+commit-msg:
+  commands:
+    conventional:
+      run: node scripts/check-commit-msg.ts {1}

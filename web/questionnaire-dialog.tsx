@@ -1,30 +1,25 @@
-// questionnaire 전용 다이얼로그 — question 익스텐션의 구조화된 질문을 받아
-// 탭(여러 질문) + 옵션(라디오/멀티셀렉트 체크) + 자유 입력으로 렌더하고,
-// Answer[] 를 respond() 로 백엔드에 돌려준다. (TUI 의 questionnaire 를 web 으로 미러)
+// questionnaire-specific dialog — takes structured questions from the question extension,
+// renders them as tabs (multiple questions) + options (radio/multi-select checks) + free input,
+// and returns Answer[] to the backend via respond(). (Mirrors the TUI's questionnaire to web.)
 
-import { useMemo, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { Check } from "lucide-react";
-import type { UiQuestion, UiAnswer } from "./use-session";
+import { Check } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import type { UiAnswer, UiQuestion } from './use-session';
 
 type Draft = {
-  // 선택된 옵션 인덱스 집합 (단일이면 최대 1개)
+  // Set of selected option indices (at most 1 if single-select)
   selected: Set<number>;
-  // 자유 입력("Type something") 텍스트. 비어있지 않으면 custom 답으로 우선.
+  // Free-input ("Type something") text. If non-empty, takes precedence as a custom answer.
   custom: string;
   customActive: boolean;
 };
 
 function emptyDraft(): Draft {
-  return { selected: new Set(), custom: "", customActive: false };
+  return { selected: new Set(), custom: '', customActive: false };
 }
 
 function toAnswer(q: UiQuestion, d: Draft): UiAnswer | null {
@@ -37,8 +32,8 @@ function toAnswer(q: UiQuestion, d: Draft): UiAnswer | null {
     const opts = idxs.map((i) => q.options[i]).filter(Boolean);
     return {
       id: q.id,
-      value: opts.map((o) => o.value).join(","),
-      label: opts.map((o) => o.label).join(", "),
+      value: opts.map((o) => o.value).join(','),
+      label: opts.map((o) => o.label).join(', '),
       wasCustom: false,
       values: opts.map((o) => o.value),
       labels: opts.map((o) => o.label),
@@ -63,7 +58,10 @@ export function QuestionnaireDialog({
   const [tab, setTab] = useState(0);
   const isMulti = questions.length > 1;
 
-  const answers = useMemo(() => questions.map((q, i) => toAnswer(q, drafts[i])), [questions, drafts]);
+  const answers = useMemo(
+    () => questions.map((q, i) => toAnswer(q, drafts[i])),
+    [questions, drafts],
+  );
   const allAnswered = answers.every((a) => a !== null);
 
   const update = (i: number, fn: (d: Draft) => Draft) =>
@@ -94,16 +92,19 @@ export function QuestionnaireDialog({
 
   const body = (
     <>
-      {/* 여러 질문이면 탭 바 */}
+      {/* tab bar when multiple questions */}
       {isMulti ? (
         <div className="flex flex-wrap gap-1 border-b pb-2">
           {questions.map((qq, i) => (
             <button
+              type="button"
               key={qq.id}
               onClick={() => setTab(i)}
               className={cn(
-                "flex items-center gap-1 rounded-md px-2 py-1 text-xs",
-                i === tab ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50",
+                'flex items-center gap-1 rounded-md px-2 py-1 text-xs',
+                i === tab
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50',
               )}
             >
               {answers[i] ? <Check className="size-3 text-emerald-500" /> : null}
@@ -120,18 +121,21 @@ export function QuestionnaireDialog({
           const checked = !d.customActive && d.selected.has(oi);
           return (
             <button
+              type="button"
               key={opt.value}
               onClick={() => toggleOption(tab, oi)}
               className={cn(
-                "flex items-start gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-accent/50",
-                checked ? "border-primary bg-accent" : "border-border",
+                'flex items-start gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-accent/50',
+                checked ? 'border-primary bg-accent' : 'border-border',
               )}
             >
               <span
                 className={cn(
-                  "mt-0.5 flex size-4 shrink-0 items-center justify-center border",
-                  q.multiSelect ? "rounded" : "rounded-full",
-                  checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40",
+                  'mt-0.5 flex size-4 shrink-0 items-center justify-center border',
+                  q.multiSelect ? 'rounded' : 'rounded-full',
+                  checked
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-muted-foreground/40',
                 )}
               >
                 {checked ? <Check className="size-3" /> : null}
@@ -146,15 +150,19 @@ export function QuestionnaireDialog({
           );
         })}
 
-        {/* 자유 입력 */}
+        {/* free input */}
         <Input
           placeholder="Or type your own answer…"
           value={d.custom}
           onChange={(e) =>
-            update(tab, (dd) => ({ ...dd, custom: e.target.value, customActive: e.target.value.trim().length > 0 }))
+            update(tab, (dd) => ({
+              ...dd,
+              custom: e.target.value,
+              customActive: e.target.value.trim().length > 0,
+            }))
           }
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.nativeEvent.isComposing && allAnswered) submit();
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing && allAnswered) submit();
           }}
         />
       </div>
@@ -176,7 +184,7 @@ export function QuestionnaireDialog({
     </>
   );
 
-  // 인라인(컴포저 자리): TUI 처럼 입력창 대신 질문이 뜨는 형태.
+  // Inline (in the composer slot): like the TUI, the question replaces the input box.
   if (inline) {
     return (
       <div className="flex flex-col gap-2 rounded-lg border bg-card p-3">
@@ -192,7 +200,9 @@ export function QuestionnaireDialog({
     <Dialog open onOpenChange={(o) => !o && cancel()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isMulti ? `Questions (${tab + 1}/${questions.length})` : q.prompt}</DialogTitle>
+          <DialogTitle>
+            {isMulti ? `Questions (${tab + 1}/${questions.length})` : q.prompt}
+          </DialogTitle>
         </DialogHeader>
         {body}
       </DialogContent>

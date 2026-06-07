@@ -24,8 +24,12 @@ How-to-work-here for **pi-gui**. Read `README.md` for what/why.
   on `dispose` (`ui.cancelAll`) — don't drop that or a disposed session leaks a
   forever-pending promise.
 - **`shared/session-lock.ts` is a symlink, not a copy.** Source of truth is
-  `pi-skills/extensions/session-lock/shared/session-lock.ts`. Edit the protocol
-  *there* — the pi TUI extension and pi-gui must stay byte-identical.
+  `vendor/pi-skills/extensions/session-lock/shared/session-lock.ts` (the pi-skills
+  repo is vendored as a git submodule under `vendor/`). Edit the protocol *there*
+  (in the submodule) — the pi TUI extension and pi-gui must stay byte-identical.
+  A fresh clone needs `git submodule update --init` (or `git clone --recursive`),
+  or the symlink dangles. `bundle:backend` materializes it into a real file in
+  `dist-backend/` so the shipped backend never carries the symlink.
 - **The lock owner identifier stays `"pi-web"`.** Although the project/repo is now
   pi-gui, the SessionLock owner string (in `runtime-manager.ts`), the `owner`
   union type, and the on-disk folder are intentionally still `pi-web` — they're
@@ -96,6 +100,12 @@ How-to-work-here for **pi-gui**. Read `README.md` for what/why.
 - `web/i18n.ts` is a flat dict, `en` is the source of truth, `ko` must mirror its
   key set exactly. After touching it, verify parity (en count === ko count).
 - Owner labels in the lock/settings UI are intentionally English-only (not i18n'd).
+
+## Code comments
+
+- **Write all code comments in English.** Source comments (`//`, `/* */`, Python
+  `#`) are English-only across the repo. User-facing strings stay in `web/i18n.ts`
+  (en + ko); comments do not. Don't reintroduce non-English comments.
 
 ## Mirroring the TUI
 

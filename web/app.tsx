@@ -1,38 +1,34 @@
-import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
-import { RefreshCw, Settings, PanelLeft, X, MoreHorizontal } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable";
-import { usePanelRef } from "react-resizable-panels";
-import { cn } from "@/lib/utils";
-import { api, type DirectoryInfo, type SessionInfo } from "./api";
-import { SessionTab } from "./session-tab";
-import { LogViewer } from "./log-viewer";
-import { Sidebar, sessionLabel } from "./sidebar";
+import { MoreHorizontal, PanelLeft, RefreshCw, Settings, X } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { usePanelRef } from 'react-resizable-panels';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { DirectoryPicker } from "./directory-picker";
-import { Titlebar } from "./titlebar";
-import { IS_TAURI } from "./config";
-import { Toaster } from "@/components/ui/sonner";
-import { useT } from "./i18n";
+} from '@/components/ui/dropdown-menu';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
+import { Toaster } from '@/components/ui/sonner';
+import { cn } from '@/lib/utils';
+import { api, type DirectoryInfo, type SessionInfo } from './api';
+import { IS_TAURI } from './config';
+import { DirectoryPicker } from './directory-picker';
+import { useT } from './i18n';
+import { LogViewer } from './log-viewer';
+import { SessionTab } from './session-tab';
+import { Sidebar, sessionLabel } from './sidebar';
+import { Titlebar } from './titlebar';
 
-// 설정 모달은 열 때만 필요 — lazy 로 분리해 초기 번들에서 제외.
+// The settings modal is only needed when opened — split out via lazy to exclude it from the initial bundle.
 const SettingsModal = lazy(() =>
-  import("./settings-modal").then((m) => ({ default: m.SettingsModal })),
+  import('./settings-modal').then((m) => ({ default: m.SettingsModal })),
 );
 
 interface OpenTab {
   path: string;
   label: string;
-  cwd?: string; // pending 세션이면 최초 프롬프트에 쓰일 cwd
+  cwd?: string; // for a pending session, the cwd to use for the first prompt
 }
 
 export default function App() {
@@ -50,8 +46,8 @@ export default function App() {
   const [sessionsByDir, setSessionsByDir] = useState<Record<string, SessionInfo[]>>({});
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [selectedDir, setSelectedDir] = useState<string | null>(null);
-  // 열린 탭/활성 탭을 localStorage 에 영속화 — 앜 닫았다 다시 열어도 복원.
-  const TABS_KEY = "pi-gui.open-tabs";
+  // Persist open tabs/active tab to localStorage — restore even after closing and reopening the app.
+  const TABS_KEY = 'pi-gui.open-tabs';
   const [tabs, setTabs] = useState<OpenTab[]>(() => {
     try {
       const raw = localStorage.getItem(TABS_KEY);
@@ -62,16 +58,16 @@ export default function App() {
   });
   const [logOpen, setLogOpen] = useState(false);
 
-  // Cmd+Shift+L → 백엔드 로그 뷰어 토글.
+  // Cmd+Shift+L → toggle the backend log viewer.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "l") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         setLogOpen((o) => !o);
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   const [activeTab, setActiveTab] = useState<string | undefined>(() => {
@@ -93,10 +89,13 @@ export default function App() {
   }, []);
   useEffect(loadDirs, [loadDirs]);
 
-  // 주기적 백그라운드 폴링: 디렉터리 목록 + 현재 보고 있는 세션 목록 갱신 (5초).
+  // Periodic background polling: refresh the directory list + the currently viewed session list (5s).
   useEffect(() => {
     const id = setInterval(() => {
-      api.directories().then(setDirs).catch(() => undefined);
+      api
+        .directories()
+        .then(setDirs)
+        .catch(() => undefined);
       if (selectedDir) {
         api
           .sessions(selectedDir)
@@ -107,17 +106,17 @@ export default function App() {
     return () => clearInterval(id);
   }, [selectedDir]);
 
-  // 탭 바뀜 때마다 localStorage 에 저장 (완전 종료 후 재실행 복원용).
+  // Save to localStorage whenever tabs change (for restore after a full quit and relaunch).
   useEffect(() => {
     try {
       localStorage.setItem(TABS_KEY, JSON.stringify({ tabs, active: activeTab }));
     } catch {
-      /* 저장 실패 무시 */
+      /* ignore save failures */
     }
   }, [tabs, activeTab]);
 
-  // 한 디렉터리의 세션 목록을 다시 읽는다. retry=true 면 파일 쓰기 지연을 감안해
-  // 몇 번 재시도한다 (첫 프롬프트 직후엔 jsonl 이 아직 안 쓰였을 수 있어 draft 가 안 떨어진다).
+  // Re-read a directory's session list. If retry=true, retry a few times to account for file-write delay
+  // (right after the first prompt the jsonl may not be written yet, so the draft isn't cleared).
   const refreshDirSessions = useCallback((dir?: string, retry = false) => {
     if (!dir) return;
     let attempts = retry ? 4 : 1;
@@ -134,7 +133,7 @@ export default function App() {
     run();
   }, []);
 
-  // 디렉터리의 세션 목록 lazy 로드 (한 번만)
+  // Lazy-load a directory's session list (once only)
   const ensureSessions = useCallback(
     (cwd: string) => {
       if (sessionsByDir[cwd]) return;
@@ -176,26 +175,28 @@ export default function App() {
 
   const closeTab = useCallback(
     async (path: string) => {
-      // 실행 중(스트리밍)인 세션이면 중단하고 닫을지 확인.
+      // If the session is running (streaming), confirm before aborting and closing.
       try {
         const live = await api.live();
         const running = live.find((r) => r.key === path && r.streaming);
-        if (running && !window.confirm(t("tabs.closeRunningConfirm"))) return;
+        if (running && !window.confirm(t('tabs.closeRunningConfirm'))) return;
         if (running) await api.abort(path).catch(() => undefined);
       } catch {
-        /* live 조회 실패해도 닫기는 진행 */
+        /* proceed with closing even if the live lookup fails */
       }
       setTabs((prev) => {
         const remaining = prev.filter((tab) => tab.path !== path);
-        setActiveTab((cur) => (cur !== path ? cur : remaining.length ? remaining[remaining.length - 1].path : undefined));
+        setActiveTab((cur) =>
+          cur !== path ? cur : remaining.length ? remaining[remaining.length - 1].path : undefined,
+        );
         return remaining;
       });
-      api.dispose(path).catch(() => undefined); // 닫을 때 런타임 내려달라고 신호 (best-effort)
+      api.dispose(path).catch(() => undefined); // signal to tear down the runtime on close (best-effort)
     },
     [t],
   );
 
-  // 모든 탭 닫기. 각 탭의 런타임도 best-effort 로 내린다.
+  // Close all tabs. Tear down each tab's runtime best-effort too.
   const closeAllTabs = useCallback(() => {
     setTabs((prev) => {
       for (const tab of prev) api.dispose(tab.path).catch(() => undefined);
@@ -210,52 +211,55 @@ export default function App() {
     loadDirs();
   }, [loadDirs]);
 
-  // 세션이 이름을 알려오면 해당 탭 label 갱신 (이름이 실제로 바뀌었을 때만).
-  // 동시에 그 세션이 속한 cwd 의 사이드바 목록을 강제 갱신한다
-  // (pending 새 세션이 첫 프롬프트로 파일이 생기면 그제서야 목록에 뜨므로).
-  const setTabTitle = useCallback((path: string, name: string) => {
-    let cwd: string | undefined;
-    setTabs((prev) =>
-      prev.map((tab) => {
-        if (tab.path === path) cwd = tab.cwd;
-        return tab.path === path && tab.label !== name ? { ...tab, label: name } : tab;
-      }),
-    );
-    if (cwd) {
-      api
-        .sessions(cwd)
-        .then((sessions) => setSessionsByDir((m) => ({ ...m, [cwd!]: sessions })))
-        .catch(() => undefined);
-      loadDirs();
-    }
-  }, [loadDirs]);
+  // When a session reports its name, update that tab's label (only if the name actually changed).
+  // At the same time, force-refresh the sidebar list for the cwd that session belongs to
+  // (a new pending session only appears in the list once the first prompt creates its file).
+  const setTabTitle = useCallback(
+    (path: string, name: string) => {
+      let cwd: string | undefined;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.path === path) cwd = tab.cwd;
+          return tab.path === path && tab.label !== name ? { ...tab, label: name } : tab;
+        }),
+      );
+      if (cwd) {
+        api
+          .sessions(cwd)
+          .then((sessions) => setSessionsByDir((m) => ({ ...m, [cwd!]: sessions })))
+          .catch(() => undefined);
+        loadDirs();
+      }
+    },
+    [loadDirs],
+  );
 
-  // 제목 포맷: π - 세션이름 - 디렉터리(마지막 조각).
-  // 세션이름 없으면 untitled, 디렉터리 없으면 생략.
+  // Title format: π - session name - directory (last segment).
+  // If there's no session name, untitled; if no directory, omit it.
   const activeTab_ = tabs.find((tab) => tab.path === activeTab);
   const docTitle = (() => {
-    if (!activeTab_) return "π";
-    const name = activeTab_.label || t("sessions.untitled");
-    const dir = activeTab_.cwd ? activeTab_.cwd.replace(/\/$/, "").split("/").pop() : "";
+    if (!activeTab_) return 'π';
+    const name = activeTab_.label || t('sessions.untitled');
+    const dir = activeTab_.cwd ? activeTab_.cwd.replace(/\/$/, '').split('/').pop() : '';
     return dir ? `π - ${name} - ${dir}` : `π - ${name}`;
   })();
   useEffect(() => {
     document.title = docTitle;
     if (IS_TAURI) {
-      import("@tauri-apps/api/window")
+      import('@tauri-apps/api/window')
         .then(({ getCurrentWindow }) => getCurrentWindow().setTitle(docTitle))
         .catch(() => undefined);
     }
   }, [docTitle]);
 
-  // 새 세션 만들기: cwd 에서 경로 발급 → pending 탭 열기. 첫 프롬프트에 실제 생성.
+  // Create a new session: issue a path from cwd → open a pending tab. Actually created on the first prompt.
   const newSession = useCallback(
     async (cwd: string) => {
       try {
         const r = await api.newSession(cwd);
-        setTabs((prev) => [...prev, { path: r.path, label: t("sessions.untitled"), cwd }]);
+        setTabs((prev) => [...prev, { path: r.path, label: t('sessions.untitled'), cwd }]);
         setActiveTab(r.path);
-        // 새 세션이 생성되는 즉시 사이드바 목록에도 올려 draft 딱지가 안 뜨도록.
+        // Add it to the sidebar list immediately when the new session is created so the draft tag doesn't show.
         setSessionsByDir((m) => {
           const list = m[cwd] ?? [];
           if (list.find((s) => s.path === r.path)) return m;
@@ -265,9 +269,9 @@ export default function App() {
               ...list,
               {
                 path: r.path,
-                id: "",
+                id: '',
                 name: null,
-                firstMessage: "",
+                firstMessage: '',
                 messageCount: 0,
                 created: new Date().toISOString(),
                 modified: new Date().toISOString(),
@@ -283,45 +287,46 @@ export default function App() {
     [t],
   );
 
-  // 새 디렉터리: Tauri 면 네이티브 폴더 선택창(절대경로 반환), 아니면 서버 탐색 모달.
+  // New directory: on Tauri use the native folder picker (returns an absolute path), otherwise the server browse modal.
   const [pickerOpen, setPickerOpen] = useState(false);
   const newDirectory = useCallback(async () => {
     if (IS_TAURI) {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const picked = await open({ directory: true, multiple: false, title: t("picker.title") });
-      if (typeof picked === "string" && picked.trim()) newSession(picked.trim());
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({ directory: true, multiple: false, title: t('picker.title') });
+      if (typeof picked === 'string' && picked.trim()) newSession(picked.trim());
       return;
     }
     setPickerOpen(true);
   }, [newSession, t]);
 
-  // 세션 삭제: 사이드바에서 이미 인라인 더블체크했으므로 바로 API → 탭 닫기 + 목록 갱신.
+  // Delete session: the sidebar already did an inline double-check, so go straight to API → close tab + refresh list.
   const deleteSession = useCallback(
     async (s: SessionInfo) => {
       try {
         const res = await api.deleteSession(s.path);
         if (!res.ok) {
-          console.error("delete failed", await res.json().catch(() => null));
+          console.error('delete failed', await res.json().catch(() => null));
           return;
         }
         closeTab(s.path);
         setSessionsByDir((m) => {
           const next = { ...m };
-          for (const cwd of Object.keys(next)) next[cwd] = next[cwd].filter((x) => x.path !== s.path);
+          for (const cwd of Object.keys(next))
+            next[cwd] = next[cwd].filter((x) => x.path !== s.path);
           return next;
         });
       } catch (e) {
         console.error(e);
       }
     },
-    [t, closeTab],
+    [closeTab],
   );
 
-  // 세션 이름 변경 (사이드바). rename 은 쓰기라 런타임을 욕구한다 — 사용자가
-  // 명시적으로 바꾸는 거라 허용. 성공하면 목록/탭 label 갱신.
+  // Rename a session (sidebar). rename is a write so it requires a runtime — allowed since the user
+  // is explicitly changing it. On success, refresh the list/tab label.
   const renameSession = useCallback(
     async (s: SessionInfo) => {
-      const next = window.prompt(t("info.renamePlaceholder"), s.name ?? "");
+      const next = window.prompt(t('info.renamePlaceholder'), s.name ?? '');
       if (next == null) return;
       const name = next.trim();
       if (!name) return;
@@ -340,9 +345,9 @@ export default function App() {
     },
     [t, setTabTitle, selectedDir],
   );
-  // 사이드바에 보일 세션 목록: 서버가 준 목록 앞에, 아직 파일이 없는
-  // draft(열린 pending 탭)을 임시로 올려둔다. 첫 메시지를 보내 파일이 생기면
-  // setTabTitle 이 목록을 갱신해 정식 세션으로 바뀜다.
+  // Session list shown in the sidebar: in front of the server-provided list, temporarily place
+  // drafts (open pending tabs) that have no file yet. Once the first message creates a file,
+  // setTabTitle refreshes the list and they turn into real sessions.
   const sidebarSessions = (() => {
     if (!selectedDir) return undefined;
     const fetched = sessionsByDir[selectedDir];
@@ -352,9 +357,9 @@ export default function App() {
       .filter((tab) => tab.cwd === selectedDir && !known.has(tab.path))
       .map((tab) => ({
         path: tab.path,
-        id: "",
+        id: '',
         name: null,
-        firstMessage: "",
+        firstMessage: '',
         messageCount: 0,
         created: new Date().toISOString(),
         modified: new Date().toISOString(),
@@ -366,160 +371,208 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* Tauri: 상단 드래그 스트립 (macOS 트래픽 라이트 아래 여백 확보 + 창 이동) */}
+      {/* Tauri: top drag strip (reserves space below the macOS traffic lights + window move) */}
       {IS_TAURI ? (
         <Titlebar
-          name={activeTab_ ? activeTab_.label || t("sessions.untitled") : ""}
-          dir={activeTab_?.cwd ? activeTab_.cwd.replace(/\/$/, "").split("/").pop() : undefined}
+          name={activeTab_ ? activeTab_.label || t('sessions.untitled') : ''}
+          dir={activeTab_?.cwd ? activeTab_.cwd.replace(/\/$/, '').split('/').pop() : undefined}
         />
       ) : null}
       <div className="min-h-0 flex-1">
-      <ResizablePanelGroup>
-        {/* 사이드바 — 접기/리사이즈 가능. 기본 22%, 최소 12%. */}
-        <ResizablePanel
-          panelRef={sidebarRef}
-          collapsible
-          collapsedSize={0}
-          minSize="220px"
-          defaultSize="300px"
-          maxSize="480px"
-          className="min-w-0"
-        >
-          <aside className="flex h-full flex-col border-r">
-            <div className="flex min-h-0 flex-1 flex-col">
-              <Sidebar
-                t={t}
-                dirs={dirs}
-                dirsLoading={dirsLoading}
-                selectedDir={selectedDir}
-                onSelectDir={selectDir}
-                sessions={sidebarSessions}
-                sessionsLoading={selectedDir ? loadingDirs.has(selectedDir) : false}
-                activeSessionPath={activeTab}
-                onOpenSession={openSession}
-                onNewSession={newSession}
-                onNewDirectory={newDirectory}
-                onDeleteSession={deleteSession}
-                onRenameSession={renameSession}
-                onDiscardDraft={(s) => closeTab(s.path)}
-              />
-            </div>
-            {/* 사이드바 하단 바 */}
-            <div className="flex shrink-0 items-center gap-1 border-t border-sidebar-border bg-sidebar p-2">
-              <span className="flex-1 px-1 font-mono text-xs font-semibold text-muted-foreground">{t("app.title")}</span>
-              <Button variant="ghost" size="icon" className="size-7" aria-label={t("sessions.refresh")} onClick={refresh}>
-                <RefreshCw className="size-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="size-7" aria-label={t("nav.settings")} onClick={() => setSettingsOpen(true)}>
-                <Settings className="size-4" />
-              </Button>
-            </div>
-          </aside>
-        </ResizablePanel>
-
-        <ResizableHandle withHandle />
-
-        {/* 메인 */}
-        <ResizablePanel className="min-w-0">
-          <main className="flex h-full min-h-0 min-w-0 flex-col">
-            {tabs.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center text-sm text-muted-foreground">
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={toggleSidebar}>
-                  <PanelLeft className="size-4" /> {t("sessions.directories")}
-                </Button>
-                {t("sessions.emptyHint")}
+        <ResizablePanelGroup>
+          {/* Sidebar — collapsible/resizable. Default 22%, min 12%. */}
+          <ResizablePanel
+            panelRef={sidebarRef}
+            collapsible
+            collapsedSize={0}
+            minSize="220px"
+            defaultSize="300px"
+            maxSize="480px"
+            className="min-w-0"
+          >
+            <aside className="flex h-full flex-col border-r">
+              <div className="flex min-h-0 flex-1 flex-col">
+                <Sidebar
+                  t={t}
+                  dirs={dirs}
+                  dirsLoading={dirsLoading}
+                  selectedDir={selectedDir}
+                  onSelectDir={selectDir}
+                  sessions={sidebarSessions}
+                  sessionsLoading={selectedDir ? loadingDirs.has(selectedDir) : false}
+                  activeSessionPath={activeTab}
+                  onOpenSession={openSession}
+                  onNewSession={newSession}
+                  onNewDirectory={newDirectory}
+                  onDeleteSession={deleteSession}
+                  onRenameSession={renameSession}
+                  onDiscardDraft={(s) => closeTab(s.path)}
+                />
               </div>
-            ) : (
-              <>
-                {/* 탭 스트립 (토글 버튼 포함, 드래그 재정렬 지원) */}
-                <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-1">
-                  <Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label="toggle sidebar" onClick={toggleSidebar}>
-                    <PanelLeft className="size-4" />
+              {/* Sidebar bottom bar */}
+              <div className="flex shrink-0 items-center gap-1 border-t border-sidebar-border bg-sidebar p-2">
+                <span className="flex-1 px-1 font-mono text-xs font-semibold text-muted-foreground">
+                  {t('app.title')}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label={t('sessions.refresh')}
+                  onClick={refresh}
+                >
+                  <RefreshCw className="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  aria-label={t('nav.settings')}
+                  onClick={() => setSettingsOpen(true)}
+                >
+                  <Settings className="size-4" />
+                </Button>
+              </div>
+            </aside>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* Main */}
+          <ResizablePanel className="min-w-0">
+            <main className="flex h-full min-h-0 min-w-0 flex-col">
+              {tabs.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center text-sm text-muted-foreground">
+                  <Button variant="outline" size="sm" className="gap-1.5" onClick={toggleSidebar}>
+                    <PanelLeft className="size-4" /> {t('sessions.directories')}
                   </Button>
-                  {tabs.map((tab, idx) => {
-                    const active = tab.path === activeTab;
-                    return (
-                      <div
-                        key={tab.path}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("text/plain", String(idx));
-                          (e.currentTarget as HTMLElement).style.opacity = "0.5";
-                        }}
-                        onDragEnd={(e) => {
-                          (e.currentTarget as HTMLElement).style.opacity = "";
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const from = Number(e.dataTransfer.getData("text/plain"));
-                          const to = idx;
-                          if (from === to || isNaN(from)) return;
-                          setTabs((prev) => {
-                            const next = [...prev];
-                            const [moved] = next.splice(from, 1);
-                            next.splice(to, 0, moved);
-                            return next;
-                          });
-                        }}
-                        className={cn(
-                          "group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-sm select-none",
-                          active ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground",
-                        )}
-                        onClick={() => setActiveTab(tab.path)}
-                      >
-                        <span className="max-w-[120px] truncate">{tab.label}</span>
-                        <button
-                          aria-label={t("sessions.closeSession")}
-                          className="rounded p-0.5 opacity-50 hover:bg-accent hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            closeTab(tab.path);
+                  {t('sessions.emptyHint')}
+                </div>
+              ) : (
+                <>
+                  {/* Tab strip (includes the toggle button, supports drag reorder) */}
+                  <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      aria-label="toggle sidebar"
+                      onClick={toggleSidebar}
+                    >
+                      <PanelLeft className="size-4" />
+                    </Button>
+                    {tabs.map((tab, idx) => {
+                      const active = tab.path === activeTab;
+                      return (
+                        <div
+                          key={tab.path}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', String(idx));
+                            (e.currentTarget as HTMLElement).style.opacity = '0.5';
+                          }}
+                          onDragEnd={(e) => {
+                            (e.currentTarget as HTMLElement).style.opacity = '';
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const from = Number(e.dataTransfer.getData('text/plain'));
+                            const to = idx;
+                            if (from === to || Number.isNaN(from)) return;
+                            setTabs((prev) => {
+                              const next = [...prev];
+                              const [moved] = next.splice(from, 1);
+                              next.splice(to, 0, moved);
+                              return next;
+                            });
+                          }}
+                          className={cn(
+                            'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-sm select-none',
+                            active
+                              ? 'border-primary font-medium'
+                              : 'border-transparent text-muted-foreground hover:text-foreground',
+                          )}
+                          role="tab"
+                          tabIndex={0}
+                          aria-selected={active}
+                          onClick={() => setActiveTab(tab.path)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setActiveTab(tab.path);
+                            }
                           }}
                         >
-                          <X className="size-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                  {/* 탭 메뉴 (오른쪽 끝): 모든 탭 닫기 등 */}
-                  <div className="ml-auto shrink-0 pr-1">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8" aria-label={t("tabs.menu")}>
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={closeAllTabs}>{t("tabs.closeAll")}</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-
-                {/* 탭 본문 — 모든 탭을 마운트 유지하고 활성만 표시 (SSE 구독 유지) */}
-                <div className="min-h-0 flex-1">
-                  {tabs.map((tab) => (
-                    <div key={tab.path} className={cn("h-full", tab.path === activeTab ? "block" : "hidden")}>
-                      <SessionTab
-                        path={tab.path}
-                        cwd={tab.cwd}
-                        onTitle={(name) => setTabTitle(tab.path, name)}
-                        onLive={() => { refreshDirSessions(tab.cwd, true); loadDirs(); }}
-                        onLiveChange={() => { refreshDirSessions(tab.cwd); loadDirs(); }}
-                      />
+                          <span className="max-w-[120px] truncate">{tab.label}</span>
+                          <button
+                            type="button"
+                            aria-label={t('sessions.closeSession')}
+                            className="rounded p-0.5 opacity-50 hover:bg-accent hover:opacity-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              closeTab(tab.path);
+                            }}
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {/* Tab menu (far right): close all tabs etc. */}
+                    <div className="ml-auto shrink-0 pr-1">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8"
+                            aria-label={t('tabs.menu')}
+                          >
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={closeAllTabs}>
+                            {t('tabs.closeAll')}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </main>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+                  </div>
+
+                  {/* Tab body — keep all tabs mounted and show only the active one (keeps SSE subscriptions) */}
+                  <div className="min-h-0 flex-1">
+                    {tabs.map((tab) => (
+                      <div
+                        key={tab.path}
+                        className={cn('h-full', tab.path === activeTab ? 'block' : 'hidden')}
+                      >
+                        <SessionTab
+                          path={tab.path}
+                          cwd={tab.cwd}
+                          onTitle={(name) => setTabTitle(tab.path, name)}
+                          onLive={() => {
+                            refreshDirSessions(tab.cwd, true);
+                            loadDirs();
+                          }}
+                          onLiveChange={() => {
+                            refreshDirSessions(tab.cwd);
+                            loadDirs();
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </main>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
 
       {settingsOpen ? (
@@ -540,7 +593,6 @@ export default function App() {
         />
       ) : null}
       <LogViewer open={logOpen} onClose={() => setLogOpen(false)} />
-
     </div>
   );
 }

@@ -1,14 +1,15 @@
-// 단일 WebSocket 이벤트 버스.
+// Single WebSocket event bus.
 //
-// 왜: 브라우저는 origin 당 HTTP/1.1 연결이 6개로 제한된다. 탭마다 SSE(EventSource)를
-// 영구히 열면 6개 탭에서 연결 슬롯이 동나, 이후 모든 fetch 가 큐에 갇혀 멈춘다.
-// WebSocket 은 그 6연결 풀에 안 들어가므로, 소켓 1개로 모든 세션 이벤트를 멀티플렉싱한다.
+// Why: browsers limit HTTP/1.1 connections to 6 per origin. Keeping an SSE (EventSource)
+// permanently open per tab exhausts the connection slots across 6 tabs, after which every
+// fetch gets stuck queued. WebSocket doesn't count against that 6-connection pool, so one
+// socket multiplexes all session events.
 //
-// 프로토콜:
-//  - 클라이언트 → 서버: { type: "subscribe", paths: string[] }  (구독할 세션 path 집합)
-//  - 서버 → 클라이언트: { path: string, event: any }            (해당 세션의 이벤트)
+// Protocol:
+//  - client -> server: { type: "subscribe", paths: string[] }  (set of session paths to subscribe)
+//  - server -> client: { path: string, event: any }            (event for that session)
 
-import { wsUrl } from "./config";
+import { wsUrl } from './config';
 
 type Listener = (event: any) => void;
 
@@ -23,21 +24,21 @@ function currentPaths(): string[] {
 
 function sendSubscriptions() {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "subscribe", paths: currentPaths() }));
+    ws.send(JSON.stringify({ type: 'subscribe', paths: currentPaths() }));
   }
 }
 
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   try {
-    ws = new WebSocket(wsUrl("/ws"));
+    ws = new WebSocket(wsUrl('/ws'));
   } catch {
     scheduleReconnect();
     return;
   }
   ws.onopen = () => {
     backoff = 500;
-    sendSubscriptions(); // 재연결 시 현재 구독 집합 복원
+    sendSubscriptions(); // restore the current subscription set on reconnect
   };
   ws.onmessage = (e) => {
     let msg: { path?: string; event?: any } | null = null;
@@ -46,14 +47,14 @@ function connect() {
     } catch {
       return;
     }
-    if (!msg || typeof msg.path !== "string") return;
+    if (!msg || typeof msg.path !== 'string') return;
     const set = listeners.get(msg.path);
     if (!set) return;
     for (const fn of set) {
       try {
         fn(msg.event);
       } catch {
-        /* 리스너 격리 */
+        /* listener isolation */
       }
     }
   };
@@ -79,7 +80,7 @@ function scheduleReconnect() {
   }, backoff);
 }
 
-// 한 세션 path 의 이벤트를 구독한다. 반환 함수 호출 시 해제.
+// Subscribe to events for one session path. Call the returned function to unsubscribe.
 export function subscribePath(path: string, fn: Listener): () => void {
   let set = listeners.get(path);
   if (!set) {
@@ -88,15 +89,15 @@ export function subscribePath(path: string, fn: Listener): () => void {
   }
   set.add(fn);
   connect();
-  sendSubscriptions(); // 새 path 를 서버에 알림 (소켓 열려 있으면 즉시)
+  sendSubscriptions(); // notify the server of the new path (immediately if the socket is open)
 
   return () => {
     const s = listeners.get(path);
     if (!s) return;
     s.delete(fn);
     if (s.size === 0) listeners.delete(path);
-    sendSubscriptions(); // 빠진 path 를 서버에 알림
-    // 구독이 모두 사라지면 소켓을 닫아 자원 반납.
+    sendSubscriptions(); // notify the server of the dropped path
+    // If all subscriptions are gone, close the socket to release resources.
     if (listeners.size === 0 && ws) {
       try {
         ws.close();

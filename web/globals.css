@@ -1,18 +1,20 @@
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
 
-/* shadcn dark mode: .dark 클래스 기반. true-dark 는 .dark.true-dark 로 더 눌러준다. */
+/* shadcn dark mode: based on the .dark class. true-dark layers further via .dark.true-dark. */
 @custom-variant dark (&:is(.dark *));
 
-/* ── 폰트 변수 (설정에서 변경 가능, 로컬 설치 폰트 사용) ── */
+/* ── Font variables (configurable in settings, uses locally installed fonts) ── */
 :root {
-  --piweb-font-sans: "Pretendard GOV", "Pretendard", system-ui, -apple-system,
-    "Segoe UI", Roboto, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-  --piweb-font-mono: "BlexMono Nerd Font", "IBM Plex Mono", "JetBrains Mono",
-    ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --piweb-font-sans:
+    "Pretendard GOV", "Pretendard", system-ui, -apple-system, "Segoe UI", Roboto,
+    "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --piweb-font-mono:
+    "BlexMono Nerd Font", "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
 }
 
-/* ── shadcn 디자인 토큰 (light) ── */
+/* ── shadcn design tokens (light) ── */
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -75,7 +77,7 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
-/* ── true-dark: 순수 검정(OLED). .dark 위에 덧씌운다. ── */
+/* ── true-dark: pure black (OLED). Layered on top of .dark. ── */
 .dark.true-dark {
   --background: oklch(0 0 0);
   --card: oklch(0.16 0 0);
@@ -91,7 +93,7 @@
   --input: oklch(1 0 0 / 16%);
 }
 
-/* ── Tailwind 테마 매핑 ── */
+/* ── Tailwind theme mapping ── */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -132,7 +134,7 @@
 }
 
 html {
-  /* 기본 글자 크기 축소 */
+  /* Reduce base font size */
   font-size: 14px;
 }
 
@@ -143,7 +145,7 @@ body {
   margin: 0;
 }
 
-/* thinking 의 <details> 기본 삼각형 마커 숨김 */
+/* Hide the default triangle marker on thinking's <details> */
 .piweb-thinking > summary {
   list-style: none;
 }
@@ -151,7 +153,7 @@ body {
   display: none;
 }
 
-/* ── 마크다운 본문 (assistant 메시지) ── */
+/* ── Markdown body (assistant messages) ── */
 .piweb-md {
   line-height: 1.65;
   word-break: break-word;
@@ -173,16 +175,26 @@ body {
   font-weight: 600;
   line-height: 1.3;
 }
-.piweb-md h1 { font-size: 1.3rem; }
-.piweb-md h2 { font-size: 1.15rem; }
-.piweb-md h3 { font-size: 1.05rem; }
+.piweb-md h1 {
+  font-size: 1.3rem;
+}
+.piweb-md h2 {
+  font-size: 1.15rem;
+}
+.piweb-md h3 {
+  font-size: 1.05rem;
+}
 .piweb-md ul,
 .piweb-md ol {
   margin: 0.5rem 0;
   padding-left: 1.4rem;
 }
-.piweb-md ul { list-style: disc; }
-.piweb-md ol { list-style: decimal; }
+.piweb-md ul {
+  list-style: disc;
+}
+.piweb-md ol {
+  list-style: decimal;
+}
 .piweb-md li {
   margin: 0.2rem 0;
 }
@@ -232,10 +244,10 @@ body {
   border-top: 1px solid var(--border);
 }
 
-/* 채팅 스크롤 영역: macOS 오버레이 스크롤바 대신 항상 보이는 스크롤바.
-   WKWebView(Tauri)·크롬 둘 다 ::-webkit-scrollbar 지원. */
+/* Chat scroll area: always-visible scrollbar instead of the macOS overlay
+   scrollbar. Both WKWebView (Tauri) and Chrome support ::-webkit-scrollbar. */
 .always-scrollbar {
-  overflow-y: scroll; /* auto 가 아니라 scroll 로 트랙을 항상 차지 */
+  overflow-y: scroll; /* scroll, not auto, so the track is always occupied */
 }
 .always-scrollbar::-webkit-scrollbar {
   width: 10px;
@@ -255,7 +267,7 @@ body {
   background: transparent;
 }
 
-/* 표 (markdown) */
+/* Table (markdown) */
 .piweb-md table {
   width: 100%;
   border-collapse: collapse;
@@ -276,8 +288,8 @@ body {
   letter-spacing: 0.02em;
 }
 .piweb-md tr:nth-child(even) {
-  background: var(--muted)/30;
+  background: var(--muted) / 30;
 }
 .piweb-md tr:hover {
-  background: var(--accent)/50;
+  background: var(--accent) / 50;
 }

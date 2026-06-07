@@ -113,6 +113,16 @@ pi-gui reads what TUI extensions leave in the session file and renders it itself
 extensions never need to know about web. Already wired:
 - `turn-meta` custom entries (ui-cosmetics) → per-message elapsed time.
 - `subagent-run` custom entries (subagents) → inline collapsible run blocks.
+- `todo-list` / `goal-state` custom entries (todo/goal) → aboveEditor todo widget
+  + footer `n/N todos` / goal status + Tasks info-panel tab. These are surfaced
+  by a **GUI-only in-process extension** (`server/gui-state-extension.ts`),
+  injected via `DefaultResourceLoader({ extensionFactories })` in
+  `runtime-manager`. It observes lifecycle hooks (`tool_execution_end`,
+  `turn_end`, `agent_end`, `session_start`) and broadcasts the latest snapshot on
+  change — observation-only, so it never steers a turn, and needs no polling. pi
+  core and the pi-skills extensions are untouched. Readers shape-guard foreign
+  entries (`data.runId`/`details.elapsed`/`todos`) since pi has no extension
+  namespacing — customType is a flat global string.
 - footer token/cost = summed assistant `usage` from session entries.
 - slash commands = `extensionRunner.getRegisteredCommands()` + skills from
   `resourceLoader.getSkills()`; executed by POSTing `/name` through the normal

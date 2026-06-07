@@ -1,8 +1,9 @@
 # pi-gui
 
-A web UI for [pi](https://github.com/earendil-works/pi) that lets you browse and
-chat across **multiple directories and multiple sessions at once** — something
-the single-session TUI can't do.
+A web and desktop UI for [pi](https://github.com/earendil-works/pi) that lets
+you browse and chat across **multiple directories and multiple sessions at
+once** — something the single-session TUI can't do. Runs in the browser or as a
+native desktop app (Tauri) that bundles its own Node runtime.
 
 It's a thin host layer on top of pi's SDK (`@earendil-works/pi-coding-agent`):
 
@@ -73,17 +74,27 @@ runtime.
 
 - Multi-directory / multi-session sidebar (drill-down: directory → sessions),
   resizable + collapsible.
-- Multiple concurrent session tabs, each streaming live over SSE. Tabs stay
-  mounted so background sessions keep their SSE subscription.
+- Multiple concurrent session tabs, each streaming live over a single
+  multiplexed WebSocket. Tabs stay mounted so background sessions keep their
+  subscription.
 - Chat UI with markdown rendering (unified: remark/rehype + sanitize), thinking
   preview, compact collapsible tool calls, per-message model · elapsed · time.
+  Auto-retry (rate-limit/timeout) shows a live countdown, context compaction
+  shows a spinner, and aborted/errored turns surface their error — all mirroring
+  the TUI.
 - Per-session **info panel**: an always-open, resizable/collapsible right side
   panel with tabs — **Info** (model picker, thinking level, context usage + token
-  breakdown, rename, raw stats), **Subagents**, and **Git**.
+  breakdown, rename, raw stats), **Subagents**, **Tasks** (goal + todo), and
+  **Git**.
 - **Footer** mirroring the TUI: pwd (git branch) · name, token/cost/context,
-  model · thinking, ownership.
+  model · thinking, ownership, plus goal status and `n/N todos`.
+- **Goal & todo** (from the pi-skills `goal`/`todo` extensions): an aboveEditor
+  todo widget while the agent works, an `n/N todos` + goal-status footer line,
+  and a **Tasks** info-panel tab — surfaced by a GUI-only in-process extension,
+  no polling.
 - **Slash commands**: extension commands + skills (`/skill:name`) with `/`
-  autocomplete; executed through the normal prompt flow.
+  autocomplete, plus a builtin `/reload` to reload extensions/skills; executed
+  through the normal prompt flow.
 - Composer: file attach + paste screenshots (clipboard images). Stop button
   aborts an in-flight response.
 - Subagent runs (from the pi-skills `subagents` extension) render in the info
@@ -143,13 +154,20 @@ pnpm build:web       # production bundle → dist-web/
 
 ```
 pi-gui/
-├── server/             Hono backend (index.ts routes/SSE/static, runtime-manager.ts locks, web-ui-context.ts ui bridge, git.ts read-only git)
-├── web/                React + shadcn frontend (kebab-case files; ui/ = shadcn components)
-├── shared/             session-lock.ts → symlink → pi-skills lock protocol
+├── server/             Hono backend — routes, locks, UI bridge, git (see server/README.md)
+├── web/                React + shadcn frontend (see web/README.md)
+├── src-tauri/          Rust/Tauri desktop shell + bundled node (see src-tauri/README.md)
+├── scripts/            build scripts (fetch-node, bundle-backend, gen-notices, finalize-bundle)
+├── shared/             session-lock.ts → symlink → vendor/pi-skills lock protocol
+├── vendor/pi-skills/   git submodule (lock protocol source of truth)
 ├── test/               unit + E2E (see Tests)
 ├── components.json     shadcn config (@/ → web/)
 └── vite.config.ts      dev proxy /api/ → 4317, @/ alias
 ```
+
+Each of `server/`, `web/`, and `src-tauri/` has its own `README.md` (what it is)
+and `AGENTS.md` (load-bearing invariants). This root pair covers cross-cutting
+rules; the subdir docs go deeper and defer up to here.
 
 ## Desktop app (Tauri)
 

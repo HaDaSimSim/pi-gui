@@ -106,7 +106,9 @@ runtime.
 ## Run
 
 ```bash
-pnpm install         # links @earendil-works/pi-coding-agent (see Setup)
+git clone --recursive https://github.com/HaDaSimSim/pi-gui.git
+# (already cloned without --recursive? run: git submodule update --init)
+pnpm install         # installs deps incl. @earendil-works/pi-coding-agent (registry)
 pnpm dev             # backend (4317) + Vite dev server (5173) together
 # open http://127.0.0.1:5173
 ```
@@ -125,20 +127,22 @@ pnpm build:web       # production bundle → dist-web/
 
 ## Setup notes
 
-- `@earendil-works/pi-coding-agent` is consumed from the globally installed pi
-  via a pnpm `link:` dependency (an absolute path to the global
-  `node_modules/@earendil-works/pi-coding-agent`). If you move pi or change the
-  global prefix, update the `link:` path in `package.json` and re-run
-  `pnpm install`.
-- `shared/session-lock.ts` is a symlink into the pi-skills repo. If that repo
-  moves, re-point the symlink.
+- `@earendil-works/pi-coding-agent` (and `@earendil-works/pi-ai`) are normal
+  versioned dependencies installed from the npm registry (currently `0.78.0`).
+  They require Node `>=22.19.0`. Bump the version in `package.json` and re-run
+  `pnpm install` to update.
+- `shared/session-lock.ts` is a symlink into the vendored **pi-skills** submodule
+  (`vendor/pi-skills/`). Clone with `git clone --recursive`, or run
+  `git submodule update --init` after cloning, or the symlink dangles and the
+  backend won't boot. `pnpm bundle:backend` materializes it into a real file in
+  the shipped `dist-backend/`.
 - Model keys / auth come from pi's own `~/.pi/agent/auth.json` + `models.json`
   via `AuthStorage`/`ModelRegistry`. pi-gui doesn't manage credentials.
 
 ## Layout
 
 ```
-pi-web/
+pi-gui/
 ├── server/             Hono backend (index.ts routes/SSE/static, runtime-manager.ts locks, web-ui-context.ts ui bridge, git.ts read-only git)
 ├── web/                React + shadcn frontend (kebab-case files; ui/ = shadcn components)
 ├── shared/             session-lock.ts → symlink → pi-skills lock protocol
@@ -178,9 +182,36 @@ pnpm tauri:build   # bundles dist-backend, builds frontend, packages the .app
 ```
 
 `pnpm bundle:backend` assembles `dist-backend/` (server + shared + runtime
-node_modules, pi SDK dereferenced from its global symlink) which Tauri ships as a
-resource. It's ~200MB and machine-specific (same portability caveat as the
-`link:` SDK).
+node_modules, with the pi SDK dereferenced from the pnpm store) which Tauri ships
+as a resource. It's ~200MB; the bundle is built from your installed node_modules.
+`pnpm bundle:backend` also regenerates `THIRD-PARTY-NOTICES.md` from the bundled
+packages.
+
+### Installing a built app (unsigned)
+
+The `.app`/`.dmg` produced by `pnpm tauri:build` is **not code-signed or
+notarized**. On first launch macOS Gatekeeper will warn that the app is from an
+unidentified developer (or "damaged"). To open it:
+
+- Right-click the app → **Open** → confirm, or
+- Remove the quarantine attribute: `xattr -dr com.apple.quarantine "/Applications/π (pi).app"`
+
+To distribute a signed build you need an Apple Developer ID and notarization
+credentials wired into the Tauri bundle config; that is intentionally not set up
+here.
+
+### Runtime requirements for an installed app
+
+The app is a UI host for pi, not a standalone bundle. On the machine running it:
+
+- **pi must be installed and initialized** (`~/.pi/agent` exists) with at least
+  one model/provider configured (`auth.json` or `models.json`). pi-gui reads
+  credentials and sessions from there; it manages none itself.
+- A recent **Node (>=22.19)** must be reachable. The Rust shell spawns the
+  bundled backend with the system `node`; macOS GUI apps don't inherit your
+  shell `PATH`, so if `node` isn't found, set `PI_GUI_NODE` to an absolute path.
+  (A bundled Node runtime is planned to remove this requirement.)
+- `git` on `PATH` is optional (enables the branch/status panel).
 
 ## Tests
 

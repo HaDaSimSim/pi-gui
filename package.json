@@ -1,9 +1,23 @@
 {
   "name": "pi-gui",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "description": "A web and desktop UI for the pi coding agent — browse and chat across multiple directories and sessions at once.",
+  "author": "Mingeon Kim <me@mingeon.me>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HaDaSimSim/pi-gui.git"
+  },
+  "homepage": "https://github.com/HaDaSimSim/pi-gui#readme",
+  "bugs": {
+    "url": "https://github.com/HaDaSimSim/pi-gui/issues"
+  },
   "type": "module",
   "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "dependencies": {
     "@earendil-works/pi-ai": "0.78.0",
     "@earendil-works/pi-coding-agent": "0.78.0",
@@ -33,18 +47,24 @@
     "dev:server": "node server/index.ts",
     "dev:web": "vite",
     "build:web": "vite build",
-    "bundle:backend": "node scripts/bundle-backend.ts",
+    "bundle:backend": "node scripts/bundle-backend.ts && node scripts/gen-notices.ts",
     "build": "vite build",
     "start": "node server/index.ts",
     "dev": "node server/index.ts & vite",
     "tauri": "tauri",
-    "tauri:dev": "node --watch server/index.ts & BPID=$!; trap 'kill $BPID 2>/dev/null' EXIT INT TERM; PI_GUI_NO_SPAWN=1 tauri dev",
-    "tauri:build": "pnpm bundle:backend && tauri build",
+    "fetch:node": "node scripts/fetch-node.ts",
+    "tauri:dev": "pnpm fetch:node && node --watch server/index.ts & BPID=$!; trap 'kill $BPID 2>/dev/null' EXIT INT TERM; PI_GUI_NO_SPAWN=1 tauri dev",
+    "tauri:build": "pnpm fetch:node && pnpm bundle:backend && tauri build && node scripts/finalize-bundle.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "prepare": "lefthook install",
     "test:unit": "node test/lock-test.ts && node test/i18n-test.ts",
     "test:e2e": "node test/e2e-lock.ts && node test/e2e-sse.ts && node test/e2e-sse-lock.ts && node test/e2e-ws.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/cli": "^2.11.2",
@@ -53,6 +73,7 @@
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",
+    "lefthook": "2.1.9",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.14"

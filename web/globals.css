@@ -220,6 +220,132 @@ body {
   padding: 0;
   font-size: 0.8rem;
 }
+
+/* ── Fenced code block: relative wrapper hosts the hover copy button ── */
+.piweb-codeblock {
+  position: relative;
+}
+.piweb-codeblock > pre {
+  /* room so long lines don't run under the copy button */
+  padding-right: 2.5rem;
+}
+.piweb-codeblock-copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease;
+  cursor: pointer;
+}
+.piweb-codeblock:hover .piweb-codeblock-copy,
+.piweb-codeblock-copy:focus-visible {
+  opacity: 1;
+}
+.piweb-codeblock-copy:hover {
+  color: var(--foreground);
+}
+
+/* ── highlight.js token colors (rehype-highlight) ──
+   Theme-aware via the CSS vars; tuned to read on the --muted code background
+   in both light and dark. */
+.piweb-md .hljs-comment,
+.piweb-md .hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.piweb-md .hljs-keyword,
+.piweb-md .hljs-selector-tag,
+.piweb-md .hljs-built_in,
+.piweb-md .hljs-name,
+.piweb-md .hljs-tag {
+  color: oklch(0.55 0.18 290);
+}
+.piweb-md .hljs-string,
+.piweb-md .hljs-title,
+.piweb-md .hljs-section,
+.piweb-md .hljs-attribute,
+.piweb-md .hljs-literal,
+.piweb-md .hljs-template-tag,
+.piweb-md .hljs-template-variable,
+.piweb-md .hljs-type,
+.piweb-md .hljs-addition {
+  color: oklch(0.55 0.15 145);
+}
+.piweb-md .hljs-number,
+.piweb-md .hljs-symbol,
+.piweb-md .hljs-bullet,
+.piweb-md .hljs-link,
+.piweb-md .hljs-meta,
+.piweb-md .hljs-deletion {
+  color: oklch(0.6 0.17 35);
+}
+.piweb-md .hljs-title.function_,
+.piweb-md .hljs-function .hljs-title {
+  color: oklch(0.55 0.14 250);
+}
+.piweb-md .hljs-attr,
+.piweb-md .hljs-variable,
+.piweb-md .hljs-selector-attr,
+.piweb-md .hljs-selector-pseudo,
+.piweb-md .hljs-selector-class,
+.piweb-md .hljs-selector-id {
+  color: oklch(0.6 0.16 50);
+}
+.piweb-md .hljs-emphasis {
+  font-style: italic;
+}
+.piweb-md .hljs-strong {
+  font-weight: 600;
+}
+/* Dark themes: lighten tokens so they pop on the dark code background. */
+.dark .piweb-md .hljs-keyword,
+.dark .piweb-md .hljs-selector-tag,
+.dark .piweb-md .hljs-built_in,
+.dark .piweb-md .hljs-name,
+.dark .piweb-md .hljs-tag {
+  color: oklch(0.78 0.13 300);
+}
+.dark .piweb-md .hljs-string,
+.dark .piweb-md .hljs-title,
+.dark .piweb-md .hljs-section,
+.dark .piweb-md .hljs-attribute,
+.dark .piweb-md .hljs-literal,
+.dark .piweb-md .hljs-template-tag,
+.dark .piweb-md .hljs-template-variable,
+.dark .piweb-md .hljs-type,
+.dark .piweb-md .hljs-addition {
+  color: oklch(0.8 0.16 150);
+}
+.dark .piweb-md .hljs-number,
+.dark .piweb-md .hljs-symbol,
+.dark .piweb-md .hljs-bullet,
+.dark .piweb-md .hljs-link,
+.dark .piweb-md .hljs-meta,
+.dark .piweb-md .hljs-deletion {
+  color: oklch(0.78 0.15 45);
+}
+.dark .piweb-md .hljs-title.function_,
+.dark .piweb-md .hljs-function .hljs-title {
+  color: oklch(0.78 0.12 250);
+}
+.dark .piweb-md .hljs-attr,
+.dark .piweb-md .hljs-variable,
+.dark .piweb-md .hljs-selector-attr,
+.dark .piweb-md .hljs-selector-pseudo,
+.dark .piweb-md .hljs-selector-class,
+.dark .piweb-md .hljs-selector-id {
+  color: oklch(0.82 0.14 60);
+}
 .piweb-md a {
   color: var(--primary);
   text-decoration: underline;

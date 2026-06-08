@@ -1,6 +1,6 @@
 {
   "name": "pi-gui",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "license": "MIT",
   "description": "A web and desktop UI for the pi coding agent — browse and chat across multiple directories and sessions at once.",
@@ -35,6 +35,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-resizable-panels": "^4.11.2",
+    "rehype-highlight": "^7.0.2",
     "rehype-react": "^8.0.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",

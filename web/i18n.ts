@@ -64,6 +64,9 @@ const en = {
   'picker.go': 'Go',
   'picker.useThis': 'Use this folder',
 
+  'code.copy': 'Copy code',
+  'code.copied': 'Copied',
+
   'session.noMessages': 'No messages yet. Send a prompt to start.',
   'session.scrollToBottom': 'Scroll to bottom',
   'session.loadEarlier': 'Load {count} earlier messages',
@@ -314,6 +317,9 @@ const ko: Record<I18nKey, string> = {
   'picker.manualPlaceholder': '또는 절대경로 입력',
   'picker.go': '이동',
   'picker.useThis': '이 폴더 사용',
+
+  'code.copy': '코드 복사',
+  'code.copied': '복사됨',
 
   'session.noMessages': '아직 메시지가 없습니다. 프롬프트를 보내 시작하세요.',
   'session.scrollToBottom': '맨 아래로 이동',

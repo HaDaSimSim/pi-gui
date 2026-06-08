@@ -55,6 +55,7 @@ export function SessionTab({
   onLive,
   onLiveChange,
   onNotify,
+  onStreamingChange,
 }: {
   path: string;
   cwd?: string;
@@ -62,11 +63,13 @@ export function SessionTab({
   onLive?: () => void;
   onLiveChange?: () => void;
   onNotify?: (n: NotifyKind) => void;
+  onStreamingChange?: (streaming: boolean) => void;
 }) {
   const { t } = useT();
   const {
     state,
     send,
+    runBash,
     takeover,
     clearError,
     setModel,
@@ -202,6 +205,13 @@ export function SessionTab({
       onLiveChangeRef.current?.();
     }
   }, [state.live]);
+
+  // Report streaming state to the parent so the tab strip can show a spinner.
+  const onStreamingChangeRef = useRef(onStreamingChange);
+  onStreamingChangeRef.current = onStreamingChange;
+  useEffect(() => {
+    onStreamingChangeRef.current?.(state.streaming);
+  }, [state.streaming]);
 
   // Scroll to bottom on new message/streaming — but only when the user is already near the bottom.
   // (prevents jumping to the end while scrolling up to view history)

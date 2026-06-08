@@ -1,4 +1,4 @@
-import { MoreHorizontal, PanelLeft, RefreshCw, Settings, X } from 'lucide-react';
+import { MoreHorizontal, PanelLeft, RefreshCw, Settings } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import {
 } from './notifications';
 import { SessionTab } from './session-tab';
 import { Sidebar, sessionLabel } from './sidebar';
+import { TabStrip } from './tab-strip';
 import { Titlebar } from './titlebar';
 import type { NotifyKind } from './use-session';
 
@@ -66,6 +67,17 @@ export default function App() {
   const [logOpen, setLogOpen] = useState(false);
   // Tabs with unread activity (notified while inactive/unfocused). Cleared on activation.
   const [unread, setUnread] = useState<Set<string>>(new Set());
+  // Tabs whose session is currently streaming (shows a spinner in the tab strip).
+  const [streamingTabs, setStreamingTabs] = useState<Set<string>>(new Set());
+  const setTabStreaming = useCallback((path: string, streaming: boolean) => {
+    setStreamingTabs((prev) => {
+      if (streaming === prev.has(path)) return prev;
+      const next = new Set(prev);
+      if (streaming) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  }, []);
 
   // Request notification permission once at startup and route notification clicks
   // to the matching session tab (Tauri only; no-op in the browser).
@@ -248,9 +260,10 @@ export default function App() {
         );
         return remaining;
       });
+      setTabStreaming(path, false);
       api.dispose(path).catch(() => undefined); // signal to tear down the runtime on close (best-effort)
     },
-    [t],
+    [t, setTabStreaming],
   );
 
   // Close all tabs. Tear down each tab's runtime best-effort too.
@@ -260,6 +273,7 @@ export default function App() {
       return [];
     });
     setActiveTab(undefined);
+    setStreamingTabs(new Set());
   }, []);
 
   const refresh = useCallback(() => {
@@ -518,75 +532,15 @@ export default function App() {
                     >
                       <PanelLeft className="size-4" />
                     </Button>
-                    {tabs.map((tab, idx) => {
-                      const active = tab.path === activeTab;
-                      return (
-                        <div
-                          key={tab.path}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', String(idx));
-                            (e.currentTarget as HTMLElement).style.opacity = '0.5';
-                          }}
-                          onDragEnd={(e) => {
-                            (e.currentTarget as HTMLElement).style.opacity = '';
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'move';
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const from = Number(e.dataTransfer.getData('text/plain'));
-                            const to = idx;
-                            if (from === to || Number.isNaN(from)) return;
-                            setTabs((prev) => {
-                              const next = [...prev];
-                              const [moved] = next.splice(from, 1);
-                              next.splice(to, 0, moved);
-                              return next;
-                            });
-                          }}
-                          className={cn(
-                            'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-sm select-none',
-                            active
-                              ? 'border-primary font-medium'
-                              : 'border-transparent text-muted-foreground hover:text-foreground',
-                          )}
-                          role="tab"
-                          tabIndex={0}
-                          aria-selected={active}
-                          onClick={() => setActiveTab(tab.path)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setActiveTab(tab.path);
-                            }
-                          }}
-                        >
-                          <span className="max-w-[120px] truncate">{tab.label}</span>
-                          {unread.has(tab.path) && tab.path !== activeTab ? (
-                            <span
-                              className="size-1.5 shrink-0 rounded-full bg-sky-500"
-                              role="status"
-                              aria-label={t('tabs.unread')}
-                            />
-                          ) : null}
-                          <button
-                            type="button"
-                            aria-label={t('sessions.closeSession')}
-                            className="rounded p-0.5 opacity-50 hover:bg-accent hover:opacity-100"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              closeTab(tab.path);
-                            }}
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </div>
-                      );
-                    })}
+                    <TabStrip
+                      tabs={tabs}
+                      activeTab={activeTab}
+                      unread={unread}
+                      streaming={streamingTabs}
+                      onReorder={setTabs}
+                      onActivate={setActiveTab}
+                      onClose={closeTab}
+                    />
                     {/* Tab menu (far right): close all tabs etc. */}
                     <div className="ml-auto shrink-0 pr-1">
                       <DropdownMenu>
@@ -609,29 +563,35 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Tab body — keep all tabs mounted and show only the active one (keeps SSE subscriptions) */}
+                  {/* Tab body — keep all tabs mounted and show only the active one (keeps SSE
+                      subscriptions). Render in a STABLE order (by path), decoupled from the tab
+                      strip order: reordering the strip then never moves these DOM nodes, so the
+                      active tab's scroll position / SSE stream isn't disturbed. */}
                   <div className="min-h-0 flex-1">
-                    {tabs.map((tab) => (
-                      <div
-                        key={tab.path}
-                        className={cn('h-full', tab.path === activeTab ? 'block' : 'hidden')}
-                      >
-                        <SessionTab
-                          path={tab.path}
-                          cwd={tab.cwd}
-                          onTitle={(name) => setTabTitle(tab.path, name)}
-                          onLive={() => {
-                            refreshDirSessions(tab.cwd, true);
-                            loadDirs();
-                          }}
-                          onLiveChange={() => {
-                            refreshDirSessions(tab.cwd);
-                            loadDirs();
-                          }}
-                          onNotify={(n) => handleNotify(tab.path, tab.label, n)}
-                        />
-                      </div>
-                    ))}
+                    {[...tabs]
+                      .sort((a, b) => a.path.localeCompare(b.path))
+                      .map((tab) => (
+                        <div
+                          key={tab.path}
+                          className={cn('h-full', tab.path === activeTab ? 'block' : 'hidden')}
+                        >
+                          <SessionTab
+                            path={tab.path}
+                            cwd={tab.cwd}
+                            onTitle={(name) => setTabTitle(tab.path, name)}
+                            onLive={() => {
+                              refreshDirSessions(tab.cwd, true);
+                              loadDirs();
+                            }}
+                            onLiveChange={() => {
+                              refreshDirSessions(tab.cwd);
+                              loadDirs();
+                            }}
+                            onNotify={(n) => handleNotify(tab.path, tab.label, n)}
+                            onStreamingChange={(s) => setTabStreaming(tab.path, s)}
+                          />
+                        </div>
+                      ))}
                   </div>
                 </>
               )}

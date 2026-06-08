@@ -136,6 +136,8 @@
 html {
   /* Reduce base font size */
   font-size: 14px;
+  /* Disable the outermost over-scroll bounce/rubber-band (and scroll chaining). */
+  overscroll-behavior: none;
 }
 
 body {
@@ -143,6 +145,7 @@ body {
   color: var(--foreground);
   font-family: var(--piweb-font-sans);
   margin: 0;
+  overscroll-behavior: none;
 }
 
 /* Hide the default triangle marker on thinking's <details> */

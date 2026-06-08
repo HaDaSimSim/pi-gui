@@ -1,6 +1,6 @@
 {
   "name": "pi-gui",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "MIT",
   "description": "A web and desktop UI for the pi coding agent — browse and chat across multiple directories and sessions at once.",

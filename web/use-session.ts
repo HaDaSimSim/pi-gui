@@ -778,10 +778,20 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
                       .join('\n')
                   : '';
             if (text.trim()) {
+              const trimmed = text.trim();
               setState((s) => {
-                // Avoid duplicates: skip if the same text was already added optimistically.
-                const lastUser = [...s.messages].reverse().find((m) => m.role === 'user');
-                if (lastUser && lastUser.text === text.trim()) return s;
+                // Avoid duplicates. At the start of a turn the SDK re-emits every user
+                // message it's about to process (queued followUps + the new prompt) as its
+                // own message_start. Comparing only the LAST user message misses a re-emitted
+                // followUp when a newer prompt sits after it, so injected messages (e.g.
+                // "[subagent … finished]") pile up above each new prompt. Instead, scan the
+                // trailing run of user messages (back to the most recent assistant turn) and
+                // skip if the same text is already there.
+                for (let i = s.messages.length - 1; i >= 0; i--) {
+                  const m = s.messages[i];
+                  if (m.role === 'assistant') break; // stop at the previous assistant turn
+                  if (m.role === 'user' && m.text === trimmed) return s; // already present
+                }
                 return {
                   ...s,
                   messages: [
@@ -789,7 +799,7 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
                     {
                       key: `u-${Date.now()}`,
                       role: 'user',
-                      text: text.trim(),
+                      text: trimmed,
                       time: new Date().toISOString(),
                     },
                   ],

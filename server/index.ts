@@ -16,6 +16,15 @@ import { Hono } from 'hono';
 // (Must be set before any session is created, so we set it at the top right after imports.)
 process.env.PI_WEB_HOST = '1';
 
+// Restore the user's login-shell PATH. GUI (.app) launches inherit only a
+// minimal PATH from launchd, so child processes (the `pi` CLI for subagents,
+// the bash tool) otherwise can't find binaries the user has in their terminal
+// (nvm/Homebrew/etc.) and fail with ENOENT. No-op when PATH is already full
+// (pnpm dev) or on Windows. Must run before any runtime/child is spawned.
+import { restoreLoginShellPath } from './restore-path.ts';
+
+restoreLoginShellPath();
+
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { readdir, rm } from 'node:fs/promises';

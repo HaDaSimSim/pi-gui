@@ -66,6 +66,8 @@ export interface LiveRuntime {
   ui: WebUIContext; // interactive UI bridge (select/confirm/input/notify)
   subagentPoll?: ReturnType<typeof setInterval>; // watches subagent-run entries for changes (no events)
   subagentSig?: string; // previous signature (broadcast only on change)
+  todoSig?: string; // previous todo-list signature (broadcast only on change)
+  goalSig?: string; // previous goal-state signature (broadcast only on change)
 }
 
 export class LockedError extends Error {
@@ -253,14 +255,17 @@ export class RuntimeManager {
     // subagent-run entries are written via appendEntry and do not emit session events
     // (an SDK gap). So the GUI can't see subagent completion until a reload.
     // Lightly poll our own session file from the owned runtime and broadcast only on change.
-    runtime.subagentPoll = setInterval(() => this.pollSubagents(sessionPath), 1500);
+    // Covers subagent runs AND todo/goal state. The gui-state extension also pushes
+    // todo/goal on lifecycle hooks (faster), but this poll is the reliable safety net:
+    // it guarantees the GUI reflects the persisted entries within ~1.5s no matter what.
+    runtime.subagentPoll = setInterval(() => this.pollEntries(sessionPath), 1500);
     runtime.subagentPoll.unref?.();
     return runtime;
   }
 
-  // Read the live runtime's subagent-run entries (latest per runId) and, if changed from before,
-  // broadcast { type: "subagent_runs", runs }. The frontend merges by runId.
-  private pollSubagents(sessionPath: string) {
+  // Read the live runtime's entries once and broadcast any changed derived state
+  // (subagent runs, todo list, goal). Called on an interval; broadcasts only on change.
+  private pollEntries(sessionPath: string) {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return;
     let entries: unknown[];
@@ -269,6 +274,56 @@ export class RuntimeManager {
     } catch {
       return;
     }
+    this.pollSubagents(sessionPath, rt, entries);
+    this.pollTodoGoal(sessionPath, rt, entries);
+  }
+
+  // Diff todo-list / goal-state custom entries (last-wins) and broadcast on change.
+  private pollTodoGoal(sessionPath: string, rt: LiveRuntime, entries: unknown[]) {
+    let todoData: { todos?: unknown[] } | undefined;
+    let goalData:
+      | (Record<string, unknown> & { cleared?: boolean; objective?: unknown })
+      | undefined;
+    for (const e of entries) {
+      const ent = e as { type?: string; customType?: string; data?: unknown };
+      if (ent.type !== 'custom') continue;
+      if (ent.customType === 'todo-list') todoData = ent.data as { todos?: unknown[] };
+      else if (ent.customType === 'goal-state')
+        goalData = ent.data as Record<string, unknown> & { cleared?: boolean; objective?: unknown };
+    }
+
+    // todo: null unless there's a non-empty list (matches the extension's clear-on-all-done).
+    const todo =
+      todoData && Array.isArray(todoData.todos) && todoData.todos.length > 0
+        ? ({ todos: todoData.todos } as unknown as TodoState)
+        : null;
+    const todoSig = todo
+      ? (todo.todos as Array<{ status?: string; activeForm?: string; content?: string }>)
+          .map((x) => `${x.status}:${x.activeForm ?? x.content}`)
+          .join('|')
+      : '';
+    if (todoSig !== (rt.todoSig ?? '')) {
+      rt.todoSig = todoSig;
+      this.broadcast(sessionPath, { type: 'todo', state: todo });
+    }
+
+    // goal: null when cleared or no objective.
+    const goal =
+      goalData && !goalData.cleared && typeof goalData.objective === 'string'
+        ? (goalData as unknown as GoalState)
+        : null;
+    const goalSig = goal
+      ? `${goal.status}:${goal.iteration}:${goal.objective}:${goal.note ?? ''}`
+      : '';
+    if (goalSig !== (rt.goalSig ?? '')) {
+      rt.goalSig = goalSig;
+      this.broadcast(sessionPath, { type: 'goal', state: goal });
+    }
+  }
+
+  // Read the live runtime's subagent-run entries (latest per runId) and, if changed from before,
+  // broadcast { type: "subagent_runs", runs }. The frontend merges by runId.
+  private pollSubagents(sessionPath: string, rt: LiveRuntime, entries: unknown[]) {
     const byId = new Map<string, Record<string, unknown>>();
     for (const e of entries) {
       const ent = e as { type?: string; customType?: string; data?: { runId?: string } };
@@ -331,6 +386,80 @@ export class RuntimeManager {
           message: e instanceof Error ? e.message : String(e),
         });
       });
+    }
+  }
+
+  /**
+   * Run a user `!`/`!!` bash command (mirrors the TUI's user_bash flow).
+   * Lock-guarded like prompt(): re-verifies the lock is mine right before executing.
+   * The SDK's executeBash() runs the command locally and appends a `bashExecution`
+   * message to the session file (it emits no session event), so we stream output
+   * chunks ourselves on the session channel and broadcast a terminal event on
+   * completion. The persisted `bashExecution` entry is what scrollback renders.
+   * @param excludeFromContext true for the `!!` prefix (output kept out of LLM context).
+   * @throws RevokedError if the lock was taken away (the runtime is also torn down).
+   */
+  async runBash(
+    sessionPath: string,
+    command: string,
+    excludeFromContext?: boolean,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const rt = this.runtimes.get(sessionPath);
+    if (!rt) throw new Error('no live runtime; call getOrCreate first');
+
+    // -- Lock check right before writing (same guard as prompt) --
+    if (!rt.lock.isMine()) {
+      const by = this.recordOf(rt.lock);
+      await this.dispose(sessionPath, { keepLock: true });
+      throw new RevokedError(by);
+    }
+
+    // Refuse a second concurrent command on the same runtime.
+    if (rt.session.isBashRunning) return { ok: false, reason: 'busy' };
+
+    rt.lastActivity = Date.now();
+    const startedAt = Date.now();
+    // Announce the start so the GUI can render a live (running) bash block immediately.
+    const runId = `bash-${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
+    this.broadcast(sessionPath, {
+      type: 'user_bash_start',
+      runId,
+      command,
+      excludeFromContext: !!excludeFromContext,
+      timestamp: startedAt,
+    });
+    try {
+      const result = await rt.session.executeBash(
+        command,
+        (chunk: string) => this.broadcast(sessionPath, { type: 'user_bash_output', runId, chunk }),
+        { excludeFromContext },
+      );
+      rt.lastActivity = Date.now();
+      this.broadcast(sessionPath, {
+        type: 'user_bash_end',
+        runId,
+        command,
+        output: result.output,
+        exitCode: result.exitCode,
+        cancelled: result.cancelled,
+        truncated: result.truncated,
+        excludeFromContext: !!excludeFromContext,
+        timestamp: Date.now(),
+      });
+      return { ok: true };
+    } catch (e) {
+      this.broadcast(sessionPath, {
+        type: 'user_bash_end',
+        runId,
+        command,
+        output: e instanceof Error ? e.message : String(e),
+        exitCode: undefined,
+        cancelled: false,
+        truncated: false,
+        excludeFromContext: !!excludeFromContext,
+        timestamp: Date.now(),
+      });
+      return { ok: false, reason: 'error' };
     }
   }
 
@@ -490,10 +619,15 @@ export class RuntimeManager {
    * Execution: send "/..." through the existing prompt flow and the SDK intercepts it
    * (skill via _expandSkillCommand, extension via the command handler).
    */
-  commands(sessionPath: string): { name: string; description?: string; source: string }[] {
+  commands(sessionPath: string): {
+    name: string;
+    description?: string;
+    argumentHint?: string;
+    source: string;
+  }[] {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return [];
-    const out: { name: string; description?: string; source: string }[] = [];
+    const out: { name: string; description?: string; argumentHint?: string; source: string }[] = [];
     // extension commands
     try {
       const cmds = rt.session.extensionRunner?.getRegisteredCommands?.() ?? [];
@@ -515,6 +649,24 @@ export class RuntimeManager {
       }
     } catch {
       /* no skills */
+    }
+    // prompt templates (.pi/prompts/*.md, global prompts/). The SDK auto-expands
+    // "/name args" in prompt(), so they execute through the existing prompt flow.
+    try {
+      const prompts =
+        (rt.session.promptTemplates as
+          | { name: string; description?: string; argumentHint?: string }[]
+          | undefined) ?? [];
+      for (const p of prompts) {
+        out.push({
+          name: p.name,
+          description: p.description,
+          argumentHint: p.argumentHint,
+          source: 'prompt',
+        });
+      }
+    } catch {
+      /* no prompt templates */
     }
     return out;
   }
@@ -567,6 +719,24 @@ export class RuntimeManager {
       return { ok: false, reason: 'streaming' };
     }
     await rt.session.reload();
+    rt.lastActivity = Date.now();
+    return { ok: true };
+  }
+
+  /**
+   * Manually compact the conversation context (runtime + lock required).
+   *   - refuse if a turn is in progress (streaming) or compaction is already running.
+   *   - emits compaction_start/compaction_end events the SSE bridge already forwards.
+   */
+  async compact(
+    sessionPath: string,
+    customInstructions?: string,
+    force?: boolean,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const rt = await this.ensureMine(sessionPath, force);
+    if (rt.session.isStreaming) return { ok: false, reason: 'streaming' };
+    if (rt.session.isCompacting) return { ok: false, reason: 'compacting' };
+    await rt.session.compact(customInstructions);
     rt.lastActivity = Date.now();
     return { ok: true };
   }

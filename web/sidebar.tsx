@@ -152,7 +152,7 @@ export function Sidebar(props: SidebarProps) {
               placeholder={t('sessions.searchSessions')}
             />
           </div>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="flex flex-col gap-0.5 p-2">
               {props.sessionsLoading || !filteredSessions ? (
                 <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
@@ -313,7 +313,7 @@ export function Sidebar(props: SidebarProps) {
               placeholder={t('sessions.searchDirectories')}
             />
           </div>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="flex flex-col gap-0.5 p-2">
               {props.dirsLoading ? (
                 <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">

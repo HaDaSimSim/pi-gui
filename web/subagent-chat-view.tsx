@@ -1,12 +1,14 @@
 // Displays a subagent run expanded into a chat UI, "like the main thread".
 // Read-only — can't send/abort messages (the main controls that subagent).
+// Reuses the main-thread MessageView by converting the run's turns/transcript
+// into the same ChatMessage[] shape, so rendering, width, and spacing match.
 
-import { ArrowLeft, Loader2, Wrench } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useT } from './i18n';
-import { Markdown } from './markdown';
-import type { SubagentRunView, SubagentTranscriptItem } from './use-session';
+import { MessageView } from './message-view';
+import type { ChatMessage, SubagentRunView, ToolCallView } from './use-session';
 
 function statusDot(status: SubagentRunView['status']): string {
   return status === 'running'
@@ -16,48 +18,108 @@ function statusDot(status: SubagentRunView['status']): string {
       : 'bg-emerald-500';
 }
 
-// Render a single transcript entry like a main-thread message.
-function TranscriptItemView({ item }: { item: SubagentTranscriptItem }) {
-  if (item.kind === 'thinking') {
-    return (
-      <details className="piweb-thinking mb-1.5">
-        <summary className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground/70">
-          <span className="shrink-0 font-medium italic">Thinking</span>
-          <span className="truncate">{item.text.replace(/\s+/g, ' ').slice(0, 80)}</span>
-        </summary>
-        <pre className="m-0 mt-1 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground/60">
-          {item.text}
-        </pre>
-      </details>
-    );
-  }
-  if (item.kind === 'toolCall' || item.kind === 'toolResult') {
-    return (
-      <div className="my-1 rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs">
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <Wrench className="size-3.5 shrink-0" />
-          <span className="font-medium">
-            {item.toolName || (item.kind === 'toolCall' ? 'tool' : 'result')}
-          </span>
-        </div>
-        {item.text ? (
-          <pre className="m-0 mt-1 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground/80">
-            {item.text}
-          </pre>
-        ) : null}
-      </div>
-    );
-  }
-  // text
-  return item.text ? <Markdown text={item.text} /> : null;
+// Convert a subagent run into main-thread ChatMessage[]. Each turn's prompt becomes a
+// user message; the transcript is grouped into assistant messages (text flushes a new
+// message so text/tool/text ordering is preserved, mirroring the main thread). When no
+// transcript exists, finalOutput is the assistant text. Errors become a trailing message.
+function runToMessages(run: SubagentRunView): ChatMessage[] {
+  const msgs: ChatMessage[] = [];
+  let toolSeq = 0;
+  run.turns.forEach((turn, idx) => {
+    if (turn.prompt) {
+      msgs.push({ key: `sa-${run.runId}-u${idx}`, role: 'user', text: turn.prompt });
+    }
+    const transcript = turn.transcript ?? [];
+    if (transcript.length > 0) {
+      // `cur` is the assistant message currently being assembled. Using a single-element
+      // holder array avoids the closure in flush() narrowing `cur` to `null` for TS.
+      const ref: { cur: ChatMessage | null } = { cur: null };
+      let lastTool: NonNullable<ChatMessage['toolCalls']>[number] | null = null;
+      const flush = () => {
+        if (ref.cur) msgs.push(ref.cur);
+        ref.cur = null;
+        lastTool = null;
+      };
+      const ensure = (): ChatMessage => {
+        if (!ref.cur) {
+          ref.cur = {
+            key: `sa-${run.runId}-a${idx}-${msgs.length}`,
+            role: 'assistant',
+            text: '',
+            model: run.model,
+          };
+        }
+        return ref.cur;
+      };
+      for (const it of transcript) {
+        if (it.kind === 'thinking') {
+          const m = ensure();
+          m.thinking = m.thinking ? `${m.thinking}\n\n${it.text}` : it.text;
+        } else if (it.kind === 'text') {
+          // A new text block after existing content starts a fresh assistant message.
+          if (ref.cur && (ref.cur.text || ref.cur.toolCalls?.length)) flush();
+          const m = ensure();
+          m.text = m.text ? `${m.text}\n\n${it.text}` : it.text;
+        } else if (it.kind === 'toolCall') {
+          const m = ensure();
+          m.toolCalls = m.toolCalls ?? [];
+          lastTool = {
+            id: `sa-${run.runId}-t${toolSeq++}`,
+            name: it.toolName || 'tool',
+            // Prefer the full structured args (newer sessions); fall back to the
+            // compact summary text for older sessions that lack `args`.
+            args: it.args ?? it.text,
+            status: 'done',
+          };
+          m.toolCalls.push(lastTool);
+        } else if (it.kind === 'toolResult') {
+          // Prefer untruncated fullText; fall back to the compact text.
+          const resultText = it.fullText ?? it.text;
+          const status: ToolCallView['status'] = it.isError ? 'error' : 'done';
+          if (lastTool) {
+            lastTool.resultText = resultText;
+            lastTool.status = status;
+          } else {
+            const m = ensure();
+            m.toolCalls = m.toolCalls ?? [];
+            m.toolCalls.push({
+              id: `sa-${run.runId}-t${toolSeq++}`,
+              name: it.toolName || 'result',
+              args: '',
+              status,
+              resultText,
+            });
+          }
+        }
+      }
+      flush();
+    } else if (turn.finalOutput) {
+      msgs.push({
+        key: `sa-${run.runId}-a${idx}`,
+        role: 'assistant',
+        text: turn.finalOutput,
+        model: run.model,
+      });
+    }
+    if (turn.error) {
+      msgs.push({
+        key: `sa-${run.runId}-e${idx}`,
+        role: 'assistant',
+        text: '',
+        errorMessage: turn.error,
+      });
+    }
+  });
+  return msgs;
 }
 
 export function SubagentChatView({ run, onBack }: { run: SubagentRunView; onBack: () => void }) {
   const { t } = useT();
+  const messages = runToMessages(run);
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* header: back + title + meta */}
-      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+      {/* header: back + title + meta. pr-10 reserves space for the Dialog's absolute close (X) button. */}
+      <div className="flex shrink-0 items-center gap-2 border-b py-2 pl-3 pr-10">
         <Button
           variant="ghost"
           size="icon"
@@ -90,43 +152,18 @@ export function SubagentChatView({ run, onBack }: { run: SubagentRunView; onBack
         {t('subagent.readOnly')}
       </div>
 
-      {/* conversation body */}
+      {/* conversation body — same MessageView + spacing as the main thread */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
-          {run.turns.map((turn) => (
-            <div key={`${turn.prompt}::${turn.finalOutput}`} className="flex flex-col gap-4">
-              {/* prompt = user bubble */}
-              {turn.prompt ? (
-                <div className="flex w-full flex-col items-end">
-                  <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-primary-foreground">
-                    <div className="whitespace-pre-wrap break-words leading-relaxed">
-                      {turn.prompt}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-              {/* response = assistant (transcript if present, else finalOutput) */}
-              <div className="flex w-full flex-col items-start">
-                <div className="w-full leading-relaxed">
-                  {turn.transcript && turn.transcript.length > 0 ? (
-                    turn.transcript.map((it) => (
-                      <TranscriptItemView
-                        key={`${it.kind}-${it.toolName ?? ''}-${it.text}`}
-                        item={it}
-                      />
-                    ))
-                  ) : turn.finalOutput ? (
-                    <Markdown text={turn.finalOutput} />
-                  ) : (
-                    <div className="text-muted-foreground">…</div>
-                  )}
-                </div>
-                {turn.error ? (
-                  <div className="mt-2 text-xs text-destructive">{turn.error}</div>
-                ) : null}
+        <div className="mx-auto flex max-w-7xl flex-col px-4 py-6">
+          {messages.length === 0 ? (
+            <div className="text-muted-foreground">…</div>
+          ) : (
+            messages.map((m, i) => (
+              <div key={m.key} className={i === 0 ? undefined : 'mt-9'}>
+                <MessageView msg={m} />
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

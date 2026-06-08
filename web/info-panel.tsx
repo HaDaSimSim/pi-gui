@@ -13,11 +13,20 @@ import { GitPanel } from './git-panel';
 import { useT } from './i18n';
 import { ModelControls } from './model-controls';
 import { SubagentRunCard } from './subagent-run';
-import type { GoalStateView, SessionState, SubagentRunView, TodoItemView } from './use-session';
+import { TodoItems } from './todo-widget';
+import type { GoalStateView, SessionState, SubagentRunView } from './use-session';
+
+interface CommandInfo {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  source: string;
+}
 
 interface InfoPanelProps {
   state: SessionState;
   subagentRuns: SubagentRunView[];
+  commands: CommandInfo[];
   path: string;
   cwd?: string;
   onSetModel: (provider: string, id: string) => void;
@@ -64,6 +73,7 @@ function seg(color: string, value: number, total: number) {
 export function InfoPanel({
   state,
   subagentRuns,
+  commands,
   path,
   cwd,
   onSetModel,
@@ -251,12 +261,15 @@ export function InfoPanel({
                 </pre>
               </CollapsibleContent>
             </Collapsible>
+
+            {/* Loaded extensions / skills / prompt templates for this runtime */}
+            <CapabilitiesSection commands={commands} />
           </div>
         )}
       </TabsContent>
 
       {/* ── Subagents tab ── */}
-      <TabsContent value="subagents" className="min-h-0 flex-1 overflow-y-auto p-0.5">
+      <TabsContent value="subagents" className="min-h-0 flex-1 overflow-y-auto">
         {subagentRuns.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">{t('info.noSubagents')}</div>
         ) : (
@@ -295,23 +308,10 @@ const GOAL_EMOJI: Record<GoalStateView['status'], string> = {
   'budget-limited': '⛔',
 };
 
-// TUI display order: in_progress → pending → completed.
-const TODO_ORDER: Record<TodoItemView['status'], number> = {
-  in_progress: 0,
-  pending: 1,
-  completed: 2,
-};
-const TODO_MARK: Record<TodoItemView['status'], string> = {
-  pending: '[ ]',
-  in_progress: '[~]',
-  completed: '[x]',
-};
-
 function TasksPanel({ state }: { state: SessionState }) {
   const { t } = useT();
   const goal = state.goal;
   const todos = state.todo?.todos ?? [];
-  const sorted = [...todos].sort((a, b) => TODO_ORDER[a.status] - TODO_ORDER[b.status]);
   const done = todos.filter((x) => x.status === 'completed').length;
 
   if (!goal && todos.length === 0) {
@@ -343,41 +343,75 @@ function TasksPanel({ state }: { state: SessionState }) {
               {done}/{todos.length}
             </span>
           </Label>
-          <ul className="flex flex-col gap-1">
-            {sorted.map((item) => (
-              <li
-                key={`${item.status}-${item.activeForm ?? item.content}`}
-                className="flex items-start gap-2 text-sm"
-              >
-                <span
-                  className={
-                    item.status === 'completed'
-                      ? 'font-mono text-emerald-500'
-                      : item.status === 'in_progress'
-                        ? 'font-mono text-sky-500'
-                        : 'font-mono text-muted-foreground'
-                  }
-                >
-                  {TODO_MARK[item.status]}
-                </span>
-                <span
-                  className={
-                    item.status === 'completed'
-                      ? 'text-muted-foreground line-through'
-                      : item.status === 'pending'
-                        ? 'text-muted-foreground'
-                        : ''
-                  }
-                >
-                  {item.status === 'in_progress' && item.activeForm
-                    ? item.activeForm
-                    : item.content}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {state.todo ? <TodoItems todo={state.todo} active={state.streaming} /> : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ── Capabilities: extensions / skills / prompt templates loaded for this runtime ──
+// Data comes from the same /api/session/commands the slash-command menu uses.
+function CapabilitiesSection({ commands }: { commands: CommandInfo[] }) {
+  const { t } = useT();
+  // Known sources rendered as named groups. Anything else falls into a catch-all
+  // "other" group so a future server-added source never silently disappears.
+  const known = [
+    { key: 'extension', label: t('info.capExtensions') },
+    { key: 'skill', label: t('info.capSkills') },
+    { key: 'prompt', label: t('info.capPrompts') },
+  ];
+  const knownKeys = new Set(known.map((g) => g.key));
+  const groups: { key: string; label: string; items: CommandInfo[] }[] = [
+    ...known.map((g) => ({
+      ...g,
+      items: commands.filter((c) => c.source === g.key),
+    })),
+    {
+      key: 'other',
+      label: t('info.capOther'),
+      items: commands.filter((c) => !knownKeys.has(c.source)),
+    },
+  ].filter((g) => g.items.length > 0);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Label>{t('info.capabilities')}</Label>
+      {groups.length === 0 ? (
+        <div className="text-sm text-muted-foreground">{t('info.capEmpty')}</div>
+      ) : (
+        groups.map((g) => (
+          <Collapsible key={g.key} defaultOpen>
+            <CollapsibleTrigger className="flex w-full items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+              <span>{g.label}</span>
+              <span className="rounded-full bg-muted px-1.5 text-[11px]">{g.items.length}</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 flex flex-col gap-2">
+              {g.items.map((c) => {
+                // Skill commands are exposed as "skill:name"; show the bare name.
+                const display = c.name.startsWith('skill:') ? c.name.slice(6) : c.name;
+                return (
+                  <div key={`${c.source}:${c.name}`} className="flex flex-col gap-0.5">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="font-mono text-sm font-medium">{display}</span>
+                      {c.argumentHint ? (
+                        <span className="font-mono text-xs text-muted-foreground/70">
+                          {c.argumentHint}
+                        </span>
+                      ) : null}
+                    </div>
+                    {c.description ? (
+                      <div className="text-xs leading-snug text-muted-foreground">
+                        {c.description}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </CollapsibleContent>
+          </Collapsible>
+        ))
+      )}
     </div>
   );
 }

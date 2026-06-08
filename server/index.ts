@@ -384,6 +384,36 @@ app.post('/api/session/prompt', async (c) => {
   }
 });
 
+// ── Run a user `!`/`!!` bash command (lock-guarded, mirrors the TUI user_bash flow) ──
+// Output streams over the session SSE channel (user_bash_start/output/end); the
+// persisted bashExecution entry is rendered from scrollback on reload.
+app.post('/api/session/bash', async (c) => {
+  const body = await c.req.json<{
+    path: string;
+    command: string;
+    excludeFromContext?: boolean; // true for the `!!` prefix
+    force?: boolean;
+    cwd?: string; // needed when first spinning up a pending session
+  }>();
+  if (!body?.path || !body?.command) {
+    return c.json({ error: 'path and command required' }, 400);
+  }
+  try {
+    if (!runtimes.get(body.path)) {
+      await runtimes.getOrCreate(body.path, { force: body.force, cwd: body.cwd });
+    }
+    const r = await runtimes.runBash(body.path, body.command, body.excludeFromContext);
+    if (!r.ok && r.reason === 'busy') {
+      return c.json({ error: 'busy', detail: 'a command is already running' }, 409);
+    }
+    return c.json(r);
+  } catch (e) {
+    if (e instanceof LockedError) return c.json({ error: 'locked', current: e.current }, 409);
+    if (e instanceof RevokedError) return c.json({ error: 'revoked', by: e.by }, 409);
+    throw e;
+  }
+});
+
 // ── Session controls/stats snapshot (for the info panel). live:false when no runtime ──
 app.get('/api/session/controls', (c) => {
   const path = c.req.query('path');
@@ -471,6 +501,26 @@ app.post('/api/session/reload', async (c) => {
     const r = await runtimes.reload(body.path, body.force);
     if (!r.ok && r.reason === 'streaming') {
       return c.json({ error: 'streaming', detail: 'cannot reload during a turn' }, 409);
+    }
+    return c.json(r);
+  } catch (e) {
+    if (e instanceof LockedError) return c.json({ error: 'locked', current: e.current }, 409);
+    if (e instanceof RevokedError) return c.json({ error: 'revoked', by: e.by }, 409);
+    throw e;
+  }
+});
+
+// Manually compact the conversation context (runtime + lock required). 409 if a turn is in progress.
+app.post('/api/session/compact', async (c) => {
+  const body = await c.req.json<{ path: string; instructions?: string; force?: boolean }>();
+  if (!body?.path) return c.json({ error: 'path required' }, 400);
+  try {
+    const r = await runtimes.compact(body.path, body.instructions, body.force);
+    if (!r.ok && r.reason === 'streaming') {
+      return c.json({ error: 'streaming', detail: 'cannot compact during a turn' }, 409);
+    }
+    if (!r.ok && r.reason === 'compacting') {
+      return c.json({ error: 'compacting', detail: 'compaction already running' }, 409);
     }
     return c.json(r);
   } catch (e) {

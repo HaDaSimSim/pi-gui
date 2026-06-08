@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
 import { useT } from './i18n';
 import { Markdown } from './markdown';
 import { SubagentRunCard } from './subagent-run';
-import type { ChatMessage, ToolCallView } from './use-session';
+import type { BashRunView, ChatMessage, ToolCallView } from './use-session';
 
 // Callback context for opening the modal from an inline subagent card.
 export const SubagentOpenContext = createContext<((runId: string) => void) | null>(null);
@@ -151,7 +151,7 @@ function ToolCall({ tc }: { tc: ToolCallView }) {
           {tc.resultText ? (
             <>
               <div className="mt-2.5 mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                {t('message.done')}
+                {t('message.result')}
               </div>
               <pre className="m-0 max-h-72 overflow-auto rounded-md bg-muted/50 p-2.5 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
                 {tc.resultText.slice(0, 4000)}
@@ -164,14 +164,92 @@ function ToolCall({ tc }: { tc: ToolCallView }) {
   );
 }
 
+// User `!`/`!!` bash command block (TUI user_bash mirroring). Terminal-style: the
+// command line with a `$` prompt, then collapsible output. `!!` adds a muted badge
+// noting the output is kept out of the LLM context.
+function BashMessage({ bash }: { bash: BashRunView }) {
+  const { t } = useT();
+  const [open, setOpen] = useState(true);
+  const running = bash.running;
+  const failed = !running && bash.exitCode != null && bash.exitCode !== 0;
+  const hasOutput = bash.output.trim().length > 0;
+
+  return (
+    <div className="w-full">
+      <Collapsible open={open} onOpenChange={setOpen} className="my-0.5">
+        <CollapsibleTrigger
+          className={cn(
+            'group flex w-full min-w-0 items-center gap-2 rounded-t-md border px-2.5 py-1.5 text-left text-xs transition-colors',
+            hasOutput ? 'rounded-b-none' : 'rounded-b-md',
+            running
+              ? 'border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10'
+              : failed
+                ? 'border-destructive/30 bg-destructive/5 hover:bg-destructive/10'
+                : 'border-border bg-muted/40 hover:bg-muted/60',
+          )}
+        >
+          <span
+            className={cn(
+              'flex size-5 shrink-0 items-center justify-center rounded',
+              running ? 'text-amber-500' : failed ? 'text-destructive' : 'text-muted-foreground',
+            )}
+          >
+            {running ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Terminal className="size-3.5" />
+            )}
+          </span>
+          <span className="min-w-0 flex-1 truncate font-mono text-foreground">
+            <span className="text-muted-foreground/60">$ </span>
+            {bash.command}
+          </span>
+          {bash.excludeFromContext ? (
+            <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">
+              {t('bash.noContext')}
+            </span>
+          ) : null}
+          {!running && bash.exitCode != null && bash.exitCode !== 0 ? (
+            <span className="shrink-0 font-mono text-[10px] text-destructive">
+              exit {bash.exitCode}
+            </span>
+          ) : null}
+          {hasOutput ? (
+            <ChevronRight
+              className={cn(
+                'size-3.5 shrink-0 text-muted-foreground/60 transition-transform',
+                open && 'rotate-90',
+              )}
+            />
+          ) : null}
+        </CollapsibleTrigger>
+        {hasOutput ? (
+          <CollapsibleContent>
+            <pre className="m-0 max-h-72 overflow-auto rounded-b-md border border-t-0 border-border bg-muted/30 p-2.5 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {bash.output.slice(0, 16000)}
+              {bash.truncated ? `\n\n${t('bash.truncated')}` : ''}
+            </pre>
+          </CollapsibleContent>
+        ) : null}
+      </Collapsible>
+    </div>
+  );
+}
+
 function MessageViewImpl({ msg }: { msg: ChatMessage }) {
   const { t } = useT();
   const isUser = msg.role === 'user';
 
+  // A user `!`/`!!` bash command (TUI user_bash mirroring): a terminal-style block
+  // with the command line and its output, shown inline in the conversation flow.
+  // Hooks must run before any early return, so read the subagent-open context first.
+  const openSubagent = useContext(SubagentOpenContext);
+  if (msg.bash) {
+    return <BashMessage bash={msg.bash} />;
+  }
+
   // A subagent run is rendered inline within the chat flow (subagents spawned in that session).
   // They're also collected in the info panel Subagents tab, but seeing them right in the conversation context is more natural.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const openSubagent = useContext(SubagentOpenContext);
   if (msg.subagentRun) {
     return (
       <div className="w-full">
@@ -278,6 +356,7 @@ export const MessageView = memo(MessageViewImpl, (a, b) => {
     x.elapsedMs === y.elapsedMs &&
     x.time === y.time &&
     x.subagentRun === y.subagentRun &&
+    x.bash === y.bash &&
     toolSig(x.toolCalls) === toolSig(y.toolCalls)
   );
 });

@@ -19,12 +19,17 @@ import {
 } from './api';
 import { reportStreaming } from './config';
 
-export type ChatRole = 'user' | 'assistant' | 'tool' | 'system' | 'subagent';
+export type ChatRole = 'user' | 'assistant' | 'tool' | 'system' | 'subagent' | 'bash';
 
 export interface SubagentTranscriptItem {
   kind: 'thinking' | 'text' | 'toolCall' | 'toolResult';
   text: string;
   toolName?: string;
+  // Rich GUI-only fields the subagents extension now persists (optional; older
+  // sessions won't have them, so readers must tolerate undefined).
+  args?: Record<string, unknown>; // full tool-call arguments (toolCall)
+  isError?: boolean; // result error flag (toolResult)
+  fullText?: string; // untruncated result text (toolResult)
 }
 
 export interface SubagentRunView {
@@ -51,6 +56,16 @@ export interface ToolCallView {
   resultText?: string;
 }
 
+export interface BashRunView {
+  command: string;
+  output: string;
+  exitCode?: number;
+  cancelled?: boolean;
+  truncated?: boolean;
+  excludeFromContext?: boolean; // `!!` prefix: kept out of LLM context
+  running?: boolean; // streaming output, no terminal result yet
+}
+
 export interface ChatMessage {
   key: string;
   role: ChatRole;
@@ -64,6 +79,7 @@ export interface ChatMessage {
   interrupted?: boolean; // whether the turn was aborted by the user
   errorMessage?: string; // error text when the turn ended in abort/error (TUI mirroring)
   subagentRun?: SubagentRunView; // subagent-run entry from the subagents extension
+  bash?: BashRunView; // user `!`/`!!` bash execution (TUI user_bash mirroring)
 }
 
 export interface LockConflict {
@@ -171,7 +187,14 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
               prompt: string;
               finalOutput: string;
               error?: string;
-              transcript?: { kind: string; text: string; toolName?: string }[];
+              transcript?: {
+                kind: string;
+                text: string;
+                toolName?: string;
+                args?: Record<string, unknown>;
+                isError?: boolean;
+                fullText?: string;
+              }[];
             }[];
           }
         | undefined;
@@ -192,6 +215,9 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
               kind: it.kind as 'thinking' | 'text' | 'toolCall' | 'toolResult',
               text: it.text,
               toolName: it.toolName,
+              args: it.args,
+              isError: it.isError,
+              fullText: it.fullText,
             })),
           })),
         };
@@ -230,7 +256,31 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
     if (e.type !== 'message' || !e.message) continue;
     const m = e.message;
     const role = m.role;
-    if (role === 'user') {
+    if (role === 'bashExecution') {
+      // User `!`/`!!` command persisted by the SDK's executeBash (TUI user_bash mirroring).
+      const bm = m as unknown as {
+        command?: string;
+        output?: string;
+        exitCode?: number;
+        cancelled?: boolean;
+        truncated?: boolean;
+        excludeFromContext?: boolean;
+      };
+      out.push({
+        key: e.id,
+        role: 'bash',
+        text: '',
+        time: e.timestamp,
+        bash: {
+          command: bm.command ?? '',
+          output: bm.output ?? '',
+          exitCode: bm.exitCode,
+          cancelled: bm.cancelled,
+          truncated: bm.truncated,
+          excludeFromContext: bm.excludeFromContext,
+        },
+      });
+    } else if (role === 'user') {
       out.push({ key: e.id, role: 'user', text: contentToText(m.content), time: e.timestamp });
     } else if (role === 'assistant') {
       const text = extractAssistantText(m.content);
@@ -257,6 +307,32 @@ function entriesToMessages(entries: SessionEntry[]): ChatMessage[] {
     }
   }
   return out;
+}
+
+// Extract the latest (last-wins) snapshot of a customType from session entries.
+// Mirrors the server-side gui-state-extension's `latest()` so a freshly opened
+// (non-live) session shows its persisted todo/goal immediately, instead of
+// staying empty until the next live broadcast.
+function latestCustom(entries: SessionEntry[], customType: string): unknown {
+  let found: unknown;
+  for (const e of entries) {
+    if (e.type === 'custom' && (e as any).customType === customType) found = (e as any).data;
+  }
+  return found;
+}
+
+function todoFromEntries(entries: SessionEntry[]): TodoStateView | null {
+  const d = latestCustom(entries, 'todo-list') as { todos?: TodoItemView[] } | undefined;
+  if (!d || !Array.isArray(d.todos) || d.todos.length === 0) return null;
+  return { todos: d.todos };
+}
+
+function goalFromEntries(entries: SessionEntry[]): GoalStateView | null {
+  const d = latestCustom(entries, 'goal-state') as
+    | (GoalStateView & { cleared?: boolean })
+    | undefined;
+  if (!d || d.cleared || typeof d.objective !== 'string') return null;
+  return d;
 }
 
 function contentToText(content: unknown): string {
@@ -317,8 +393,31 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
 
   // assistant message being accumulated during streaming (updated by events)
   const streamingRef = useRef<ChatMessage | null>(null);
-  // turn start time (agent_start) — used to compute elapsed time at message_end (ui-cosmetics style)
+  // turn start time (agent_start) — used to compute elapsed time at message_end (ui-cosmetics style).
+  // Persisted to localStorage so a dev HMR remount / prod refresh mid-turn doesn't lose the elapsed
+  // clock (the ref resets to 0 on remount otherwise).
+  const TURN_START_KEY = `pi-gui.turn-start.${path}`;
   const turnStartRef = useRef<number>(0);
+  if (turnStartRef.current === 0) {
+    try {
+      const saved = Number(localStorage.getItem(TURN_START_KEY));
+      if (saved > 0) turnStartRef.current = saved;
+    } catch {
+      /* ignore */
+    }
+  }
+  const setTurnStart = useCallback(
+    (ts: number) => {
+      turnStartRef.current = ts;
+      try {
+        if (ts > 0) localStorage.setItem(TURN_START_KEY, String(ts));
+        else localStorage.removeItem(TURN_START_KEY);
+      } catch {
+        /* ignore */
+      }
+    },
+    [TURN_START_KEY],
+  );
   // user abort flag — set on abort call, consumed at the next agent_end to mark the last message as interrupted.
   const interruptedRef = useRef(false);
 
@@ -437,6 +536,61 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
         case '_connected':
           patch({ live: ev.live, streaming: ev.streaming });
           break;
+        // User `!`/`!!` bash command lifecycle (TUI user_bash mirroring). The backend
+        // streams output over the channel; the persisted bashExecution entry is what
+        // scrollback renders on reload, so these only drive the live view.
+        case 'user_bash_start':
+          setState((s) => ({
+            ...s,
+            messages: [
+              ...s.messages,
+              {
+                key: ev.runId,
+                role: 'bash',
+                text: '',
+                time: new Date(ev.timestamp ?? Date.now()).toISOString(),
+                bash: {
+                  command: ev.command ?? '',
+                  output: '',
+                  excludeFromContext: ev.excludeFromContext,
+                  running: true,
+                },
+              },
+            ],
+          }));
+          break;
+        case 'user_bash_output':
+          setState((s) => {
+            const msgs = [...s.messages];
+            const i = msgs.findIndex((m) => m.key === ev.runId);
+            if (i < 0 || !msgs[i].bash) return s;
+            msgs[i] = {
+              ...msgs[i],
+              bash: { ...msgs[i].bash!, output: msgs[i].bash!.output + (ev.chunk ?? '') },
+            };
+            return { ...s, messages: msgs };
+          });
+          break;
+        case 'user_bash_end':
+          setState((s) => {
+            const msgs = [...s.messages];
+            const i = msgs.findIndex((m) => m.key === ev.runId);
+            if (i < 0) return s;
+            msgs[i] = {
+              ...msgs[i],
+              bash: {
+                command: ev.command ?? msgs[i].bash?.command ?? '',
+                output: ev.output ?? msgs[i].bash?.output ?? '',
+                exitCode: ev.exitCode,
+                cancelled: ev.cancelled,
+                truncated: ev.truncated,
+                excludeFromContext: ev.excludeFromContext,
+                running: false,
+              },
+            };
+            return { ...s, messages: msgs };
+          });
+          break;
         case 'ui_request':
           patch({
             uiRequest: {
@@ -536,6 +690,9 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
                     kind: it.kind,
                     text: it.text,
                     toolName: it.toolName,
+                    args: it.args,
+                    isError: it.isError,
+                    fullText: it.fullText,
                   })),
                 })),
               };
@@ -559,7 +716,7 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
         case 'agent_start':
           // When a retry succeeds and the turn starts, clear the retry state.
           patch({ streaming: true, retry: null });
-          turnStartRef.current = Date.now();
+          setTurnStart(Date.now());
           break;
         case 'auto_retry_start':
           // Retry start for 429/timeout/overload etc. TUI style: warning-colored countdown.
@@ -760,10 +917,11 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
               onNotifyRef.current?.({ kind: 'task-complete', durationSec: Math.round(elapsedSec) });
             }
           }
+          setTurnStart(0); // clear the persisted turn clock now the turn is done
           break;
       }
     },
-    [flushStreaming, patch, refreshControls, updateToolCall],
+    [flushStreaming, patch, refreshControls, updateToolCall, setTurnStart],
   );
 
   // Initial load + SSE subscription
@@ -780,6 +938,11 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
           live: detail.live,
           name: detail.name ?? null,
           loading: false,
+          // Seed todo/goal from persisted entries so the Tasks tab, footer count,
+          // and widget reflect state even when the session isn't live (the live
+          // broadcast only fires from a running runtime's lifecycle hooks).
+          todo: todoFromEntries(detail.entries),
+          goal: goalFromEntries(detail.entries),
         });
         // Load controls even when not live — for non-live, the last/default model is sent
         // as the input default, so the model selector doesn't look empty.
@@ -849,6 +1012,31 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
       }
     },
     [path, cwd, patch, refreshControls, draftModel, draftThinking],
+  );
+
+  // Run a user `!`/`!!` bash command (TUI user_bash mirroring). excludeFromContext = `!!`.
+  // The live block is added by the user_bash_start event; on conflict, surface it like send().
+  const runBash = useCallback(
+    async (command: string, excludeFromContext = false, force = false) => {
+      patch({ conflict: null, error: null });
+      try {
+        await api.bash(path, command, excludeFromContext, cwd, force);
+        patch({ live: true });
+        refreshControls();
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          if (e.body?.error === 'busy') {
+            patch({ error: 'A command is already running' });
+          } else {
+            const kind = e.body?.error === 'revoked' ? 'revoked' : 'locked';
+            patch({ conflict: { kind, by: e.body?.current || e.body?.by } });
+          }
+        } else {
+          patch({ error: String(e) });
+        }
+      }
+    },
+    [path, cwd, patch, refreshControls],
   );
 
   // Replace queued messages (individual edit/delete). Send the whole surviving list to the server.
@@ -944,15 +1132,22 @@ export function useSession(path: string, cwd?: string, onNotify?: (n: NotifyKind
     [path, patch],
   );
 
-  // Shared by the info panel and composer: current model/effort — controls if live, otherwise draft.
-  const effectiveModel = state.controls?.model
+  // Shared by the info panel and composer: current model/effort. When live, controls is the
+  // source of truth (draft is stale). When not live, the user's draft selection wins over the
+  // controls snapshot (which only carries the last/default model as an input default) — otherwise
+  // a pre-first-message model/effort change wouldn't show even though it's applied on the first prompt.
+  const controlsModel = state.controls?.model
     ? { provider: state.controls.model.provider, id: state.controls.model.id }
-    : draftModel;
-  const effectiveThinking = state.controls?.thinkingLevel ?? draftThinking;
+    : null;
+  const effectiveModel = state.live ? controlsModel : (draftModel ?? controlsModel);
+  const effectiveThinking = state.live
+    ? (state.controls?.thinkingLevel ?? null)
+    : (draftThinking ?? state.controls?.thinkingLevel ?? null);
 
   return {
     state,
     send,
+    runBash,
     takeover,
     clearError,
     setModel,

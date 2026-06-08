@@ -272,6 +272,17 @@ export const api = {
   // Abort the in-progress response.
   abort: (path: string) => postJSON<{ aborted: boolean }>('/api/session/abort', { path }),
 
+  // Run a user `!`/`!!` bash command. excludeFromContext = `!!` (output kept out of LLM context).
+  // cwd = for first-time creation of a pending session. On 409, ApiError (locked/revoked/busy).
+  bash: (path: string, command: string, excludeFromContext = false, cwd?: string, force = false) =>
+    postJSON<{ ok: boolean; reason?: string }>('/api/session/bash', {
+      path,
+      command,
+      excludeFromContext,
+      cwd,
+      force,
+    }),
+
   // UI bridge response (confirm/select/input dialog result).
   uiResponse: (path: string, id: string, value: unknown) =>
     postJSON<{ ok: boolean }>('/api/session/ui-response', { path, id, value }),
@@ -289,9 +300,9 @@ export const api = {
 
   // Slash command list (extension + skill). Empty array if there's no live runtime.
   commands: (path: string) =>
-    getJSON<{ commands: { name: string; description?: string; source: string }[] }>(
-      `/api/session/commands?path=${encodeURIComponent(path)}`,
-    ).then((r) => r.commands),
+    getJSON<{
+      commands: { name: string; description?: string; argumentHint?: string; source: string }[];
+    }>(`/api/session/commands?path=${encodeURIComponent(path)}`).then((r) => r.commands),
 
   // Footer data (TUI footer mirroring). Aggregates tokens/cost from the file even without a runtime.
   footer: (path: string, cwd?: string) =>
@@ -329,6 +340,12 @@ export const api = {
   // Reload extensions/skills. 409 (streaming) if a turn is in progress.
   reload: (path: string, force = false) =>
     postJSON<{ ok: boolean; reason?: string }>('/api/session/reload', { path, force }),
+  compact: (path: string, instructions?: string, force = false) =>
+    postJSON<{ ok: boolean; reason?: string }>('/api/session/compact', {
+      path,
+      instructions,
+      force,
+    }),
 };
 
 // ── Event subscription (single WebSocket multiplexing) ────────────────────

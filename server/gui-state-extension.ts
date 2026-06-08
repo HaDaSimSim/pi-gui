@@ -77,14 +77,16 @@ export interface GuiStateBroadcaster {
  */
 export function makeGuiStateExtension(emit: GuiStateBroadcaster) {
   return (pi: {
-    sessionManager?: { getEntries?: () => unknown[] };
-    on: (event: string, handler: (...args: unknown[]) => void) => void;
+    on: (
+      event: string,
+      handler: (event: unknown, ctx: { sessionManager?: { getEntries?: () => unknown[] } }) => void,
+    ) => void;
   }): void => {
     let lastTodo = '';
     let lastGoal = '';
 
-    const sync = () => {
-      const entries = (pi.sessionManager?.getEntries?.() ?? []) as Entry[];
+    const sync = (_event: unknown, ctx: { sessionManager?: { getEntries?: () => unknown[] } }) => {
+      const entries = (ctx.sessionManager?.getEntries?.() ?? []) as Entry[];
       const todo = todoFrom(entries);
       const ts = todoSig(todo);
       if (ts !== lastTodo) {

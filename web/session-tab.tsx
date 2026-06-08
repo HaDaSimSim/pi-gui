@@ -11,7 +11,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -34,7 +34,7 @@ import { MessageView, SubagentOpenContext } from './message-view';
 import { ModelControls } from './model-controls';
 import { QuestionnaireDialog } from './questionnaire-dialog';
 import { SubagentChatView } from './subagent-chat-view';
-import { TodoWidget, todoHasUnfinished } from './todo-widget';
+import { TodoWidget } from './todo-widget';
 import { UiRequestDialog } from './ui-request-dialog';
 import { type NotifyKind, useSession } from './use-session';
 
@@ -92,7 +92,7 @@ export function SessionTab({
   // selected runId when expanding a subagent "like the main thread" (read-only).
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [commands, setCommands] = useState<
-    { name: string; description?: string; source: string }[]
+    { name: string; description?: string; argumentHint?: string; source: string }[]
   >([]);
   const [cmdIndex, setCmdIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -150,6 +150,7 @@ export function SessionTab({
       ? [
           ...commands,
           { name: 'reload', description: t('reload.menuDesc'), source: 'builtin' as const },
+          { name: 'compact', description: t('compact.menuDesc'), source: 'builtin' as const },
         ]
       : commands;
     if (!all.length) return null;
@@ -157,7 +158,7 @@ export function SessionTab({
     if (!m) return null;
     const q = m[1].toLowerCase();
     const matches = all.filter((c) => c.name.toLowerCase().startsWith(q));
-    return matches.length ? matches.slice(0, 8) : null;
+    return matches.length ? matches.slice(0, 50) : null;
   })();
 
   // Reset the highlight index when the menu contents change.
@@ -217,6 +218,39 @@ export function SessionTab({
   // (prevents jumping to the end while scrolling up to view history)
   // But on first open (initial message load), always scroll to the bottom.
   const didInitialScrollRef = useRef(false);
+  // Whether the viewport is pinned to the bottom (drives auto-scroll + the jump button).
+  const [atBottom, setAtBottom] = useState(true);
+  // Mirror atBottom into a ref so mount/HMR effects can read the latest value.
+  const atBottomRef = useRef(true);
+  atBottomRef.current = atBottom;
+  // Set while a manual smooth scroll-to-bottom is animating, so the instant auto-scroll
+  // (streaming/resize) doesn't jump in and cut the animation short. Cleared once we land.
+  const smoothScrollingRef = useRef(false);
+  const smoothRafRef = useRef(0);
+  // Custom rAF smooth-scroll to the very bottom. Unlike scrollTo({behavior:'smooth'}),
+  // this re-reads scrollHeight every frame, so it stays glued to the bottom even if
+  // content height shifts mid-animation — no sudden jump at the end.
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    smoothScrollingRef.current = true;
+    cancelAnimationFrame(smoothRafRef.current);
+    const step = () => {
+      const e = scrollRef.current;
+      if (!e) return;
+      const target = e.scrollHeight - e.clientHeight;
+      const dist = target - e.scrollTop;
+      if (dist <= 1) {
+        e.scrollTop = target;
+        smoothScrollingRef.current = false;
+        return;
+      }
+      // Ease-out: move a fraction of the remaining distance each frame.
+      e.scrollTop += Math.max(1, dist * 0.08);
+      smoothRafRef.current = requestAnimationFrame(step);
+    };
+    smoothRafRef.current = requestAnimationFrame(step);
+  }, []);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -230,8 +264,17 @@ export function SessionTab({
       return;
     }
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    if (nearBottom && !smoothScrollingRef.current) el.scrollTop = el.scrollHeight;
   }, [state.messages, state.loading]);
+
+  // Restore bottom position on (re)mount. In dev, Fast Refresh re-runs this effect but
+  // resets the DOM scroll position to the top while preserving state — which otherwise
+  // strands the view at the top. Only re-pin if we were at the bottom (don't yank the
+  // user down if they'd scrolled up to read history).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, []);
 
   // Auto-load history: when scrolled up near the top, increase visibleCount.
   // After increasing, prepended content grows the top, so compensate to avoid viewport jumps.
@@ -239,6 +282,10 @@ export function SessionTab({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setAtBottom(bottom);
+    // Note: don't clear smoothScrollingRef here — the rAF animation clears it itself
+    // once it actually lands, so the auto-scroll never jumps in for the last few px.
     if (el.scrollTop < 120 && visibleCount < state.messages.length) {
       anchorRef.current = { prevH: el.scrollHeight, prevTop: el.scrollTop };
       setVisibleCount((n) => Math.min(state.messages.length, n + MSG_WINDOW));
@@ -253,12 +300,43 @@ export function SessionTab({
     anchorRef.current = null;
   }, []);
 
+  // Stay pinned to the bottom across layout changes that don't fire scroll/message effects:
+  //  - the composer grows (steer/follow-up textarea expands, shrinking the scroll area)
+  //  - the tab becomes visible again after the user visited another tab
+  //  - a tool call is expanded, growing the inner content height
+  // Observe BOTH the scroll viewport (its own size changes: composer/tab) and the inner
+  // content (height changes: expanding a tool call). Only re-pin when already at bottom.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    const content = contentRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (atBottom && !smoothScrollingRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    if (content) ro.observe(content);
+    return () => ro.disconnect();
+  }, [atBottom]);
+
   // Footer refresh key: re-aggregate when streaming ends (transitions to false) + on message count change.
   const footerKey = (state.streaming ? 1 : 0) + state.messages.length;
 
   const onSubmit = async (modeOverride?: 'steer' | 'followUp') => {
     const text = input.trim();
     if (!text && files.length === 0) return;
+    // builtin `!cmd` / `!!cmd` — run a bash command (TUI user_bash mirroring), not a prompt.
+    // `!!` keeps the output out of the LLM context. A lone `!`/`!!` is ignored.
+    if (text.startsWith('!')) {
+      const excludeFromContext = text.startsWith('!!');
+      const command = text.slice(excludeFromContext ? 2 : 1).trim();
+      if (command) {
+        setInput('');
+        requestAnimationFrame(scrollToBottom);
+        await runBash(command, excludeFromContext);
+      }
+      return;
+    }
     // builtin /reload — calls the extension reload API, not a prompt.
     if (text === '/reload') {
       setInput('');
@@ -278,6 +356,19 @@ export function SessionTab({
       }
       return;
     }
+    // builtin /compact [instructions] — manual context compaction, not a prompt.
+    if (text === '/compact' || text.startsWith('/compact ')) {
+      setInput('');
+      const instructions = text.slice('/compact'.length).trim() || undefined;
+      try {
+        const r = await api.compact(path, instructions);
+        if (!r.ok && r.reason === 'streaming') toast.error(t('compact.streaming'));
+        else if (!r.ok && r.reason === 'compacting') toast.error(t('compact.busy'));
+      } catch {
+        toast.error(t('compact.failed'));
+      }
+      return;
+    }
     lastTextRef.current = text;
     let images: string[] | undefined;
     if (files.length) {
@@ -289,6 +380,8 @@ export function SessionTab({
     send(text, false, images, deliverAs);
     setInput('');
     setFiles([]);
+    // Sending a message always pins back to the bottom so the user follows the new turn.
+    requestAnimationFrame(scrollToBottom);
   };
 
   const statusLine = useMemo(() => {
@@ -374,54 +467,97 @@ export function SessionTab({
           </div>
 
           {/* Message scroll area */}
-          <div ref={scrollRef} onScroll={onScroll} className="always-scrollbar min-h-0 flex-1">
-            <div className="mx-auto max-w-7xl px-4 py-6">
-              {state.loading ? (
-                <div className="flex justify-center p-6">
-                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : state.messages.length === 0 ? (
-                <div className="p-10 text-center text-sm text-muted-foreground">
-                  {t('session.noMessages')}
-                </div>
-              ) : (
-                <div className="flex w-full flex-col gap-7">
-                  {state.messages.length > visibleCount ? (
-                    <div className="py-2 text-center text-xs text-muted-foreground/60">
-                      {t('session.loadingEarlier')}
-                    </div>
-                  ) : visibleCount > MSG_WINDOW ? (
-                    <div className="py-2 text-center">
-                      <button
-                        type="button"
-                        className="rounded-md border px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                        onClick={() => {
-                          setVisibleCount(MSG_WINDOW);
-                          const el = scrollRef.current;
-                          if (el)
-                            requestAnimationFrame(() => {
-                              el.scrollTop = 0;
-                            });
-                        }}
-                      >
-                        {t('session.unloadEarlier', { count: String(visibleCount) })}
-                      </button>
-                    </div>
-                  ) : null}
-                  {(visibleCount >= state.messages.length
-                    ? state.messages
-                    : state.messages.slice(state.messages.length - visibleCount)
-                  ).map((m) => (
-                    <SubagentOpenContext.Provider
-                      key={m.key}
-                      value={(runId) => setSelectedRunId(runId)}
-                    >
-                      <MessageView msg={m} />
-                    </SubagentOpenContext.Provider>
-                  ))}
-                </div>
-              )}
+          <div className="relative min-h-0 flex-1">
+            <div ref={scrollRef} onScroll={onScroll} className="always-scrollbar h-full">
+              <div ref={contentRef} className="mx-auto max-w-7xl px-4 py-6">
+                {state.loading ? (
+                  <div className="flex justify-center p-6">
+                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : state.messages.length === 0 ? (
+                  <div className="p-10 text-center text-sm text-muted-foreground">
+                    {t('session.noMessages')}
+                  </div>
+                ) : (
+                  <div className="flex w-full flex-col">
+                    {state.messages.length > visibleCount ? (
+                      <div className="py-2 text-center text-xs text-muted-foreground/60">
+                        {t('session.loadingEarlier')}
+                      </div>
+                    ) : visibleCount > MSG_WINDOW ? (
+                      <div className="py-2 text-center">
+                        <button
+                          type="button"
+                          className="rounded-md border px-3 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={() => {
+                            setVisibleCount(MSG_WINDOW);
+                            const el = scrollRef.current;
+                            if (el)
+                              requestAnimationFrame(() => {
+                                el.scrollTop = 0;
+                              });
+                          }}
+                        >
+                          {t('session.unloadEarlier', { count: String(visibleCount) })}
+                        </button>
+                      </div>
+                    ) : null}
+                    {(() => {
+                      const shown =
+                        visibleCount >= state.messages.length
+                          ? state.messages
+                          : state.messages.slice(state.messages.length - visibleCount);
+                      return shown.map((m, i) => {
+                        const prev = i > 0 ? shown[i - 1] : undefined;
+                        // Tight gap only inside a tool-call chain: previous was an assistant
+                        // message and the current one is purely tool calls (no text / thinking /
+                        // subagent). The moment text or thinking begins, fall back to the wide
+                        // turn gap so new content gets breathing room.
+                        const toolOnly =
+                          m.role === 'assistant' &&
+                          !!m.toolCalls?.length &&
+                          !m.text &&
+                          !m.thinking &&
+                          !m.subagentRun;
+                        const tight = !!prev && prev.role === 'assistant' && toolOnly;
+                        return (
+                          <SubagentOpenContext.Provider
+                            key={m.key}
+                            value={(runId) => setSelectedRunId(runId)}
+                          >
+                            <div className={i === 0 ? undefined : tight ? 'mt-1' : 'mt-9'}>
+                              <MessageView msg={m} />
+                            </div>
+                          </SubagentOpenContext.Provider>
+                        );
+                      });
+                    })()}
+                    {/* Trailing turn spinner: the turn is running but the last message isn't
+                      showing its own streaming spinner (e.g. the model is thinking silently
+                      after a tool call, before any new text/thinking arrives). Keeps the
+                      "working" indicator visible across those gaps. */}
+                    {state.streaming && !state.messages[state.messages.length - 1]?.streaming ? (
+                      <div className="mt-9 flex items-center gap-1.5 text-xs text-muted-foreground/70">
+                        <Loader2 className="size-3.5 animate-spin" />
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             </div>
+            {/* Jump-to-bottom button — shown only when scrolled away from the bottom. */}
+            {!atBottom && !state.loading && state.messages.length > 0 ? (
+              <Button
+                size="icon"
+                variant="secondary"
+                aria-label={t('session.scrollToBottom')}
+                title={t('session.scrollToBottom')}
+                onClick={scrollToBottom}
+                className="absolute bottom-4 left-1/2 size-9 -translate-x-1/2 rounded-full border shadow-md"
+              >
+                <ChevronDown className="size-4" />
+              </Button>
+            ) : null}
           </div>
 
           {/* Lock-conflict banner */}
@@ -471,17 +607,18 @@ export function SessionTab({
             </div>
           ) : (
             <div className="relative shrink-0 px-4 py-4">
-              {/* Todo widget above the editor while working (mirrors the TUI aboveEditor widget) */}
-              {state.streaming && todoHasUnfinished(state.todo) && state.todo ? (
-                <TodoWidget todo={state.todo} />
+              {/* Todo widget above the editor whenever todos exist (collapsible).
+                  Was streaming-only; now persistent so you can see the list at rest. */}
+              {state.todo && state.todo.todos.length > 0 ? (
+                <TodoWidget todo={state.todo} active={state.streaming} />
               ) : null}
               {/* Slash command menu (when typing "/") */}
               {commandMenu ? (
-                <div className="absolute bottom-full left-4 right-4 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
+                <div className="absolute bottom-full left-4 right-4 mb-1 max-h-64 overflow-y-auto rounded-md border bg-popover shadow-md">
                   {commandMenu.map((c, i) => (
                     <button
                       type="button"
-                      key={c.name}
+                      key={`${c.source}:${c.name}`}
                       className={cn(
                         'flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm',
                         i === cmdIndex ? 'bg-accent' : 'hover:bg-accent',
@@ -490,9 +627,14 @@ export function SessionTab({
                       onClick={() => applyCommand(c.name)}
                     >
                       <span className="font-mono font-medium">/{c.name}</span>
-                      {c.source === 'skill' ? (
+                      {c.argumentHint ? (
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground/60">
+                          {c.argumentHint}
+                        </span>
+                      ) : null}
+                      {c.source === 'skill' || c.source === 'prompt' ? (
                         <span className="shrink-0 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">
-                          skill
+                          {c.source}
                         </span>
                       ) : null}
                       {c.description ? (
@@ -759,6 +901,7 @@ export function SessionTab({
         <InfoPanel
           state={state}
           subagentRuns={subagentRuns}
+          commands={commands}
           path={path}
           cwd={cwd}
           onSetModel={(provider, id) => setModel(provider, id)}

@@ -11,3 +11,9 @@ __pycache__/
 
 # pi project-local extensions (machine-specific symlinks; do not commit)
 .pi/
+
+# iOS app (XcodeGen-generated project + Xcode local state)
+apps/ios/PiGui.xcodeproj/
+apps/ios/build/
+apps/ios/DerivedData/
+*.xcuserstate

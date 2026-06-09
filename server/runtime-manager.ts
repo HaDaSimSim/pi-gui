@@ -64,7 +64,8 @@ export interface LiveRuntime {
   lastActivity: number;
   unsubscribe: () => void;
   ui: WebUIContext; // interactive UI bridge (select/confirm/input/notify)
-  subagentPoll?: ReturnType<typeof setInterval>; // watches subagent-run entries for changes (no events)
+  subagentPoll?: ReturnType<typeof setTimeout>; // watches subagent-run entries for changes (no events)
+  subagentPollIdleStreak?: number; // consecutive idle polls (drives adaptive cadence)
   subagentSig?: string; // previous signature (broadcast only on change)
   todoSig?: string; // previous todo-list signature (broadcast only on change)
   goalSig?: string; // previous goal-state signature (broadcast only on change)
@@ -258,28 +259,52 @@ export class RuntimeManager {
     // Covers subagent runs AND todo/goal state. The gui-state extension also pushes
     // todo/goal on lifecycle hooks (faster), but this poll is the reliable safety net:
     // it guarantees the GUI reflects the persisted entries within ~1.5s no matter what.
-    runtime.subagentPoll = setInterval(() => this.pollEntries(sessionPath), 1500);
-    runtime.subagentPoll.unref?.();
+    //
+    // Adaptive cadence: poll fast (1.5s) while streaming or right after a change, but back off
+    // toward 10s once the session goes quiet. A live-but-idle runtime (waiting on the 5min reaper)
+    // shouldn't wake the process every 1.5s — that's what shows up as background energy use.
+    runtime.subagentPollIdleStreak = 0;
+    const FAST_MS = 1500;
+    const SLOW_MS = 10_000;
+    const scheduleSubagentPoll = (delay: number) => {
+      const cur = this.runtimes.get(sessionPath);
+      if (cur !== runtime) return; // disposed/replaced
+      runtime.subagentPoll = setTimeout(() => {
+        const changed = this.pollEntries(sessionPath);
+        const streaming = runtime.session.isStreaming;
+        if (changed || streaming) runtime.subagentPollIdleStreak = 0;
+        else runtime.subagentPollIdleStreak = (runtime.subagentPollIdleStreak ?? 0) + 1;
+        // Ramp to the slow cadence after a few quiet polls; stay fast while active.
+        const next = (runtime.subagentPollIdleStreak ?? 0) >= 3 ? SLOW_MS : FAST_MS;
+        scheduleSubagentPoll(next);
+      }, delay);
+      runtime.subagentPoll.unref?.();
+    };
+    scheduleSubagentPoll(FAST_MS);
     return runtime;
   }
 
   // Read the live runtime's entries once and broadcast any changed derived state
   // (subagent runs, todo list, goal). Called on an interval; broadcasts only on change.
-  private pollEntries(sessionPath: string) {
+  // Returns true if anything was broadcast (used to drive adaptive poll cadence).
+  private pollEntries(sessionPath: string): boolean {
     const rt = this.runtimes.get(sessionPath);
-    if (!rt) return;
+    if (!rt) return false;
     let entries: unknown[];
     try {
       entries = rt.session.sessionManager.getEntries() as unknown[];
     } catch {
-      return;
+      return false;
     }
-    this.pollSubagents(sessionPath, rt, entries);
-    this.pollTodoGoal(sessionPath, rt, entries);
+    const a = this.pollSubagents(sessionPath, rt, entries);
+    const b = this.pollTodoGoal(sessionPath, rt, entries);
+    return a || b;
   }
 
   // Diff todo-list / goal-state custom entries (last-wins) and broadcast on change.
-  private pollTodoGoal(sessionPath: string, rt: LiveRuntime, entries: unknown[]) {
+  // Returns true if it broadcast a change.
+  private pollTodoGoal(sessionPath: string, rt: LiveRuntime, entries: unknown[]): boolean {
+    let changed = false;
     let todoData: { todos?: unknown[] } | undefined;
     let goalData:
       | (Record<string, unknown> & { cleared?: boolean; objective?: unknown })
@@ -305,6 +330,7 @@ export class RuntimeManager {
     if (todoSig !== (rt.todoSig ?? '')) {
       rt.todoSig = todoSig;
       this.broadcast(sessionPath, { type: 'todo', state: todo });
+      changed = true;
     }
 
     // goal: null when cleared or no objective.
@@ -318,12 +344,15 @@ export class RuntimeManager {
     if (goalSig !== (rt.goalSig ?? '')) {
       rt.goalSig = goalSig;
       this.broadcast(sessionPath, { type: 'goal', state: goal });
+      changed = true;
     }
+    return changed;
   }
 
   // Read the live runtime's subagent-run entries (latest per runId) and, if changed from before,
   // broadcast { type: "subagent_runs", runs }. The frontend merges by runId.
-  private pollSubagents(sessionPath: string, rt: LiveRuntime, entries: unknown[]) {
+  // Returns true if it broadcast a change.
+  private pollSubagents(sessionPath: string, rt: LiveRuntime, entries: unknown[]): boolean {
     const byId = new Map<string, Record<string, unknown>>();
     for (const e of entries) {
       const ent = e as { type?: string; customType?: string; data?: { runId?: string } };
@@ -331,7 +360,7 @@ export class RuntimeManager {
         byId.set(ent.data.runId, ent.data as Record<string, unknown>);
       }
     }
-    if (byId.size === 0) return;
+    if (byId.size === 0) return false;
     const runs = [...byId.values()];
     // Signature: gather only runId+status+turns count+usage.cost to compare (full serialization is costly).
     const sig = runs
@@ -340,9 +369,31 @@ export class RuntimeManager {
           `${r.runId}:${r.status}:${(r.turns as unknown[] | undefined)?.length ?? 0}:${(r.usage as { cost?: number } | undefined)?.cost ?? 0}`,
       )
       .join('|');
-    if (sig === rt.subagentSig) return;
+    if (sig === rt.subagentSig) return false;
     rt.subagentSig = sig;
     this.broadcast(sessionPath, { type: 'subagent_runs', runs });
+    return true;
+  }
+
+  /**
+   * If `message` is an extension-registered slash command ("/name [args]"),
+   * return its name; otherwise undefined. Used to reject queueing such a command
+   * while a turn is streaming (the SDK throws from steer/followUp in that case).
+   */
+  private extensionCommandName(rt: LiveRuntime, message: string): string | undefined {
+    const text = message.trim();
+    if (!text.startsWith('/')) return undefined;
+    const sp = text.indexOf(' ');
+    const name = sp === -1 ? text.slice(1) : text.slice(1, sp);
+    if (!name) return undefined;
+    try {
+      const runner = rt.session.extensionRunner as
+        | { getCommand?: (n: string) => unknown }
+        | undefined;
+      return runner?.getCommand?.(name) ? name : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -367,8 +418,18 @@ export class RuntimeManager {
     }
 
     rt.lastActivity = Date.now();
+    rt.subagentPollIdleStreak = 0; // a new prompt = activity; return the entry poll to fast cadence
     const hasImages = !!images && images.length > 0;
     if (rt.session.isStreaming) {
+      // Extension slash commands (e.g. /btw) are self-contained: they run their own
+      // LLM call / overlay and don't feed the main turn, so they must execute
+      // immediately rather than be queued. session.prompt() handles extension
+      // commands first (even mid-stream); steer()/followUp() would instead try to
+      // queue them and the SDK throws. Route those through prompt() directly.
+      if (this.extensionCommandName(rt, message)) {
+        await rt.session.prompt(message, hasImages ? { images } : undefined);
+        return;
+      }
       // While streaming: steer (default, immediate intervention) or followUp (delivered after the turn ends).
       if (deliverAs === 'followUp') {
         await rt.session.followUp(message, hasImages ? images : undefined);
@@ -767,7 +828,7 @@ export class RuntimeManager {
   async dispose(sessionPath: string, opts: { keepLock?: boolean } = {}): Promise<void> {
     const rt = this.runtimes.get(sessionPath);
     if (!rt) return;
-    if (rt.subagentPoll) clearInterval(rt.subagentPoll); // clean up the subagent poller
+    if (rt.subagentPoll) clearTimeout(rt.subagentPoll); // clean up the subagent poller
     rt.ui.cancelAll(); // clear pending UI requests as cancelled
     rt.unsubscribe();
     try {

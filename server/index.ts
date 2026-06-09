@@ -34,7 +34,14 @@ import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { listLocks } from '../shared/session-lock.ts';
 import { getCommitDetail, getGitStatus } from './git.ts';
 import { preflight } from './preflight.ts';
+import {
+  remoteAuthMiddleware,
+  isAllowedHost as remoteIsAllowedHost,
+  isAllowedOrigin as remoteIsAllowedOrigin,
+} from './remote-auth.ts';
+import { RemoteStore } from './remote-config.ts';
 import { LockedError, RevokedError, RuntimeManager } from './runtime-manager.ts';
+import { detectTailnetHost, startServe, stopServe, tailscaleAvailable } from './tailscale.ts';
 
 const app = new Hono();
 const runtimes = new RuntimeManager();
@@ -73,19 +80,20 @@ process.stderr.write = (...args: any[]) => {
 //      (DNS rebinding defense: even if an attacker domain rebinds to 127.0.0.1, the Host differs).
 // The WS upgrade (/ws) is checked with the same isAllowedOrigin (browsers do not apply
 // CORS to WS, so we must block it directly).
-const ALLOWED_ORIGIN = /^(tauri:\/\/localhost|https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
+// ── Remote control: per-device token store + Host-gated bearer auth ──────────
+//   The backend still binds 127.0.0.1 only. `tailscale serve` proxies the tailnet
+//   to 127.0.0.1:<port>, so remote requests arrive locally and are told apart by
+//   the Host header. See docs/remote-control-design.md §4.
+const remoteStore = new RemoteStore();
 
+// Host guard (DNS-rebinding defense), now store-aware: local Hosts + the active
+// remote tailnet Host. Origin allowlist mirrors it.
 function isAllowedOrigin(origin: string | undefined | null): boolean {
-  // Absent origin (same-origin navigation, some GETs, Tauri internals) is allowed.
-  if (!origin) return true;
-  return ALLOWED_ORIGIN.test(origin);
+  return remoteIsAllowedOrigin(remoteStore, origin);
 }
-
-// Whether the Host header is a local name (port ignored). The core of the DNS rebinding defense.
-const ALLOWED_HOST = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
 function isAllowedHost(host: string | undefined | null): boolean {
   if (!host) return false; // HTTP/1.1 requires Host — reject if missing
-  return ALLOWED_HOST.test(host);
+  return remoteIsAllowedHost(remoteStore, host);
 }
 
 app.use('*', async (c, next) => {
@@ -100,13 +108,24 @@ app.use('*', async (c, next) => {
   }
   if (origin) {
     c.header('Access-Control-Allow-Origin', origin);
-    c.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    c.header('Access-Control-Allow-Headers', 'content-type');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, PATCH, OPTIONS');
+    // Authorization: the phone sends a bearer token over the tailnet.
+    c.header('Access-Control-Allow-Headers', 'content-type, authorization');
     c.header('Vary', 'Origin');
   }
   if (c.req.method === 'OPTIONS') return c.body(null, 204);
   return next();
 });
+
+// Bearer-token enforcement for non-local Hosts. Local Hosts pass untouched, so
+// the existing browser/Tauri client is unaffected. The pairing-confirm path is
+// exempt from the active-token check (it verifies its own pending token).
+app.use(
+  '*',
+  remoteAuthMiddleware(remoteStore, {
+    exemptPaths: (path) => path === '/api/remote/pair/confirm',
+  }),
+);
 
 // ── Directory list (listAll → grouped by cwd): zero runtimes ────────────────────
 app.get('/api/directories', async (c) => {
@@ -304,6 +323,118 @@ app.get('/api/fs/list', async (c) => {
 
 // ── Lock overview: who is holding what right now (everything, including the TUI) ──────────────
 app.get('/api/locks', (c) => c.json({ locks: listLocks() }));
+
+// ── Remote control: pairing + device management ──────────────────────────────────
+//   Management routes are localhost-only (you configure remote from the trusted
+//   desktop/web UI). The phone only ever calls /api/remote/pair/confirm + the
+//   normal /api/* + /ws with its bearer token.
+function requireLocal(c: { req: { header: (k: string) => string | undefined } }): boolean {
+  // The auth middleware already 403s non-allowed Hosts; here we additionally
+  // require a *local* Host so a paired tailnet device cannot manage devices.
+  const host = c.req.header('host');
+  return /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host ?? '');
+}
+
+// Try to discover the machine's tailnet host (MagicDNS name) via the tailscale CLI.
+// (Implementation lives in tailscale.ts.)
+
+app.get('/api/remote/status', (c) => {
+  if (!requireLocal(c)) return c.json({ error: 'forbidden' }, 403);
+  return c.json({
+    enabled: remoteStore.getConfig().enabled,
+    active: remoteStore.isRemoteActive(),
+    tailnetHost: remoteStore.tailnetHost(),
+    tailscaleAvailable: tailscaleAvailable(),
+    devices: remoteStore.listDevices(),
+  });
+});
+
+app.post('/api/remote/enable', async (c) => {
+  if (!requireLocal(c)) return c.json({ error: 'forbidden' }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { tailnetHost?: string };
+  // Use a provided host, else auto-detect from the tailscale CLI.
+  const host = body.tailnetHost?.trim() || detectTailnetHost();
+  if (!host) {
+    return c.json(
+      { error: 'no_tailnet_host', detail: 'tailscale not detected; pass tailnetHost explicitly' },
+      400,
+    );
+  }
+  remoteStore.setTailnetHost(host);
+  remoteStore.setEnabled(true);
+  // Best-effort: set up the tailscale serve proxy (tailnet:443 -> 127.0.0.1:<port>).
+  // Fails soft — the user may run `tailscale serve` manually, or be on plain LAN.
+  const serveErr = await startServe(getActualPort());
+  return c.json({
+    enabled: true,
+    tailnetHost: host,
+    active: remoteStore.isRemoteActive(),
+    serveError: serveErr,
+  });
+});
+
+app.post('/api/remote/disable', async (c) => {
+  if (!requireLocal(c)) return c.json({ error: 'forbidden' }, 403);
+  remoteStore.setEnabled(false);
+  // Best-effort: tear down the serve proxy so the tailnet endpoint stops routing.
+  await stopServe();
+  return c.json({ enabled: false, active: false });
+});
+
+// Begin a pairing: create a pending device, return the plaintext token ONCE for
+// the QR. The store keeps only the hash. The QR payload the UI encodes:
+//   { v:1, url: "https://<host>", token, deviceId }
+app.post('/api/remote/devices/pair-init', async (c) => {
+  if (!requireLocal(c)) return c.json({ error: 'forbidden' }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string };
+  const host = remoteStore.tailnetHost();
+  if (!remoteStore.getConfig().enabled || !host) {
+    return c.json({ error: 'remote_disabled', detail: 'enable remote first' }, 400);
+  }
+  const { id, token } = remoteStore.pairInit(body.name ?? 'device');
+  return c.json({
+    deviceId: id,
+    token,
+    url: `https://${host}`,
+    qr: { v: 1, url: `https://${host}`, token, deviceId: id },
+  });
+});
+
+// The phone's first authenticated call (Bearer = its pending token). Flips the
+// pending device to active. This path is exempt from the active-token check in
+// the auth middleware; here we verify the pending token directly.
+app.get('/api/remote/pair/confirm', (c) => {
+  const h = c.req.header('authorization') ?? '';
+  const m = /^Bearer\s+(.+)$/i.exec(h.trim());
+  const token = m ? m[1].trim() : '';
+  if (!token) return c.json({ error: 'missing_token' }, 401);
+  const id = remoteStore.confirmPairing(token);
+  if (!id) return c.json({ error: 'invalid_or_expired' }, 401);
+  return c.json({ ok: true, deviceId: id });
+});
+
+app.get('/api/remote/devices', (c) => {
+  if (!requireLocal(c)) return c.json({ error: 'forbidden' }, 403);
+  return c.json({ devices: remoteStore.listDevices() });
+});
+
+app.patch('/api/remote/devices/:id', async (c) => {
+  if (!requireLocal(c)) return c.json({ error: 'forbidden' }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { name?: string };
+  const ok = remoteStore.renameDevice(c.req.param('id'), body.name ?? '');
+  return ok ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404);
+});
+
+app.delete('/api/remote/devices/:id', (c) => {
+  if (!requireLocal(c)) return c.json({ error: 'forbidden' }, 403);
+  const id = c.req.param('id');
+  if (id === 'all') {
+    remoteStore.revokeAll();
+    return c.json({ ok: true });
+  }
+  const ok = remoteStore.revokeDevice(id);
+  return ok ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404);
+});
 
 // ── Available models ──────────────────────────────────────────────────
 app.get('/api/models', async (c) => {
@@ -696,7 +827,15 @@ if (existsSync(DIST_DIR)) {
   console.log(`serving static frontend from ${DIST_DIR}`);
 }
 
+// The actual bound port (resolved in the listen callback; with PORT=0 the OS picks it).
+// Used by `tailscale serve` to know where to proxy. Set before any remote enable.
+let actualPort = PORT;
+export function getActualPort(): number {
+  return actualPort;
+}
+
 const server = serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' }, (info) => {
+  actualPort = info.port;
   console.log(`pi-gui backend → http://127.0.0.1:${info.port}  (localhost only)`);
   // Print the actual port as one machine-readable line so Rust (Tauri) can parse it and inject it into the WebView.
   // (When launched with PORT=0, the OS-chosen port shows up here.)

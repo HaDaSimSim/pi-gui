@@ -12,7 +12,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Toaster } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { api, type DirectoryInfo, type SessionInfo } from './api';
-import { IS_TAURI } from './config';
+import { IS_TAURI, REMOTE_UI_ENABLED, reportTrayState } from './config';
 import { DirectoryPicker } from './directory-picker';
 import { useT } from './i18n';
 import { LogViewer } from './log-viewer';
@@ -148,6 +148,82 @@ export default function App() {
     });
   }, [activeTab]);
 
+  // Poll remote-control status (Tauri only) so the tray can show remote state +
+  // connected devices. Cheap localhost call; 5s is plenty.
+  const [remoteState, setRemoteState] = useState<{ on: boolean; devices: string[] }>({
+    on: false,
+    devices: [],
+  });
+  useEffect(() => {
+    if (!IS_TAURI || !REMOTE_UI_ENABLED) return;
+    let stop = false;
+    const poll = () => {
+      api
+        .remoteStatus()
+        .then((s) => {
+          if (stop) return;
+          setRemoteState({
+            on: s.active,
+            devices: s.devices.filter((d) => d.status === 'active').map((d) => d.name),
+          });
+        })
+        .catch(() => undefined);
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => {
+      stop = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  // Push a tray snapshot to the native shell (Tauri only) whenever tabs, their
+  // streaming state, or remote state change. Rust merges in the backend port.
+  useEffect(() => {
+    reportTrayState({
+      remoteOn: remoteState.on,
+      devices: remoteState.devices,
+      sessions: tabs.map((tab) => ({
+        name: tab.label,
+        streaming: streamingTabs.has(tab.path),
+      })),
+    });
+  }, [tabs, streamingTabs, remoteState]);
+
+  // Tray menu clicks that target a session arrive as the session's index. Focus
+  // that tab (and the window was already re-shown by the Rust handler).
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/event')
+      .then(({ listen }) =>
+        listen<string>('pi-gui://tray-session', (e) => {
+          const idx = Number(e.payload);
+          const tab = tabs[idx];
+          if (tab) setActiveTab(tab.path);
+        }),
+      )
+      .then((un) => {
+        unlisten = un;
+      })
+      .catch(() => undefined);
+    return () => unlisten?.();
+  }, [tabs]);
+
+  // Tray "Add device" / "Remote Control" clicks open the settings modal
+  // (the Remote section hosts pairing + the enable toggle).
+  useEffect(() => {
+    if (!IS_TAURI || !REMOTE_UI_ENABLED) return;
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/event')
+      .then(({ listen }) => listen<string>('pi-gui://tray', () => setSettingsOpen(true)))
+      .then((un) => {
+        unlisten = un;
+      })
+      .catch(() => undefined);
+    return () => unlisten?.();
+  }, []);
+
   const loadDirs = useCallback(() => {
     setDirsLoading(true);
     api
@@ -159,8 +235,12 @@ export default function App() {
   useEffect(loadDirs, [loadDirs]);
 
   // Periodic background polling: refresh the directory list + the currently viewed session list (5s).
+  // Gated on window visibility: when the window is hidden/minimized there's nothing to render, so we
+  // stop the timer entirely (no fetch, no re-render) to avoid waking the WebView in the background —
+  // this is what macOS flags as "significant energy". Live runtimes keep streaming over WebSocket
+  // regardless; only the list refresh is paused. On re-show we refresh once immediately, then resume.
   useEffect(() => {
-    const id = setInterval(() => {
+    const refresh = () => {
       api
         .directories()
         .then(setDirs)
@@ -171,8 +251,29 @@ export default function App() {
           .then((sessions) => setSessionsByDir((m) => ({ ...m, [selectedDir]: sessions })))
           .catch(() => undefined);
       }
-    }, 5000);
-    return () => clearInterval(id);
+    };
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id != null) return;
+      refresh(); // catch up on anything missed while hidden
+      id = setInterval(refresh, 5000);
+    };
+    const stop = () => {
+      if (id != null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const sync = () => {
+      if (document.visibilityState === 'visible') start();
+      else stop();
+    };
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      document.removeEventListener('visibilitychange', sync);
+      stop();
+    };
   }, [selectedDir]);
 
   // Save to localStorage whenever tabs change (for restore after a full quit and relaunch).

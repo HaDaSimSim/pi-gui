@@ -65,6 +65,31 @@ export interface ModelInfo {
   name: string;
 }
 
+// Remote control (pairing/devices). Mirrors server/remote-config.ts shapes.
+export interface RemoteDevice {
+  id: string;
+  name: string;
+  status: 'pending' | 'active';
+  createdAt: number;
+  lastSeenAt: number | null;
+  expiresAt: number | null;
+}
+
+export interface RemoteStatus {
+  enabled: boolean;
+  active: boolean;
+  tailnetHost: string | null;
+  tailscaleAvailable: boolean;
+  devices: RemoteDevice[];
+}
+
+export interface RemoteQrPayload {
+  v: number;
+  url: string;
+  token: string;
+  deviceId: string;
+}
+
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface FooterData {
@@ -346,6 +371,39 @@ export const api = {
       instructions,
       force,
     }),
+
+  // ── Remote control (localhost-only management; mirrors server/index.ts) ──
+  remoteStatus: () => getJSON<RemoteStatus>('/api/remote/status'),
+
+  remoteEnable: (tailnetHost?: string) =>
+    postJSON<{
+      enabled: boolean;
+      tailnetHost: string | null;
+      active: boolean;
+      serveError?: string | null;
+    }>('/api/remote/enable', tailnetHost ? { tailnetHost } : {}),
+
+  remoteDisable: () => postJSON<{ enabled: boolean; active: boolean }>('/api/remote/disable', {}),
+
+  // Begin a pairing: returns the plaintext token ONCE (for the QR) + the QR payload.
+  remotePairInit: (name: string) =>
+    postJSON<{ deviceId: string; token: string; url: string; qr: RemoteQrPayload }>(
+      '/api/remote/devices/pair-init',
+      { name },
+    ),
+
+  remoteDevices: () =>
+    getJSON<{ devices: RemoteDevice[] }>('/api/remote/devices').then((r) => r.devices),
+
+  remoteRenameDevice: (id: string, name: string) =>
+    fetch(apiUrl(`/api/remote/devices/${encodeURIComponent(id)}`), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+
+  remoteRevokeDevice: (id: string) =>
+    fetch(apiUrl(`/api/remote/devices/${encodeURIComponent(id)}`), { method: 'DELETE' }),
 };
 
 // ── Event subscription (single WebSocket multiplexing) ────────────────────

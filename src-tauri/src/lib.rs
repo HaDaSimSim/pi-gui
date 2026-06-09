@@ -18,7 +18,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
+use tauri_plugin_opener::OpenerExt;
 
 // Child backend process handle (for kill on exit).
 struct Backend(Mutex<Option<Child>>);
@@ -26,6 +28,36 @@ struct Backend(Mutex<Option<Child>>);
 // Whether there is an in-progress (streaming/live) session — updated by the
 // frontend. Used for the quit confirmation.
 struct Busy(Arc<AtomicBool>);
+
+// One live session as surfaced in the tray menu.
+#[derive(Clone, Default, serde::Deserialize)]
+struct TraySession {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    streaming: bool,
+}
+
+// Snapshot the frontend pushes for the tray (sessions/remote/devices). The port
+// is owned by Rust (parsed from the backend stdout), so it is merged separately
+// and is not part of the frontend payload.
+#[derive(Clone, Default, serde::Deserialize)]
+struct TraySnapshot {
+    #[serde(default)]
+    remote_on: bool,
+    #[serde(default)]
+    devices: Vec<String>,
+    #[serde(default)]
+    sessions: Vec<TraySession>,
+}
+
+// Full tray state = Rust-owned port + the frontend snapshot.
+#[derive(Default)]
+struct TrayStateInner {
+    port: Option<u16>,
+    snap: TraySnapshot,
+}
+struct TrayState(Mutex<TrayStateInner>);
 
 // Whether a quit is actually in progress (prevents re-entry after the
 // confirmation passes).
@@ -148,6 +180,11 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
                         if let Some(win) = handle.get_webview_window("main") {
                             let _ = win.eval(format!("window.__PI_GUI_PORT__ = {p};"));
                         }
+                        // Record the port for the tray and refresh it.
+                        if let Some(ts) = handle.try_state::<TrayState>() {
+                            ts.0.lock().unwrap().port = Some(p);
+                        }
+                        rebuild_tray(&handle);
                     }
                 }
             }
@@ -175,6 +212,169 @@ fn spawn_backend(app: &tauri::AppHandle) -> Option<Child> {
 #[tauri::command]
 fn set_busy(busy: bool, state: tauri::State<Busy>) {
     state.0.store(busy, Ordering::SeqCst);
+}
+
+// The frontend pushes a tray snapshot (remote state, devices, live sessions)
+// whenever it changes. Rust merges in the backend port and rebuilds the tray.
+#[tauri::command]
+fn set_tray_state(snapshot: TraySnapshot, app: tauri::AppHandle) {
+    if let Some(ts) = app.try_state::<TrayState>() {
+        let mut g = ts.0.lock().unwrap();
+        g.snap = snapshot;
+    }
+    rebuild_tray(&app);
+}
+
+// Tray menu IDs. Dynamic per-session items use the "tray-session:<idx>" scheme.
+const TRAY_SHOW: &str = "tray-show";
+const TRAY_ADD_DEVICE: &str = "tray-add-device";
+const TRAY_REMOTE_TOGGLE: &str = "tray-remote-toggle";
+const TRAY_BACKEND: &str = "tray-backend";
+const TRAY_QUIT: &str = "tray-quit";
+const TRAY_SESSION_PREFIX: &str = "tray-session:";
+
+// Rebuild the whole tray menu + icon tooltip from the current TrayState. Called
+// on every snapshot change. Observation-only — it never drives a turn.
+fn rebuild_tray(app: &tauri::AppHandle) {
+    let (port, snap) = match app.try_state::<TrayState>() {
+        Some(ts) => {
+            let g = ts.0.lock().unwrap();
+            (g.port, g.snap.clone())
+        }
+        None => return,
+    };
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
+
+    let mut builder = MenuBuilder::new(app);
+
+    // Remote control toggle + connected devices. Only shown when remote is on;
+    // the desktop UI gates remote off by default (no dead button in the tray).
+    if snap.remote_on {
+        if let Ok(item) =
+            MenuItemBuilder::with_id(TRAY_REMOTE_TOGGLE, "Remote Control: On").build(app)
+        {
+            builder = builder.item(&item);
+        }
+        if !snap.devices.is_empty() {
+            let label = format!("Connected: {}", snap.devices.join(", "));
+            if let Ok(item) = MenuItemBuilder::with_id("tray-devices", label)
+                .enabled(false)
+                .build(app)
+            {
+                builder = builder.item(&item);
+            }
+        }
+        builder = builder.separator();
+    }
+
+    // Active sessions.
+    let streaming = snap.sessions.iter().filter(|s| s.streaming).count();
+    let header = if snap.sessions.is_empty() {
+        "No active sessions".to_string()
+    } else {
+        format!("Active sessions: {} streaming", streaming)
+    };
+    if let Ok(item) = MenuItemBuilder::with_id("tray-sessions-header", header)
+        .enabled(false)
+        .build(app)
+    {
+        builder = builder.item(&item);
+    }
+    for (idx, s) in snap.sessions.iter().enumerate().take(12) {
+        let dot = if s.streaming { "▸ " } else { "  " };
+        let name = if s.name.is_empty() {
+            "(untitled)"
+        } else {
+            &s.name
+        };
+        let label = format!("{dot}{name}");
+        if let Ok(item) =
+            MenuItemBuilder::with_id(format!("{TRAY_SESSION_PREFIX}{idx}"), label).build(app)
+        {
+            builder = builder.item(&item);
+        }
+    }
+    builder = builder.separator();
+
+    // Window + pairing.
+    if let Ok(item) = MenuItemBuilder::with_id(TRAY_SHOW, "Show pi-gui").build(app) {
+        builder = builder.item(&item);
+    }
+    if let Ok(item) = MenuItemBuilder::with_id(TRAY_ADD_DEVICE, "Add device…").build(app) {
+        builder = builder.item(&item);
+    }
+    builder = builder.separator();
+
+    // Backend health.
+    let backend_label = match port {
+        Some(p) => format!("Backend: :{p} ✓"),
+        None => "Backend: starting…".to_string(),
+    };
+    if let Ok(item) = MenuItemBuilder::with_id(TRAY_BACKEND, backend_label).build(app) {
+        builder = builder.item(&item);
+    }
+    if let Ok(item) = MenuItemBuilder::with_id(TRAY_QUIT, "Quit pi-gui").build(app) {
+        builder = builder.item(&item);
+    }
+
+    if let Ok(menu) = builder.build() {
+        let _ = tray.set_menu(Some(menu));
+    }
+
+    // Tooltip mirrors the headline state.
+    let tip = if streaming > 0 {
+        format!("pi-gui — {streaming} streaming")
+    } else if snap.remote_on {
+        "pi-gui — remote on".to_string()
+    } else {
+        "pi-gui".to_string()
+    };
+    let _ = tray.set_tooltip(Some(&tip));
+}
+
+// Handle a tray menu click by id. Window/quit are handled in Rust; the rest are
+// emitted to the frontend (it owns remote/pairing/session-focus logic).
+fn handle_tray_event(app: &tauri::AppHandle, id: &str) {
+    match id {
+        TRAY_SHOW => show_main_window(app),
+        TRAY_QUIT => {
+            QUITTING.store(true, Ordering::SeqCst);
+            app.exit(0);
+        }
+        TRAY_ADD_DEVICE => {
+            show_main_window(app);
+            let _ = app.emit("pi-gui://tray", "add-device");
+        }
+        TRAY_REMOTE_TOGGLE => {
+            let _ = app.emit("pi-gui://tray", "remote-toggle");
+        }
+        TRAY_BACKEND => {
+            show_main_window(app);
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.eval(
+                    "window.dispatchEvent(new KeyboardEvent('keydown',{key:'l',metaKey:true,shiftKey:true}))",
+                );
+            }
+        }
+        other if other.starts_with(TRAY_SESSION_PREFIX) => {
+            if let Some(idx) = other.strip_prefix(TRAY_SESSION_PREFIX) {
+                show_main_window(app);
+                let _ = app.emit("pi-gui://tray-session", idx.to_string());
+            }
+        }
+        _ => {}
+    }
+}
+
+// Re-show + focus the main window (it may have been hidden by the close button).
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
 }
 
 // macOS menu bar. The app menu name comes from productName("π (pi)").
@@ -205,7 +405,10 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .select_all()
         .build()?;
 
-    // View menu — DevTools toggle.
+    // View menu — Refresh (reloads only the WebView, not the backend), DevTools toggle.
+    let refresh_item = MenuItemBuilder::with_id("refresh-web", "Refresh")
+        .accelerator("CmdOrCtrl+R")
+        .build(app)?;
     let devtools_item = MenuItemBuilder::with_id("toggle-devtools", "Toggle Developer Tools")
         .accelerator("CmdOrCtrl+Alt+I")
         .build(app)?;
@@ -213,6 +416,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .accelerator("CmdOrCtrl+Shift+L")
         .build(app)?;
     let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&refresh_item)
+        .separator()
         .item(&devtools_item)
         .item(&log_item)
         .separator()
@@ -227,11 +432,19 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         .close_window()
         .build()?;
 
+    // Help menu. Naming a submenu "Help" + set_as_help_menu_for_nsapp makes macOS
+    // attach its native search box (searches all menu items) automatically.
+    let docs_item = MenuItemBuilder::with_id("help-docs", "pi-gui Documentation").build(app)?;
+    let help_menu = SubmenuBuilder::new(app, "Help").item(&docs_item).build()?;
+    #[cfg(target_os = "macos")]
+    let _ = help_menu.set_as_help_menu_for_nsapp();
+
     MenuBuilder::new(app)
         .item(&app_menu)
         .item(&edit_menu)
         .item(&view_menu)
         .item(&window_menu)
+        .item(&help_menu)
         .build()
 }
 
@@ -239,12 +452,13 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 pub fn run() {
     let busy = Arc::new(AtomicBool::new(false));
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(Backend(Mutex::new(None)))
         .manage(Busy(busy.clone()))
-        .invoke_handler(tauri::generate_handler![set_busy])
+        .manage(TrayState(Mutex::new(TrayStateInner::default())))
+        .invoke_handler(tauri::generate_handler![set_busy, set_tray_state])
         .setup(|app| {
             let handle = app.handle();
             let child = spawn_backend(handle);
@@ -269,10 +483,36 @@ pub fn run() {
                             if let Some(win) = app.get_webview_window("main") {
                                 let _ = win.eval("window.dispatchEvent(new KeyboardEvent('keydown',{key:'l',metaKey:true,shiftKey:true}))");
                             }
+                        } else if event.id() == "refresh-web" {
+                            // Reload only the WebView (frontend). The Node backend child
+                            // keeps running, so sessions/locks survive the reload.
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.eval("window.location.reload()");
+                            }
+                        } else if event.id() == "help-docs" {
+                            // Open the project docs in the user's default browser.
+                            let _ = app
+                                .opener()
+                                .open_url("https://github.com/HaDaSimSim/pi-gui#readme", None::<&str>);
                         }
                     });
                 }
                 Err(e) => eprintln!("[pi-gui] menu build failed: {e}"),
+            }
+
+            // macOS menu-bar tray (status item). Doubles as the remote-control
+            // panel so a hidden window still exposes full control. The menu is
+            // rebuilt dynamically from TrayState (see rebuild_tray).
+            let tray_icon = app.default_window_icon().cloned();
+            let mut tray_builder = TrayIconBuilder::with_id("main")
+                .tooltip("pi-gui")
+                .on_menu_event(|app, event| handle_tray_event(app, event.id().as_ref()));
+            if let Some(icon) = tray_icon {
+                tray_builder = tray_builder.icon(icon);
+            }
+            match tray_builder.build(app) {
+                Ok(_) => rebuild_tray(handle),
+                Err(e) => eprintln!("[pi-gui] tray build failed: {e}"),
             }
 
             // Window X close → hide to background instead of quitting. Tab/session

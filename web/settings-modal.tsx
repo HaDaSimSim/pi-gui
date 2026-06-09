@@ -1,7 +1,7 @@
 // Settings modal (shadcn Dialog). Large 16:9 layout + left-side category nav.
 // Categories: General / Appearance / Font / Server (read-only). owner stays English.
 
-import { Palette, Server, Settings2, Type } from 'lucide-react';
+import { Palette, Server, Settings2, Smartphone, Type } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,9 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { api, type LockRecord, type ModelInfo } from './api';
+import { REMOTE_UI_ENABLED } from './config';
 import { useT } from './i18n';
+import { RemotePanel } from './remote-panel';
 import {
   type DarkVariant,
   type Density,
@@ -35,7 +37,7 @@ interface LiveRow {
   lockMine: boolean;
 }
 
-type Section = 'general' | 'appearance' | 'fonts' | 'server';
+type Section = 'general' | 'appearance' | 'fonts' | 'remote' | 'server';
 
 // owner label is not i18n'd, stays English (by request).
 function ownerLabel(owner: string): string {
@@ -99,6 +101,9 @@ export function SettingsModal({ visible, onDismiss }: { visible: boolean; onDism
     { id: 'general', label: t('settings.navGeneral'), icon: Settings2 },
     { id: 'appearance', label: t('settings.appearance'), icon: Palette },
     { id: 'fonts', label: t('settings.fonts'), icon: Type },
+    ...(REMOTE_UI_ENABLED
+      ? [{ id: 'remote' as Section, label: t('settings.navRemote'), icon: Smartphone }]
+      : []),
     { id: 'server', label: t('settings.navServer'), icon: Server },
   ];
 
@@ -278,6 +283,8 @@ export function SettingsModal({ visible, onDismiss }: { visible: boolean; onDism
                 </div>
               </>
             ) : null}
+
+            {section === 'remote' && REMOTE_UI_ENABLED ? <RemotePanel /> : null}
 
             {section === 'server' ? (
               <>

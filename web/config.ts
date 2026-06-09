@@ -14,6 +14,13 @@ declare global {
 
 export const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+// Remote control (iOS pairing) is feature-gated OFF for the 1.0.4 desktop
+// release. The backend routes + iOS app remain in the repo; only the desktop UI
+// surface (Settings → Remote tab, tray remote items) is hidden. Flip to true (or
+// wire to an env/UI toggle) to re-enable. Keeping it a single constant makes the
+// re-enable a one-line change.
+export const REMOTE_UI_ENABLED = false;
+
 // Absolute path only in Tauri prod. In dev it uses the Vite proxy (relative path).
 const NEEDS_ABSOLUTE = IS_TAURI && !import.meta.env.DEV;
 
@@ -68,5 +75,21 @@ export function reportStreaming(streaming: boolean): void {
   const busy = activeStreams > 0;
   import('@tauri-apps/api/core')
     .then(({ invoke }) => invoke('set_busy', { busy }))
+    .catch(() => undefined);
+}
+
+// Snapshot the macOS tray reflects (Tauri only). The Rust side merges in the
+// backend port and rebuilds the menu. remoteOn/devices are placeholders until
+// the remote-control feature lands; sessions drive the "active sessions" list.
+export interface TraySnapshot {
+  remoteOn: boolean;
+  devices: string[];
+  sessions: { name: string; streaming: boolean }[];
+}
+
+export function reportTrayState(snapshot: TraySnapshot): void {
+  if (!IS_TAURI) return;
+  import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke('set_tray_state', { snapshot }))
     .catch(() => undefined);
 }

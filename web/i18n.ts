@@ -261,6 +261,32 @@ const en = {
   'settings.lockHeld': 'held',
   'settings.lockLost': 'lost',
   'settings.loadError': 'Failed to load server state: {error}',
+
+  'settings.navRemote': 'Remote',
+  'settings.remote': 'Remote Control',
+  'settings.remoteDesc': 'Control sessions from your iPhone/iPad over Tailscale',
+  'settings.remoteEnable': 'Enable remote control',
+  'settings.remoteEnabled': 'Remote control is on',
+  'settings.remoteDisabled': 'Remote control is off',
+  'settings.remoteActive': 'Active — {n} device(s) connected',
+  'settings.remoteInactive': 'Inactive — pair a device to activate',
+  'settings.remoteHost': 'Tailnet host',
+  'settings.remoteNoTailscale':
+    'Tailscale was not detected. Install and sign in to Tailscale, then try again.',
+  'settings.remoteServeWarn': 'Could not configure tailscale serve automatically: {error}',
+  'settings.remoteAddDevice': 'Add device',
+  'settings.remoteScanHint':
+    'Scan this code in the pi app on your iPhone or iPad. It expires in 5 minutes.',
+  'settings.remoteDevices': 'Paired devices',
+  'settings.remoteNoDevices': 'No paired devices yet',
+  'settings.remotePending': 'pending',
+  'settings.remoteActiveTag': 'active',
+  'settings.remoteLastSeen': 'last seen {time}',
+  'settings.remoteRevoke': 'Revoke',
+  'settings.remoteRename': 'Rename',
+  'settings.remoteDeviceName': 'Device name',
+  'settings.remoteClose': 'Close',
+  'settings.remoteCopyUrl': 'Copy URL',
 } as const;
 
 export type I18nKey = keyof typeof en;
@@ -515,6 +541,32 @@ const ko: Record<I18nKey, string> = {
   'settings.lockHeld': '보유',
   'settings.lockLost': '잃음',
   'settings.loadError': '서버 상태를 불러오지 못했습니다: {error}',
+
+  'settings.navRemote': '원격',
+  'settings.remote': '원격 제어',
+  'settings.remoteDesc': 'Tailscale로 iPhone/iPad에서 세션을 제어합니다',
+  'settings.remoteEnable': '원격 제어 켜기',
+  'settings.remoteEnabled': '원격 제어 켜짐',
+  'settings.remoteDisabled': '원격 제어 꺼짐',
+  'settings.remoteActive': '활성 — 기기 {n}개 연결됨',
+  'settings.remoteInactive': '비활성 — 기기를 페어링하면 활성화됩니다',
+  'settings.remoteHost': 'Tailnet 호스트',
+  'settings.remoteNoTailscale':
+    'Tailscale을 찾지 못했습니다. Tailscale을 설치하고 로그인한 뒤 다시 시도하세요.',
+  'settings.remoteServeWarn': 'tailscale serve를 자동 설정하지 못했습니다: {error}',
+  'settings.remoteAddDevice': '기기 추가',
+  'settings.remoteScanHint':
+    'iPhone 또는 iPad의 pi 앱에서 이 코드를 스캔하세요. 5분 후 만료됩니다.',
+  'settings.remoteDevices': '페어링된 기기',
+  'settings.remoteNoDevices': '아직 페어링된 기기가 없습니다',
+  'settings.remotePending': '대기 중',
+  'settings.remoteActiveTag': '활성',
+  'settings.remoteLastSeen': '마지막 연결 {time}',
+  'settings.remoteRevoke': '해제',
+  'settings.remoteRename': '이름 변경',
+  'settings.remoteDeviceName': '기기 이름',
+  'settings.remoteClose': '닫기',
+  'settings.remoteCopyUrl': 'URL 복사',
 };
 
 const dictionaries: Record<Lang, Record<I18nKey, string>> = { en, ko };

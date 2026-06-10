@@ -113,7 +113,10 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
     // and switch_session to resume it (otherwise pi mints a brand-new session file).
     let resumePath = sessionPath
     let dir = resumePath.map { ($0 as NSString).deletingLastPathComponent } ?? sessionDir
-    try rpc.start(piPath: piPath, cwd: cwd, model: model0, sessionDir: dir)
+    // When resuming an existing session, don't pass --model — let pi use the session's
+    // persisted model. Only pass --model for brand-new sessions.
+    let modelArg = resumePath == nil ? model0 : nil
+    try rpc.start(piPath: piPath, cwd: cwd, model: modelArg, sessionDir: dir)
     rpc.delegate = self
     isStarted = true
     if let resumePath {

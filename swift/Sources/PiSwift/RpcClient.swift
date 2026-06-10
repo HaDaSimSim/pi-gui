@@ -165,6 +165,13 @@ final class RpcClient {
       try? self?.stdinPipe.fileHandleForWriting.close()
     }
     if process.isRunning { process.terminate() }
+    // SIGKILL fallback: if the process ignores SIGTERM and is still running after 3s, force-kill.
+    let proc = process
+    let launched = didLaunch
+    DispatchQueue.global().asyncAfter(deadline: .now() + 3.0) {
+      guard launched, proc.isRunning else { return }
+      kill(proc.processIdentifier, SIGKILL)
+    }
   }
 
   var isRunning: Bool { didLaunch && process.isRunning }

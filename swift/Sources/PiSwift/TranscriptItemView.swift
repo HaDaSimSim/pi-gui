@@ -196,7 +196,8 @@ private struct ToolCallCard: View {
       "description",
     ]
     for k in keys { if let v = args[k] as? String { return v } }
-    for (_, v) in args {
+    for k in args.keys.sorted() {
+      let v = args[k]!
       if let s = v as? String { return s }
       if let n = v as? Int { return "\(n)" }
     }

@@ -1,16 +1,13 @@
 import SwiftUI
 
 // One open session: scrollback (committed items + live streaming overlay), composer, footer.
-// Replaces the stub. Extension UI dialogs surface as a sheet (native), notifications as overlay.
+// Extension UI dialogs surface as a sheet (native), notifications as overlay.
 struct SessionTabView: View {
-  let tab: AppModel.Tab
   @ObservedObject var runtime: RuntimeSession
-  @State private var draft = ""
+  let cwd: String
+  weak var controller: SessionWindowController?
 
-  init(tab: AppModel.Tab) {
-    self.tab = tab
-    self.runtime = tab.runtime
-  }
+  @State private var draft = ""
 
   var body: some View {
     VStack(spacing: 0) {
@@ -28,11 +25,9 @@ struct SessionTabView: View {
         .padding(.horizontal, 14).padding(.vertical, 6)
         .background(Theme.streaming.opacity(0.1))
       }
-      ComposerView(runtime: runtime, draft: $draft)
-      FooterView(runtime: runtime, cwd: tab.cwd)
+      ComposerView(runtime: runtime, draft: $draft, controller: controller)
+      FooterView(runtime: runtime, cwd: cwd)
     }
-    .navigationTitle(tab.title)
-    .navigationSubtitle(Fmt.dirBasename(tab.cwd))
     .sheet(item: $runtime.pendingDialog) { dialog in
       DialogView(dialog: dialog, runtime: runtime)
     }

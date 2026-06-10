@@ -172,13 +172,15 @@ final class SessionLock {
     guard let data = try? encodeLockRecord(rec) else { return }
     do {
       try data.write(to: URL(fileURLWithPath: tmp))
-      // Atomic replace.
-      _ = try FileManager.default.replaceItemAt(
-        URL(fileURLWithPath: file),
-        withItemAt: URL(fileURLWithPath: tmp))
+      // Atomic overwrite via POSIX rename(2) — always overwrites the destination on the
+      // same filesystem, matching Node's fs.renameSync semantics exactly.
+      if Darwin.rename(tmp, file) != 0 {
+        // rename failed (shouldn't happen on same fs); clean up temp.
+        try? FileManager.default.removeItem(atPath: tmp)
+      }
     } catch {
-      // If replaceItemAt failed because dest didn't exist, fall back to move.
-      try? FileManager.default.moveItem(atPath: tmp, toPath: file)
+      // write(to:) failed; clean up temp if it was partially created.
+      try? FileManager.default.removeItem(atPath: tmp)
     }
   }
 }

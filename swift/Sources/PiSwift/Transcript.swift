@@ -128,6 +128,9 @@ struct Transcript {
     var items: [TranscriptItem] = []
     // Collect tool results so a toolCall can show its result inline.
     var toolResults: [String: (text: String, isError: Bool)] = [:]
+    // Subagent-run dedup: track first-occurrence index and latest snapshot per runId.
+    var subagentFirstIndex: [String: Int] = [:]  // runId → index in items
+    var subagentLatest: [String: TranscriptItem] = [:]  // runId → latest item
     for e in entries where e.type == "message" {
       guard let msg = e.raw["message"] as? [String: Any],
         (msg["role"] as? String) == "toolResult",
@@ -218,7 +221,24 @@ struct Transcript {
         default: break
         }
       case "custom":
-        if let item = buildCustom(e) { items.append(item) }
+        if let item = buildCustom(e) {
+          // Dedup subagent-run entries by runId: keep latest snapshot at first position.
+          if case .subagentRun(_, let run) = item {
+            let runId = run.runId
+            if let existingIdx = subagentFirstIndex[runId] {
+              // Already seen this runId — update the latest snapshot, don't append.
+              subagentLatest[runId] = item
+              _ = existingIdx  // position preserved; patched in post-pass
+            } else {
+              // First occurrence — record position and append a placeholder.
+              subagentFirstIndex[runId] = items.count
+              subagentLatest[runId] = item
+              items.append(item)
+            }
+          } else {
+            items.append(item)
+          }
+        }
       case "custom_message":
         // turn-meta carries {elapsed, model} in details; attach to the previous assistant
         // message so a FINISHED turn shows elapsed time (mid-turn messages get none).
@@ -240,6 +260,12 @@ struct Transcript {
         items.append(.notice(id: e.id ?? UUID().uuidString, text: "Model → \(mid)"))
       default:
         break
+      }
+    }
+    // Post-pass: patch subagent-run items with the latest snapshot per runId.
+    for (runId, idx) in subagentFirstIndex {
+      if let latest = subagentLatest[runId] {
+        items[idx] = latest
       }
     }
     return items

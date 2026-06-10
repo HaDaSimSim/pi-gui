@@ -7,6 +7,7 @@ struct ComposerView: View {
   @ObservedObject var runtime: RuntimeSession
   @EnvironmentObject var model: AppModel
   @Binding var draft: String
+  weak var controller: SessionWindowController?
   @State private var showSlashMenu = false
   @State private var deliverAs: String = "steer"  // when streaming: steer | followUp
   @State private var attachments: [AttachedImage] = []
@@ -149,9 +150,7 @@ struct ComposerView: View {
   private func submit() {
     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty || !attachments.isEmpty else { return }
-    if let tab = model.activeTab, tab.id == model.activeTabID {
-      model.ensureRuntimeStarted(for: tab)
-    }
+    controller?.ensureRuntimeStarted()
     // !cmd / !!cmd run a bash command in the session (!! keeps output out of LLM context).
     if text.hasPrefix("!!") {
       let cmd = String(text.dropFirst(2)).trimmingCharacters(in: .whitespaces)

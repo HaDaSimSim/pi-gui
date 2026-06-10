@@ -11,7 +11,7 @@ CONFIG="${1:-debug}"
 echo "Building ($CONFIG)…"
 swift build -c "$CONFIG"
 
-BIN=".build/$CONFIG/PiSwift"
+BIN=".build/$CONFIG/PiMac"
 APP="build/$APP_NAME.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"

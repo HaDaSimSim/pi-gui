@@ -1,23 +1,13 @@
-node_modules/
-dist-web/
-*.log
-.DS_Store
+# Swift app
+.build/
+build/
+*.xcuserstate
+DerivedData/
 
-# Tauri
-src-tauri/target/
-src-tauri/gen/
-dist-backend/
+# System / editor
+.DS_Store
+*.log
 __pycache__/
 
 # pi project-local extensions (machine-specific symlinks; do not commit)
 .pi/
-
-# iOS app (XcodeGen-generated project + Xcode local state)
-apps/ios/PiGui.xcodeproj/
-apps/ios/build/
-apps/ios/DerivedData/
-*.xcuserstate
-
-# SwiftUI native app build artifacts
-swift/.build/
-swift/build/

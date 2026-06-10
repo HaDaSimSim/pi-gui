@@ -2,7 +2,7 @@
 
 pi-gui bundles the following third-party packages in its distributed backend (`dist-backend/node_modules`). Each retains its own license, reproduced below.
 
-Generated from `dist-backend/node_modules` — 132 packages.
+Generated from `dist-backend/node_modules` — 133 packages.
 
 ## Summary
 
@@ -15,24 +15,24 @@ Generated from `dist-backend/node_modules` — 132 packages.
 | @aws-crypto/supports-web-crypto | 5.2.0 | Apache-2.0 |
 | @aws-crypto/util | 5.2.0 | Apache-2.0 |
 | @aws-sdk/client-bedrock-runtime | 3.1048.0 | Apache-2.0 |
-| @aws-sdk/core | 3.974.18 | Apache-2.0 |
-| @aws-sdk/credential-provider-env | 3.972.44 | Apache-2.0 |
-| @aws-sdk/credential-provider-http | 3.972.46 | Apache-2.0 |
-| @aws-sdk/credential-provider-ini | 3.972.50 | Apache-2.0 |
-| @aws-sdk/credential-provider-login | 3.972.49 | Apache-2.0 |
-| @aws-sdk/credential-provider-node | 3.972.52 | Apache-2.0 |
-| @aws-sdk/credential-provider-process | 3.972.44 | Apache-2.0 |
-| @aws-sdk/credential-provider-sso | 3.972.49 | Apache-2.0 |
-| @aws-sdk/credential-provider-web-identity | 3.972.49 | Apache-2.0 |
-| @aws-sdk/eventstream-handler-node | 3.972.20 | Apache-2.0 |
-| @aws-sdk/middleware-eventstream | 3.972.16 | Apache-2.0 |
-| @aws-sdk/middleware-websocket | 3.972.26 | Apache-2.0 |
-| @aws-sdk/nested-clients | 3.997.17 | Apache-2.0 |
-| @aws-sdk/signature-v4-multi-region | 3.996.32 | Apache-2.0 |
+| @aws-sdk/core | 3.974.20 | Apache-2.0 |
+| @aws-sdk/credential-provider-env | 3.972.46 | Apache-2.0 |
+| @aws-sdk/credential-provider-http | 3.972.48 | Apache-2.0 |
+| @aws-sdk/credential-provider-ini | 3.972.52 | Apache-2.0 |
+| @aws-sdk/credential-provider-login | 3.972.51 | Apache-2.0 |
+| @aws-sdk/credential-provider-node | 3.972.54 | Apache-2.0 |
+| @aws-sdk/credential-provider-process | 3.972.46 | Apache-2.0 |
+| @aws-sdk/credential-provider-sso | 3.972.51 | Apache-2.0 |
+| @aws-sdk/credential-provider-web-identity | 3.972.51 | Apache-2.0 |
+| @aws-sdk/eventstream-handler-node | 3.972.21 | Apache-2.0 |
+| @aws-sdk/middleware-eventstream | 3.972.17 | Apache-2.0 |
+| @aws-sdk/middleware-websocket | 3.972.28 | Apache-2.0 |
+| @aws-sdk/nested-clients | 3.997.19 | Apache-2.0 |
+| @aws-sdk/signature-v4-multi-region | 3.996.33 | Apache-2.0 |
 | @aws-sdk/token-providers | 3.1048.0 | Apache-2.0 |
-| @aws-sdk/types | 3.973.11 | Apache-2.0 |
-| @aws-sdk/util-locate-window | 3.965.6 | Apache-2.0 |
-| @aws-sdk/xml-builder | 3.972.28 | Apache-2.0 |
+| @aws-sdk/types | 3.973.12 | Apache-2.0 |
+| @aws-sdk/util-locate-window | 3.965.7 | Apache-2.0 |
+| @aws-sdk/xml-builder | 3.972.29 | Apache-2.0 |
 | @aws/lambda-invoke-store | 0.2.4 | Apache-2.0 |
 | @babel/runtime | 7.29.7 | MIT |
 | @earendil-works/pi-agent-core | 0.78.1 | MIT |
@@ -70,6 +70,7 @@ Generated from `dist-backend/node_modules` — 132 packages.
 | @types/node | 25.9.2 | MIT |
 | @types/retry | 0.12.0 | MIT |
 | agent-base | 7.1.4 | MIT |
+| anynum | 1.0.0 | MIT |
 | balanced-match | 4.0.4 | MIT |
 | base64-js | 1.5.1 | MIT |
 | bignumber.js | 9.3.1 | MIT |
@@ -95,7 +96,7 @@ Generated from `dist-backend/node_modules` — 132 packages.
 | google-logging-utils | 1.1.3 | Apache-2.0 |
 | graceful-fs | 4.2.11 | ISC |
 | highlight.js | 10.7.3 | BSD-3-Clause |
-| hono | 4.12.23 | MIT |
+| hono | 4.12.25 | MIT |
 | hosted-git-info | 9.0.3 | ISC |
 | http-proxy-agent | 7.0.2 | MIT |
 | https-proxy-agent | 7.0.6 | MIT |
@@ -121,13 +122,13 @@ Generated from `dist-backend/node_modules` — 132 packages.
 | path-key | 3.1.1 | MIT |
 | path-scurry | 2.0.2 | BlueOak-1.0.0 |
 | proper-lockfile | 4.1.2 | MIT |
-| protobufjs | 7.6.2 | BSD-3-Clause |
+| protobufjs | 7.6.3 | BSD-3-Clause |
 | retry | 0.12.0 | MIT |
 | safe-buffer | 5.2.1 | MIT |
 | shebang-command | 2.0.0 | MIT |
 | shebang-regex | 3.0.0 | MIT |
 | signal-exit | 3.0.7 | ISC |
-| strnum | 2.3.0 | MIT |
+| strnum | 2.4.0 | MIT |
 | ts-algebra | 2.0.0 | MIT |
 | tslib | 2.8.1 | 0BSD |
 | typebox | 1.1.38 | MIT |
@@ -1411,7 +1412,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/core@3.974.18 (Apache-2.0)
+### @aws-sdk/core@3.974.20 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/core  
@@ -1620,7 +1621,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/credential-provider-env@3.972.44 (Apache-2.0)
+### @aws-sdk/credential-provider-env@3.972.46 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-env  
@@ -1829,14 +1830,14 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/credential-provider-http@3.972.46 (Apache-2.0)
+### @aws-sdk/credential-provider-http@3.972.48 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-http  
 
 _No license file shipped in this package's tarball. Distributed under its declared `Apache-2.0` license; see the package homepage for full terms._
 
-### @aws-sdk/credential-provider-ini@3.972.50 (Apache-2.0)
+### @aws-sdk/credential-provider-ini@3.972.52 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-ini  
@@ -2045,14 +2046,14 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/credential-provider-login@3.972.49 (Apache-2.0)
+### @aws-sdk/credential-provider-login@3.972.51 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-login  
 
 _No license file shipped in this package's tarball. Distributed under its declared `Apache-2.0` license; see the package homepage for full terms._
 
-### @aws-sdk/credential-provider-node@3.972.52 (Apache-2.0)
+### @aws-sdk/credential-provider-node@3.972.54 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-node  
@@ -2261,7 +2262,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/credential-provider-process@3.972.44 (Apache-2.0)
+### @aws-sdk/credential-provider-process@3.972.46 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-process  
@@ -2470,7 +2471,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/credential-provider-sso@3.972.49 (Apache-2.0)
+### @aws-sdk/credential-provider-sso@3.972.51 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-sso  
@@ -2679,7 +2680,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/credential-provider-web-identity@3.972.49 (Apache-2.0)
+### @aws-sdk/credential-provider-web-identity@3.972.51 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-web-identity  
@@ -2888,7 +2889,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/eventstream-handler-node@3.972.20 (Apache-2.0)
+### @aws-sdk/eventstream-handler-node@3.972.21 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/eventstream-handler-node  
@@ -3097,7 +3098,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/middleware-eventstream@3.972.16 (Apache-2.0)
+### @aws-sdk/middleware-eventstream@3.972.17 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/middleware-eventstream  
@@ -3306,7 +3307,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/middleware-websocket@3.972.26 (Apache-2.0)
+### @aws-sdk/middleware-websocket@3.972.28 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/middleware-websocket  
@@ -3515,14 +3516,14 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/nested-clients@3.997.17 (Apache-2.0)
+### @aws-sdk/nested-clients@3.997.19 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients  
 
 _No license file shipped in this package's tarball. Distributed under its declared `Apache-2.0` license; see the package homepage for full terms._
 
-### @aws-sdk/signature-v4-multi-region@3.996.32 (Apache-2.0)
+### @aws-sdk/signature-v4-multi-region@3.996.33 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages/signature-v4-multi-region  
@@ -3940,7 +3941,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/types@3.973.11 (Apache-2.0)
+### @aws-sdk/types@3.973.12 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/types  
@@ -4149,7 +4150,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/util-locate-window@3.965.6 (Apache-2.0)
+### @aws-sdk/util-locate-window@3.965.7 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/util-locate-window  
@@ -4358,7 +4359,7 @@ Apache License
    limitations under the License.
 ```
 
-### @aws-sdk/xml-builder@3.972.28 (Apache-2.0)
+### @aws-sdk/xml-builder@3.972.29 (Apache-2.0)
 
 Author: AWS SDK for JavaScript Team  
 Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/xml-builder  
@@ -7799,6 +7800,35 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### anynum@1.0.0 (MIT)
+
+Author: Amit Gupta (https://solothought.work/)  
+Homepage: https://github.com/NaturalIntelligence/anynum  
+
+```
+MIT License
+
+Copyright (c) 2026 Natural Intelligence
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### balanced-match@4.0.4 (MIT)
 
 Homepage: git://github.com/juliangruber/balanced-match.git  
@@ -9412,7 +9442,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### hono@4.12.23 (MIT)
+### hono@4.12.25 (MIT)
 
 Author: Yusuke Wada <yusuke@kamawada.com> (https://github.com/yusukebe)  
 Homepage: https://hono.dev  
@@ -10610,7 +10640,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### protobufjs@7.6.2 (BSD-3-Clause)
+### protobufjs@7.6.3 (BSD-3-Clause)
 
 Author: Daniel Wirtz <dcode+protobufjs@dcode.io>  
 Homepage: https://protobufjs.github.io/protobuf.js/  
@@ -10771,7 +10801,7 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### strnum@2.3.0 (MIT)
+### strnum@2.4.0 (MIT)
 
 Author: Amit Gupta (https://solothought.work/)  
 Homepage: https://github.com/NaturalIntelligence/strnum  

@@ -535,6 +535,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running pi-gui")
         .run(move |app_handle, event| {
+            // macOS: clicking the dock icon (when the window was hidden by the
+            // close button) fires Reopen. Re-show the hidden window — otherwise
+            // the app stays running with no way to get the window back.
+            #[cfg(target_os = "macos")]
+            if let RunEvent::Reopen { .. } = event {
+                show_main_window(app_handle);
+                return;
+            }
             if let RunEvent::ExitRequested { api, .. } = event {
                 // If a quit is already in progress (confirmation passed), proceed.
                 if QUITTING.load(Ordering::SeqCst) {

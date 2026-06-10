@@ -1,0 +1,183 @@
+import SwiftUI
+
+// Composer: model/thinking controls, slash menu, IME-safe input, send/steer/stop.
+struct ComposerView: View {
+    @ObservedObject var runtime: RuntimeSession
+    @EnvironmentObject var model: AppModel
+    @Binding var draft: String
+    @State private var showSlashMenu = false
+    @State private var deliverAs: String = "steer"   // when streaming: steer | followUp
+
+    var body: some View {
+        VStack(spacing: 6) {
+            // Todo widget (above editor) when todos exist.
+            if let todo = latestTodo, !todo.isEmpty {
+                TodoWidget(todos: todo, isStreaming: runtime.isStreaming)
+            }
+
+            if showSlashMenu && !slashMatches.isEmpty {
+                slashMenu
+            }
+
+            HStack(alignment: .top, spacing: 8) {
+                modelControls
+                Spacer()
+            }
+
+            HStack(alignment: .bottom, spacing: 8) {
+                ComposerTextView(text: $draft, onSubmit: submit)
+                    .frame(minHeight: 34, maxHeight: 140)
+                    .padding(.horizontal, 6)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary, lineWidth: 1))
+                    .onChange(of: draft) { _, v in
+                        showSlashMenu = v.hasPrefix("/") && !v.contains(" ")
+                    }
+
+                if runtime.isStreaming {
+                    Button(role: .destructive) { runtime.abort() } label: {
+                        Image(systemName: "stop.fill")
+                    }
+                    .help("Stop")
+                    sendButton(label: deliverAs == "steer" ? "Steer" : "Follow-up", icon: "arrow.up")
+                } else {
+                    sendButton(label: "Send", icon: "arrow.up")
+                }
+            }
+        }
+        .padding(12)
+    }
+
+    private var modelControls: some View {
+        HStack(spacing: 8) {
+            Menu {
+                ForEach(model.models) { m in
+                    Button(m.spec) {
+                        runtime.setModel(provider: m.provider, modelId: m.id)
+                    }
+                }
+            } label: {
+                Label(runtime.model ?? model.config.defaultModelSpec ?? "model",
+                      systemImage: "cpu")
+                    .font(.caption)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+
+            Menu {
+                ForEach(["off", "minimal", "low", "medium", "high", "xhigh"], id: \.self) { lvl in
+                    Button(lvl) { runtime.setThinking(lvl) }
+                }
+            } label: {
+                Text(runtime.thinkingLevel).font(.caption)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+        }
+    }
+
+    private func sendButton(label: String, icon: String) -> some View {
+        Button(action: submit) {
+            Image(systemName: icon)
+                .fontWeight(.bold)
+        }
+        .keyboardShortcut(.return, modifiers: [])
+        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .help(label)
+    }
+
+    private var slashMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(slashMatches.prefix(8)) { cmd in
+                Button {
+                    draft = "/\(cmd.name) "
+                    showSlashMenu = false
+                } label: {
+                    HStack {
+                        Text("/\(cmd.name)").font(.system(.callout, design: .monospaced))
+                        if let d = cmd.description {
+                            Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        if cmd.source != "extension" {
+                            Text(cmd.source).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var slashMatches: [SlashCommand] {
+        let q = draft.dropFirst().lowercased()
+        return runtime.commands.filter { q.isEmpty || $0.name.lowercased().hasPrefix(q) }
+    }
+
+    private var latestTodo: [TodoItem]? {
+        for item in runtime.items.reversed() {
+            if case .todoList(_, let todos) = item { return todos }
+        }
+        return nil
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        if let tab = model.activeTab, tab.id == model.activeTabID {
+            model.ensureRuntimeStarted(for: tab)
+        }
+        runtime.sendPrompt(text)
+        draft = ""
+        showSlashMenu = false
+    }
+}
+
+struct TodoWidget: View {
+    let todos: [TodoItem]
+    let isStreaming: Bool
+    @State private var expanded = true
+    private var done: Int { todos.filter { $0.status == "completed" }.count }
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(sorted.prefix(8)) { t in
+                    HStack(spacing: 6) {
+                        todoIcon(t)
+                        Text(t.status == "in_progress" ? (t.activeForm ?? t.content) : t.content)
+                            .font(.caption)
+                            .strikethrough(t.status == "completed")
+                            .foregroundStyle(t.status == "pending" ? .secondary : .primary)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                }
+                if todos.count > 8 { Text("…and \(todos.count - 8) more").font(.caption2).foregroundStyle(.tertiary) }
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack(spacing: 8) {
+                ProgressView(value: Double(done), total: Double(max(todos.count, 1)))
+                    .frame(width: 120)
+                Text("\(done)/\(todos.count) todos").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(8)
+        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+    }
+    private var sorted: [TodoItem] {
+        let order = ["in_progress": 0, "pending": 1, "completed": 2]
+        return todos.sorted { (order[$0.status] ?? 1) < (order[$1.status] ?? 1) }
+    }
+    @ViewBuilder private func todoIcon(_ t: TodoItem) -> some View {
+        switch t.status {
+        case "completed": Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.success).font(.caption)
+        case "in_progress":
+            if isStreaming { ProgressView().controlSize(.small) }
+            else { Image(systemName: "smallcircle.filled.circle").foregroundStyle(Theme.info).font(.caption) }
+        default: Image(systemName: "circle").foregroundStyle(.tertiary).font(.caption)
+        }
+    }
+}

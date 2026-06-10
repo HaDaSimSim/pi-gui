@@ -17,3 +17,7 @@ apps/ios/PiGui.xcodeproj/
 apps/ios/build/
 apps/ios/DerivedData/
 *.xcuserstate
+
+# SwiftUI native app build artifacts
+swift/.build/
+swift/build/

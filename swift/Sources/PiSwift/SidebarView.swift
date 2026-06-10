@@ -6,21 +6,30 @@ struct SidebarView: View {
     @EnvironmentObject var model: AppModel
     @State private var expanded: Set<String> = []
     @State private var search = ""
-    @State private var filter: SessionFilter = .all
+    @State private var filter = SessionFilterCriteria()
+    @State private var showFilter = false
     @State private var renaming: SessionSummary?
     @State private var renameText = ""
     @State private var deleting: SessionSummary?
     @State private var deleteError: String?
 
-    enum SessionFilter: String, CaseIterable { case all = "All", live = "Live", recent = "Recent" }
-
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $filter.animation(.easeInOut(duration: 0.2))) {
-                ForEach(SessionFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            HStack(spacing: 6) {
+                Button { showFilter = true } label: {
+                    Label("Filter", systemImage: filter.isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(filter.isActive ? Color.accentColor : .secondary)
+                if filter.isActive {
+                    Button { filter = SessionFilterCriteria() } label: {
+                        Text("Clear").font(.caption2)
+                    }.buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+                Spacer()
             }
-            .pickerStyle(.segmented).labelsHidden()
-            .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 2)
+            .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
                     ForEach(filteredDirs) { dir in
@@ -30,10 +39,15 @@ struct SidebarView: View {
                             toggle: { toggle(dir.cwd) }
                         )
                         if isExpanded(dir.cwd) {
+                            Button { model.newSession(cwd: dir.cwd) } label: {
+                                Label("New session", systemImage: "plus.circle").font(.caption)
+                            }
+                            .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                            .padding(.leading, 22).padding(.vertical, 3)
                             ForEach(visibleSessions(dir.cwd)) { s in
-                                SessionRow(summary: s)
+                                SessionRow(summary: s, isLive: model.isLive(s.path))
                                     .padding(.leading, 22).padding(.trailing, 4)
-                                    .padding(.vertical, 3)
+                                    .padding(.vertical, 1)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())
                                     .onTapGesture { model.openSession(s) }
@@ -44,11 +58,6 @@ struct SidebarView: View {
                                         Button("Delete…", role: .destructive) { deleting = s }
                                     }
                             }
-                            Button { model.newSession(cwd: dir.cwd) } label: {
-                                Label("New session", systemImage: "plus.circle").font(.caption)
-                            }
-                            .buttonStyle(.plain).foregroundStyle(.secondary)
-                            .padding(.leading, 22).padding(.vertical, 3)
                         }
                     }
                 }
@@ -64,6 +73,9 @@ struct SidebarView: View {
                         model.loadSessions(forCwd: dir.cwd)
                     }
                 }
+            }
+            .sheet(isPresented: $showFilter) {
+                SessionFilterSheet(filter: $filter)
             }
             .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Name", text: $renameText).disableAutocorrection(true)
@@ -124,17 +136,17 @@ struct SidebarView: View {
     /// directory matched only by session name shows just the matching sessions).
     private func visibleSessions(_ cwd: String) -> [SessionSummary] {
         var all = model.sessionsByCwd[cwd] ?? []
-        // Status filter.
-        switch filter {
-        case .all: break
-        case .live: all = all.filter { model.isLive($0.path) }
-        case .recent:
-            let cutoff = Date().addingTimeInterval(-60 * 60 * 24)   // last 24h
+        if filter.liveOnly { all = all.filter { model.isLive($0.path) } }
+        if filter.largeOnly { all = all.filter { $0.sizeBytes > 5_000_000 } }
+        if let days = filter.lastDays {
+            let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
             all = all.filter { $0.modified > cutoff }
         }
-        guard !search.isEmpty, !cwd.localizedCaseInsensitiveContains(search) else { return all }
-        return all.filter { ($0.name ?? "").localizedCaseInsensitiveContains(search)
-            || ($0.preview ?? "").localizedCaseInsensitiveContains(search) }
+        if !search.isEmpty && !cwd.localizedCaseInsensitiveContains(search) {
+            all = all.filter { ($0.name ?? "").localizedCaseInsensitiveContains(search)
+                || ($0.preview ?? "").localizedCaseInsensitiveContains(search) }
+        }
+        return all
     }
 
     private func isExpanded(_ cwd: String) -> Bool {
@@ -196,23 +208,105 @@ private struct DirHeaderRow: View {
 
 struct SessionRow: View {
     let summary: SessionSummary
+    var isLive: Bool = false
+    @State private var hovering = false
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "bubble.left")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            if isLive {
+                Circle().fill(Theme.success).frame(width: 6, height: 6).frame(width: 14)
+            } else {
+                Image(systemName: "bubble.left").font(.caption2).foregroundStyle(.tertiary).frame(width: 14)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 Text(summary.name ?? summary.preview ?? "Untitled session")
                     .font(.callout).lineLimit(1)
                 Text(summary.modified, format: .relative(presentation: .named))
                     .font(.caption2).foregroundStyle(.tertiary)
             }
-            Spacer()
+            Spacer(minLength: 4)
             if summary.sizeBytes > 5_000_000 {
                 Image(systemName: "exclamationmark.circle")
                     .font(.caption2).foregroundStyle(.orange)
                     .help("Large session (\(summary.sizeBytes / 1_000_000)MB)")
             }
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 9)).foregroundStyle(.tertiary)
+                .opacity(hovering ? 1 : 0)
         }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(hovering ? Color.secondary.opacity(0.12) : .clear,
+                    in: RoundedRectangle(cornerRadius: 6))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
+// Filter conditions applied to session rows. `isActive` drives the highlighted filter button.
+struct SessionFilterCriteria: Equatable {
+    var liveOnly = false
+    var largeOnly = false
+    var lastDays: Int?     // nil = no date limit
+    var isActive: Bool { liveOnly || largeOnly || lastDays != nil }
+}
+
+private struct SessionFilterSheet: View {
+    @Binding var filter: SessionFilterCriteria
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = SessionFilterCriteria()
+    @State private var daysText = ""
+
+    private let presets = [1, 3, 7, 14, 30]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Filter sessions").font(.headline)
+                Spacer()
+                Button("Done") { commit() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            Divider()
+            Form {
+                Section("Date") {
+                    Picker("Modified within", selection: Binding(
+                        get: { draft.lastDays ?? 0 },
+                        set: { draft.lastDays = $0 == 0 ? nil : $0 }
+                    )) {
+                        Text("Any time").tag(0)
+                        ForEach(presets, id: \.self) { d in
+                            Text("Last \(d) day\(d == 1 ? "" : "s")").tag(d)
+                        }
+                    }
+                    HStack {
+                        Text("Or last N days")
+                        Spacer()
+                        TextField("N", text: $daysText)
+                            .frame(width: 50).textFieldStyle(.roundedBorder)
+                            .disableAutocorrection(true)
+                            .onChange(of: daysText) { _, v in
+                                if let n = Int(v), n > 0 { draft.lastDays = n }
+                                else if v.isEmpty { /* keep picker value */ }
+                            }
+                    }
+                }
+                Section("Status") {
+                    Toggle("Live sessions only", isOn: $draft.liveOnly)
+                    Toggle("Large sessions only (>5MB)", isOn: $draft.largeOnly)
+                }
+                Section {
+                    Button("Clear all filters", role: .destructive) {
+                        draft = SessionFilterCriteria(); daysText = ""
+                    }
+                }
+            }
+            .formStyle(.grouped)
+        }
+        .frame(width: 360, height: 380)
+        .onAppear { draft = filter; daysText = filter.lastDays.map(String.init) ?? "" }
+    }
+
+    private func commit() {
+        filter = draft
+        dismiss()
     }
 }

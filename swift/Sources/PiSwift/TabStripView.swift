@@ -1,46 +1,40 @@
 import SwiftUI
 
-// Safari-style tab strip: equal-width tabs that fill the bar, a raised solid fill on the active
-// tab, hairline separators between inactive tabs, close (×) on the left revealed on hover/active,
-// centered single-line title, and a trailing "+" to start a new session.
+// Modern Safari-style tabs: rounded "pill" tabs with small gaps inside a contained tab bar, the
+// active tab elevated with a solid fill + soft shadow, inactive tabs flat (hover = faint fill),
+// close (×) on the left revealed on hover, centered title, trailing "+".
 struct TabStripView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(model.tabs.enumerated()), id: \.element.id) { idx, tab in
-                let active = tab.id == model.activeTabID
-                // Hairline separator between two inactive neighbors (Safari hides it next to active).
-                if idx > 0 {
-                    Divider()
-                        .frame(height: 16)
-                        .opacity(active || model.tabs[idx - 1].id == model.activeTabID ? 0 : 1)
-                }
-                TabItem(tab: tab,
-                        isActive: active,
+        HStack(spacing: 6) {
+            ForEach(model.tabs) { tab in
+                TabPill(tab: tab,
+                        isActive: tab.id == model.activeTabID,
                         onSelect: { model.activeTabID = tab.id },
                         onClose: { model.closeTab(tab.id) })
             }
-            // New session: only meaningful when at least one tab exists (uses its cwd as default).
             Button {
                 if let cwd = model.activeTab?.cwd { model.newSession(cwd: cwd) }
                 else { model.pickFolderAndStart() }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: 34, height: 30)
+                    .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
         }
-        .frame(height: 34)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
     }
 }
 
-private struct TabItem: View {
+private struct TabPill: View {
     let tab: AppModel.Tab
     let isActive: Bool
     let onSelect: () -> Void
@@ -59,11 +53,9 @@ private struct TabItem: View {
 
     var body: some View {
         ZStack {
-            // Centered title (Safari centers the label regardless of the close button).
             HStack(spacing: 5) {
                 if runtime.isStreaming {
-                    ProgressView().controlSize(.small).scaleEffect(0.55)
-                        .frame(width: 10)
+                    ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 10)
                 }
                 Text(runtime.sessionName ?? tab.title)
                     .font(.system(size: 12))
@@ -71,15 +63,14 @@ private struct TabItem: View {
                     .foregroundStyle(isActive ? .primary : .secondary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 22)
 
-            // Close button pinned left, shown on hover or when active.
             HStack {
                 Button(action: { if runtime.isStreaming { confirmClose = true } else { onClose() } }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 16, height: 16)
-                        .background(hovering ? Color.secondary.opacity(0.2) : .clear, in: Circle())
+                        .font(.system(size: 8, weight: .bold))
+                        .frame(width: 15, height: 15)
+                        .background(hovering ? Color.secondary.opacity(0.25) : .clear, in: Circle())
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -92,17 +83,23 @@ private struct TabItem: View {
                 }
                 Spacer()
             }
-            .padding(.leading, 6)
+            .padding(.leading, 5)
         }
-        .frame(maxWidth: 220)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(height: 26)
+        .frame(minWidth: 90, maxWidth: 200)
         .background(
-            // Active tab: raised solid fill matching the content area below it.
-            isActive ? AnyShapeStyle(Color(nsColor: .controlBackgroundColor))
-                     : (hovering ? AnyShapeStyle(Color.secondary.opacity(0.08)) : AnyShapeStyle(.clear))
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isActive ? AnyShapeStyle(Color(nsColor: .controlBackgroundColor))
+                               : (hovering ? AnyShapeStyle(Color.secondary.opacity(0.12)) : AnyShapeStyle(Color.clear)))
+                .shadow(color: isActive ? Color.black.opacity(0.18) : .clear, radius: 1.5, y: 0.5)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(isActive ? Color.black.opacity(0.08) : .clear, lineWidth: 0.5)
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: isActive)
     }
 }

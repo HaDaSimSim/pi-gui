@@ -15,50 +15,56 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             List {
                 ForEach(filteredDirs) { dir in
-                    DisclosureGroup(isExpanded: binding(for: dir.cwd)) {
-                        ForEach(visibleSessions(dir.cwd)) { s in
-                            SessionRow(summary: s)
-                                .contentShape(Rectangle())
-                                .onTapGesture { model.openSession(s) }
-                                .contextMenu {
-                                    Button("Open") { model.openSession(s) }
-                                    Button("Rename…") { renaming = s; renameText = s.name ?? "" }
-                                    Divider()
-                                    Button("Delete…", role: .destructive) { deleting = s }
-                                }
+                    Section {
+                        if isExpanded(dir.cwd) {
+                            ForEach(visibleSessions(dir.cwd)) { s in
+                                SessionRow(summary: s)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { model.openSession(s) }
+                                    .contextMenu {
+                                        Button("Open") { model.openSession(s) }
+                                        Button("Rename…") { renaming = s; renameText = s.name ?? "" }
+                                        Divider()
+                                        Button("Delete…", role: .destructive) { deleting = s }
+                                    }
+                            }
+                            Button {
+                                model.newSession(cwd: dir.cwd)
+                            } label: {
+                                Label("New session", systemImage: "plus.circle").font(.callout)
+                            }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
                         }
-                        Button {
-                            model.newSession(cwd: dir.cwd)
-                        } label: {
-                            Label("New session", systemImage: "plus.circle")
-                                .font(.callout)
+                    } header: {
+                        // Custom header: chevron is a fixed 12pt frame aligned (center) with the
+                        // folder icon and the first text line — not the built-in DisclosureGroup
+                        // triangle that floats at the 2-line vertical center.
+                        Button { toggle(dir.cwd) } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .rotationEffect(.degrees(isExpanded(dir.cwd) ? 90 : 0))
+                                    .frame(width: 12, alignment: .center)
+                                Image(systemName: "folder").foregroundStyle(.secondary)
+                                    .frame(width: 16, alignment: .center)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(Fmt.dirBasename(dir.cwd))
+                                        .font(.callout).fontWeight(.medium).lineLimit(1)
+                                    Text(Fmt.tildePath(dir.cwd))
+                                        .font(.caption2).foregroundStyle(.tertiary)
+                                        .lineLimit(1).truncationMode(.head)
+                                }
+                                Spacer()
+                                Text("\(dir.count)")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                    .padding(.horizontal, 6).padding(.vertical, 1)
+                                    .background(Capsule().fill(.quaternary))
+                            }
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                    } label: {
-                        HStack(alignment: .center, spacing: 8) {
-                            Image(systemName: "folder")
-                                .foregroundStyle(.secondary)
-                                .frame(width: 16, alignment: .center)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(Fmt.dirBasename(dir.cwd))
-                                    .font(.callout).fontWeight(.medium)
-                                    .lineLimit(1)
-                                Text(Fmt.tildePath(dir.cwd))
-                                    .font(.caption2).foregroundStyle(.tertiary)
-                                    .lineLimit(1).truncationMode(.head)
-                            }
-                            Spacer()
-                            Text("\(dir.count)")
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .padding(.horizontal, 6).padding(.vertical, 1)
-                                .background(Capsule().fill(.quaternary))
-                        }
-                    }
-                    .onChange(of: expanded.contains(dir.cwd)) { _, isOpen in
-                        if isOpen && model.sessionsByCwd[dir.cwd] == nil {
-                            model.loadSessions(forCwd: dir.cwd)
-                        }
+                        .textCase(nil)
                     }
                 }
             }
@@ -132,17 +138,19 @@ struct SidebarView: View {
             || ($0.preview ?? "").localizedCaseInsensitiveContains(search) }
     }
 
-    private func binding(for cwd: String) -> Binding<Bool> {
-        Binding(
-            get: {
-                // While searching, auto-expand directories matched by a session name.
-                if !search.isEmpty && !cwd.localizedCaseInsensitiveContains(search) { return true }
-                return expanded.contains(cwd)
-            },
-            set: { isOpen in
-                if isOpen { expanded.insert(cwd) } else { expanded.remove(cwd) }
-            }
-        )
+    private func isExpanded(_ cwd: String) -> Bool {
+        // While searching, auto-expand directories matched only by a session name.
+        if !search.isEmpty && !cwd.localizedCaseInsensitiveContains(search) { return true }
+        return expanded.contains(cwd)
+    }
+
+    private func toggle(_ cwd: String) {
+        if expanded.contains(cwd) {
+            expanded.remove(cwd)
+        } else {
+            expanded.insert(cwd)
+            if model.sessionsByCwd[cwd] == nil { model.loadSessions(forCwd: cwd) }
+        }
     }
 }
 

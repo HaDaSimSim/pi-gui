@@ -13,7 +13,7 @@ struct InfoPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $selection) {
+            Picker("", selection: $selection.animation(.easeInOut(duration: 0.18))) {
                 Text("Info").tag(0)
                 Text("Subagents").tag(1)
                 Text("Tasks").tag(2)
@@ -32,6 +32,8 @@ struct InfoPanelView: View {
                     default: GitPanelView(cwd: tab.cwd)
                     }
                 }
+                .id(selection)
+                .transition(.opacity)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

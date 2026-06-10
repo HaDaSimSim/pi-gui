@@ -6,19 +6,35 @@ struct SidebarView: View {
     @EnvironmentObject var model: AppModel
     @State private var expanded: Set<String> = []
     @State private var search = ""
+    @State private var filter: SessionFilter = .all
     @State private var renaming: SessionSummary?
     @State private var renameText = ""
     @State private var deleting: SessionSummary?
     @State private var deleteError: String?
 
+    enum SessionFilter: String, CaseIterable { case all = "All", live = "Live", recent = "Recent" }
+
     var body: some View {
         VStack(spacing: 0) {
-            List {
-                ForEach(filteredDirs) { dir in
-                    Section {
+            Picker("", selection: $filter.animation(.easeInOut(duration: 0.2))) {
+                ForEach(SessionFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            .padding(.horizontal, 8).padding(.top, 6).padding(.bottom, 2)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(filteredDirs) { dir in
+                        DirHeaderRow(
+                            dir: dir,
+                            expanded: isExpanded(dir.cwd),
+                            toggle: { toggle(dir.cwd) }
+                        )
                         if isExpanded(dir.cwd) {
                             ForEach(visibleSessions(dir.cwd)) { s in
                                 SessionRow(summary: s)
+                                    .padding(.leading, 22).padding(.trailing, 4)
+                                    .padding(.vertical, 3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())
                                     .onTapGesture { model.openSession(s) }
                                     .contextMenu {
@@ -28,47 +44,18 @@ struct SidebarView: View {
                                         Button("Delete…", role: .destructive) { deleting = s }
                                     }
                             }
-                            Button {
-                                model.newSession(cwd: dir.cwd)
-                            } label: {
-                                Label("New session", systemImage: "plus.circle").font(.callout)
+                            Button { model.newSession(cwd: dir.cwd) } label: {
+                                Label("New session", systemImage: "plus.circle").font(.caption)
                             }
                             .buttonStyle(.plain).foregroundStyle(.secondary)
+                            .padding(.leading, 22).padding(.vertical, 3)
                         }
-                    } header: {
-                        // Custom header: chevron is a fixed 12pt frame aligned (center) with the
-                        // folder icon and the first text line — not the built-in DisclosureGroup
-                        // triangle that floats at the 2-line vertical center.
-                        Button { toggle(dir.cwd) } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .rotationEffect(.degrees(isExpanded(dir.cwd) ? 90 : 0))
-                                    .frame(width: 12, alignment: .center)
-                                Image(systemName: "folder").foregroundStyle(.secondary)
-                                    .frame(width: 16, alignment: .center)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(Fmt.dirBasename(dir.cwd))
-                                        .font(.callout).fontWeight(.medium).lineLimit(1)
-                                    Text(Fmt.tildePath(dir.cwd))
-                                        .font(.caption2).foregroundStyle(.tertiary)
-                                        .lineLimit(1).truncationMode(.head)
-                                }
-                                Spacer()
-                                Text("\(dir.count)")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6).padding(.vertical, 1)
-                                    .background(Capsule().fill(.quaternary))
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .textCase(nil)
                     }
                 }
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .animation(.easeInOut(duration: 0.2), value: expanded)
+                .animation(.easeInOut(duration: 0.2), value: filter)
             }
-            .listStyle(.sidebar)
             .searchable(text: $search, placement: .sidebar, prompt: "Search directories & sessions")
             .onChange(of: search) { _, q in
                 // Load all directories' sessions so name search can match before expanding.
@@ -100,18 +87,22 @@ struct SidebarView: View {
             } message: { Text(deleteError ?? "") }
 
             Divider()
-            HStack {
-                Text("pi").font(.caption).fontWeight(.semibold)
+            HStack(spacing: 14) {
+                Text("π").font(.system(size: 15, weight: .semibold, design: .serif))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button { model.pickFolderAndStart() } label: { Image(systemName: "folder.badge.plus") }
-                    .buttonStyle(.borderless).help("Open a folder and start a session")
-                Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).help("Refresh")
-                SettingsLink { Image(systemName: "gearshape") }
-                    .buttonStyle(.borderless)
+                Button { model.pickFolderAndStart() } label: {
+                    Image(systemName: "folder.badge.plus").font(.system(size: 14))
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help("Open a folder and start a session")
+                Button { model.refresh() } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 14))
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help("Refresh")
+                SettingsLink { Image(systemName: "gearshape").font(.system(size: 14)) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
+            .padding(.horizontal, 12).frame(height: 40)
         }
     }
 
@@ -132,7 +123,15 @@ struct SidebarView: View {
     /// Sessions in a directory, filtered by the search query when it matches names (so a
     /// directory matched only by session name shows just the matching sessions).
     private func visibleSessions(_ cwd: String) -> [SessionSummary] {
-        let all = model.sessionsByCwd[cwd] ?? []
+        var all = model.sessionsByCwd[cwd] ?? []
+        // Status filter.
+        switch filter {
+        case .all: break
+        case .live: all = all.filter { model.isLive($0.path) }
+        case .recent:
+            let cutoff = Date().addingTimeInterval(-60 * 60 * 24)   // last 24h
+            all = all.filter { $0.modified > cutoff }
+        }
         guard !search.isEmpty, !cwd.localizedCaseInsensitiveContains(search) else { return all }
         return all.filter { ($0.name ?? "").localizedCaseInsensitiveContains(search)
             || ($0.preview ?? "").localizedCaseInsensitiveContains(search) }
@@ -146,11 +145,52 @@ struct SidebarView: View {
 
     private func toggle(_ cwd: String) {
         if expanded.contains(cwd) {
-            expanded.remove(cwd)
+            withAnimation(.easeInOut(duration: 0.2)) { _ = expanded.remove(cwd) }
         } else {
-            expanded.insert(cwd)
             if model.sessionsByCwd[cwd] == nil { model.loadSessions(forCwd: cwd) }
+            withAnimation(.easeInOut(duration: 0.2)) { _ = expanded.insert(cwd) }
         }
+    }
+}
+
+// Directory header row: fixed-width chevron aligned with the folder icon, hover highlight,
+// consistent left/right padding (the List/Section version dropped the trailing inset).
+private struct DirHeaderRow: View {
+    let dir: AppModel.DirEntry
+    let expanded: Bool
+    let toggle: () -> Void
+    @State private var hovering = false
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .frame(width: 12, alignment: .center)
+                Image(systemName: "folder").foregroundStyle(.secondary)
+                    .frame(width: 16, alignment: .center)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Fmt.dirBasename(dir.cwd))
+                        .font(.callout).fontWeight(.medium).lineLimit(1)
+                    Text(Fmt.tildePath(dir.cwd))
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .lineLimit(1).truncationMode(.head)
+                }
+                Spacer(minLength: 4)
+                Text("\(dir.count)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(.quaternary))
+            }
+            .padding(.horizontal, 6).padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(hovering ? Color.secondary.opacity(0.1) : .clear,
+                        in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

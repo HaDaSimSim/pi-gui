@@ -84,6 +84,7 @@ struct SessionTabView: View {
                         ForEach(runtime.items) { item in
                             TranscriptItemView(item: item, isStreaming: runtime.isStreaming)
                                 .id(item.id)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                         // Live streaming overlay (uncommitted partial assistant turn).
                         if runtime.isStreaming {
@@ -97,6 +98,8 @@ struct SessionTabView: View {
                     }
                     .frame(maxWidth: 760)
                     .padding(.horizontal, 20).padding(.vertical, 16)
+                    .animation(.easeOut(duration: 0.25), value: runtime.items.count)
+                    .animation(.easeInOut(duration: 0.2), value: runtime.isStreaming)
                     Spacer(minLength: 0)
                 }
             }

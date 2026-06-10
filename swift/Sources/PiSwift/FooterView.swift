@@ -44,6 +44,8 @@ struct FooterView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 14).padding(.vertical, 6)
         .background(.bar)
+        .animation(.easeOut(duration: 0.25), value: runtime.footer.totalTokens)
+        .animation(.easeInOut(duration: 0.2), value: runtime.lockStatus)
     }
 
     private var lockText: String {

@@ -25,12 +25,13 @@ struct TabStripView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
+        .animation(.easeInOut(duration: 0.2), value: model.tabs.count)
+        .animation(.easeInOut(duration: 0.15), value: model.activeTabID)
     }
 }
 
@@ -86,7 +87,7 @@ private struct TabPill: View {
             .padding(.leading, 5)
         }
         .frame(height: 26)
-        .frame(minWidth: 90, maxWidth: 200)
+        .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(isActive ? AnyShapeStyle(Color(nsColor: .controlBackgroundColor))

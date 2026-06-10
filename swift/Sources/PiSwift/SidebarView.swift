@@ -263,14 +263,6 @@ struct SessionRow: View {
           .font(.caption2).foregroundStyle(.tertiary)
       }
       Spacer(minLength: 4)
-      if summary.sizeBytes > 5_000_000 {
-        Image(systemName: "exclamationmark.circle")
-          .font(.caption2).foregroundStyle(.orange)
-          .help("Large session (\(summary.sizeBytes / 1_000_000)MB)")
-      }
-      Image(systemName: "arrow.up.right")
-        .font(.system(size: 9)).foregroundStyle(.tertiary)
-        .opacity(hovering ? 1 : 0)
     }
     .padding(.horizontal, 6).padding(.vertical, 4)
     .background(

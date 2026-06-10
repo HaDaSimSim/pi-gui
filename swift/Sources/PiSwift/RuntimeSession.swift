@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 // Runtime manager: ties an RpcClient to a SessionLock, mirroring server/runtime-manager.ts.
 // One RuntimeSession per open/live session. The load-bearing rule from AGENTS.md moves here:
@@ -7,516 +7,577 @@ import Combine
 
 @MainActor
 final class RuntimeSession: ObservableObject, RpcClientDelegate {
-    let id = UUID()
-    let cwd: String
-    private(set) var sessionPath: String?
+  let id = UUID()
+  let cwd: String
+  private(set) var sessionPath: String?
 
-    // Live transcript built from streamed events (separate from the file-read scrollback).
-    @Published var items: [TranscriptItem] = []
-    @Published var streamingText: String = ""        // partial assistant text during streaming
-    @Published var streamingThinking: String = ""
-    @Published var isStreaming = false
-    @Published var footer = FooterStats()
-    @Published var model: String?
-    @Published var thinkingLevel: String = "off"
-    @Published var sessionName: String?
-    @Published var lockStatus: LockUIStatus = .owned
-    @Published var pendingDialog: PendingDialog?
-    @Published var questionnaire: QuestionnaireState?
-    @Published var statusEntries: [String: String] = [:]   // statusKey -> text (ANSI stripped)
-    @Published var notifications: [AppNotification] = []
-    @Published var commands: [SlashCommand] = []
+  // Live transcript built from streamed events (separate from the file-read scrollback).
+  @Published var items: [TranscriptItem] = []
+  @Published var streamingText: String = ""  // partial assistant text during streaming
+  @Published var streamingThinking: String = ""
+  @Published var isStreaming = false
+  @Published var footer = FooterStats()
+  @Published var model: String?
+  @Published var thinkingLevel: String = "off"
+  @Published var sessionName: String?
+  @Published var lockStatus: LockUIStatus = .owned
+  @Published var pendingDialog: PendingDialog?
+  @Published var questionnaire: QuestionnaireState?
+  @Published var statusEntries: [String: String] = [:]  // statusKey -> text (ANSI stripped)
+  @Published var notifications: [AppNotification] = []
+  @Published var commands: [SlashCommand] = []
 
-    private let rpc = RpcClient()
-    private var lock: SessionLock?
-    private let piPath: String
-    private let model0: String?
-    private let sessionDir: String?
-    private(set) var isStarted = false
+  private let rpc = RpcClient()
+  private var lock: SessionLock?
+  private let piPath: String
+  private let model0: String?
+  private let sessionDir: String?
+  private(set) var isStarted = false
 
-    /// For browse-only tabs: point at an existing session file without spawning pi.
-    func setSessionPathForBrowsing(_ path: String) {
-        sessionPath = path
+  /// For browse-only tabs: point at an existing session file without spawning pi.
+  func setSessionPathForBrowsing(_ path: String) {
+    sessionPath = path
+  }
+
+  /// How many bytes from the end of the session file the scrollback currently covers. Grows
+  /// when the user loads earlier history. Footer aggregation always uses the full file.
+  @Published var historyBytes = 8 * 1024 * 1024
+  @Published var hasEarlierHistory = false
+
+  /// Reload the committed transcript from the session file tail (OOM-safe). This is the
+  /// source of truth for tool calls/results, todo/goal/subagent state, and final text.
+  func reloadFromFile() {
+    guard let path = sessionPath else { return }
+    let sf = SessionFile(path: path)
+    guard let entries = try? sf.tailEntries(maxLines: Int.max, maxBytes: historyBytes) else {
+      return
     }
-
-    /// How many bytes from the end of the session file the scrollback currently covers. Grows
-    /// when the user loads earlier history. Footer aggregation always uses the full file.
-    @Published var historyBytes = 8 * 1024 * 1024
-    @Published var hasEarlierHistory = false
-
-    /// Reload the committed transcript from the session file tail (OOM-safe). This is the
-    /// source of truth for tool calls/results, todo/goal/subagent state, and final text.
-    func reloadFromFile() {
-        guard let path = sessionPath else { return }
-        let sf = SessionFile(path: path)
-        guard let entries = try? sf.tailEntries(maxLines: Int.max, maxBytes: historyBytes) else { return }
-        items = Transcript.build(from: entries, hideThinking: false)
-        // Footer/token totals must reflect the WHOLE session, not just the loaded window.
-        if let full = try? sf.fullFooter() { footer = full } else { footer = Transcript.footer(from: entries) }
-        if footer.model != nil { model = footer.model }
-        // Detect whether earlier history exists beyond the current window.
-        let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int) ?? 0
-        hasEarlierHistory = size > historyBytes
+    items = Transcript.build(from: entries, hideThinking: false)
+    // Footer/token totals must reflect the WHOLE session, not just the loaded window.
+    if let full = try? sf.fullFooter() {
+      footer = full
+    } else {
+      footer = Transcript.footer(from: entries)
     }
+    if footer.model != nil { model = footer.model }
+    // Detect whether earlier history exists beyond the current window.
+    let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int) ?? 0
+    hasEarlierHistory = size > historyBytes
+  }
 
-    /// Load an earlier slice of history (doubles the window) and re-render.
-    func loadEarlierHistory() {
-        historyBytes *= 2
-        reloadFromFile()
+  /// Load an earlier slice of history (doubles the window) and re-render.
+  func loadEarlierHistory() {
+    historyBytes *= 2
+    reloadFromFile()
+  }
+
+  enum LockUIStatus: Equatable { case owned, readOnly, lost }
+
+  init(cwd: String, piPath: String, model: String?, sessionDir: String?) {
+    self.cwd = cwd
+    self.piPath = piPath
+    self.model0 = model
+    self.sessionDir = sessionDir
+  }
+
+  func start() throws {
+    guard !isStarted else { return }
+    // If we're opening an existing session file, pass its dir so the new RPC writes there,
+    // and switch_session to resume it (otherwise pi mints a brand-new session file).
+    let resumePath = sessionPath
+    let dir = resumePath.map { ($0 as NSString).deletingLastPathComponent } ?? sessionDir
+    try rpc.start(piPath: piPath, cwd: cwd, model: model0, sessionDir: dir)
+    rpc.delegate = self
+    isStarted = true
+    if let resumePath {
+      rpc.switchSession(resumePath)
     }
+    rpc.getState()
+    rpc.getCommands()
+    startLockWatch()
+  }
 
-    enum LockUIStatus: Equatable { case owned, readOnly, lost }
-
-    init(cwd: String, piPath: String, model: String?, sessionDir: String?) {
-        self.cwd = cwd
-        self.piPath = piPath
-        self.model0 = model
-        self.sessionDir = sessionDir
+  /// Acquire the host lock once we learn the session file path.
+  private func ensureLock(for path: String) {
+    if lock == nil {
+      let l = SessionLock(
+        sessionPath: path, owner: "pi-web", label: sessionName.map { "pi-gui: \($0)" } ?? "pi-gui")
+      let r = l.tryAcquire()
+      lock = l
+      lockStatus = r.acquired ? .owned : .readOnly
     }
+    // Flush a prompt that was issued before the session path/lock was known.
+    if pendingPrompt != nil || !pendingImages.isEmpty {
+      let p = pendingPrompt ?? ""
+      let imgs = pendingImages
+      pendingPrompt = nil
+      pendingImages = []
+      sendPrompt(p, images: imgs)
+    }
+  }
 
-    func start() throws {
-        guard !isStarted else { return }
-        // If we're opening an existing session file, pass its dir so the new RPC writes there,
-        // and switch_session to resume it (otherwise pi mints a brand-new session file).
-        let resumePath = sessionPath
-        let dir = resumePath.map { ($0 as NSString).deletingLastPathComponent } ?? sessionDir
-        try rpc.start(piPath: piPath, cwd: cwd, model: model0, sessionDir: dir)
-        rpc.delegate = self
-        isStarted = true
-        if let resumePath {
-            rpc.switchSession(resumePath)
+  // MARK: - User actions (lock guard enforced here)
+
+  func sendPrompt(_ text: String, images: [[String: Any]] = []) {
+    guard !text.isEmpty || !images.isEmpty else { return }
+    // If the lock isn't established yet (get_state in flight), queue and send once it
+    // arrives. Keying on the lock (not sessionPath) is load-bearing: a resumed/browsed
+    // session has sessionPath set before start, so a sessionPath-based guard would let a
+    // prompt through with lock == nil and risk two writers on one jsonl.
+    guard let lock else {
+      pendingPrompt = text
+      pendingImages = images
+      return
+    }
+    // Load-bearing re-check: refuse to write if we no longer hold the lock.
+    if !lock.isMine() {
+      lockStatus = .lost
+      notify("Lost the session lock — read-only.", type: "error")
+      return
+    }
+    if isStreaming {
+      rpc.prompt(text, streamingBehavior: "steer", images: images)
+    } else {
+      rpc.prompt(text, images: images)
+    }
+  }
+
+  private var pendingPrompt: String?
+  private var pendingImages: [[String: Any]] = []
+  private var lockWatch: Timer?
+
+  /// In-flight tool calls during the current streaming turn (cleared on agent_end reload).
+  @Published var liveTools: [LiveTool] = []
+  /// Transient activity banner (retry countdown / compaction), shown above the composer.
+  @Published var activityBanner: String?
+
+  /// Re-check lock ownership before any write command. Returns true only when we positively
+  /// hold the lock. nil lock (not yet acquired) or a lost lock both refuse — this is the
+  /// single guard that prevents two writers from corrupting a session jsonl.
+  private func holdsLockForWrite() -> Bool {
+    guard let lock else { return false }
+    if !lock.isMine() {
+      if lockStatus != .lost {
+        lockStatus = .lost
+        notify("Lost the session lock — read-only.", type: "error")
+      }
+      return false
+    }
+    return true
+  }
+
+  func abort() {
+    guard holdsLockForWrite() else { return }
+    rpc.abort()
+  }
+  func setModel(provider: String, modelId: String) {
+    guard holdsLockForWrite() else { return }
+    rpc.setModel(provider: provider, modelId: modelId)
+  }
+
+  /// Run a bash command in the session (the !/!! editor convention). The RPC `bash` command
+  /// adds the output to context (unless excludeFromContext). Result surfaces on next reload.
+  func runBash(_ command: String, excludeFromContext: Bool) {
+    guard !command.isEmpty else { return }
+    guard holdsLockForWrite() else { return }
+    rpc.send(["type": "bash", "command": command, "excludeFromContext": excludeFromContext])
+    // Reflect the result shortly after; bash is synchronous-ish over RPC.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.reloadFromFile() }
+  }
+
+  // MARK: - Test support
+
+  var sessionPathForTest: String? { sessionPath }
+  private var onAgentEndOnce: (() -> Void)?
+
+  /// Send a prompt and call back once the first agent_end fires. The prompt is auto-queued
+  /// until the session path/lock is ready (see sendPrompt). Used by the headless self-test.
+  func sendPromptWhenReady(_ text: String, completion: @escaping () -> Void) {
+    onAgentEndOnce = completion
+    sendPrompt(text)
+  }
+  func setThinking(_ level: String) {
+    guard holdsLockForWrite() else { return }
+    rpc.setThinkingLevel(level)
+  }
+  func rename(_ name: String) {
+    guard holdsLockForWrite() else { return }
+    sessionName = name
+    rpc.setSessionName(name)
+  }
+  func compact() {
+    guard holdsLockForWrite() else { return }
+    rpc.compact()
+  }
+
+  func takeover() {
+    lock?.takeover()
+    lockStatus = .owned
+  }
+
+  /// Periodically re-check lock ownership so a takeover by the TUI or another writer
+  /// downgrades us to read-only in the UI even between prompts.
+  private func startLockWatch() {
+    lockWatch?.invalidate()
+    let t = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+      Task { @MainActor in
+        guard let self, let lock = self.lock else { return }
+        if lock.isLost(), self.lockStatus != .lost {
+          self.lockStatus = .lost
+          self.notify("Session taken over elsewhere — read-only.", type: "warning")
         }
-        rpc.getState()
-        rpc.getCommands()
-        startLockWatch()
+      }
     }
+    RunLoop.main.add(t, forMode: .common)
+    lockWatch = t
+  }
 
-    /// Acquire the host lock once we learn the session file path.
-    private func ensureLock(for path: String) {
-        if lock == nil {
-            let l = SessionLock(sessionPath: path, owner: "pi-web", label: sessionName.map { "pi-gui: \($0)" } ?? "pi-gui")
-            let r = l.tryAcquire()
-            lock = l
-            lockStatus = r.acquired ? .owned : .readOnly
+  func dispose() {
+    lockWatch?.invalidate()
+    lockWatch = nil
+    rpc.terminate()
+    lock?.release()
+    lock = nil
+  }
+
+  // MARK: - RpcClientDelegate
+
+  nonisolated func rpc(_ client: RpcClient, didReceive incoming: RpcIncoming) {
+    Task { @MainActor in self.handle(incoming) }
+  }
+  nonisolated func rpcDidExit(_ client: RpcClient, code: Int32) {
+    Task { @MainActor in self.isStreaming = false }
+  }
+
+  private func handle(_ incoming: RpcIncoming) {
+    switch incoming {
+    case .response(_, let command, let success, let data, let error):
+      handleResponse(command: command, success: success, data: data, error: error)
+    case .uiRequest(let req):
+      handleUIRequest(req)
+    case .event(let type, let raw):
+      handleEvent(type: type, raw: raw)
+    }
+  }
+
+  private func handleResponse(command: String, success: Bool, data: [String: Any]?, error: String?)
+  {
+    // Surface command-level failures (e.g. prompt rejected, unknown model) instead of
+    // silently dropping them — otherwise a rejected write looks like a no-op to the user.
+    if !success {
+      let detail = error ?? "unknown error"
+      notify("\(command) failed: \(detail)", type: "error")
+      if command == "prompt" { isStreaming = false }
+      return
+    }
+    switch command {
+    case "get_state":
+      if let data {
+        if let m = data["model"] as? [String: Any] { model = m["id"] as? String }
+        thinkingLevel = (data["thinkingLevel"] as? String) ?? thinkingLevel
+        sessionName = data["sessionName"] as? String
+        if let sf = data["sessionFile"] as? String {
+          sessionPath = sf
+          ensureLock(for: sf)
         }
-        // Flush a prompt that was issued before the session path/lock was known.
-        if pendingPrompt != nil || !pendingImages.isEmpty {
-            let p = pendingPrompt ?? ""
-            let imgs = pendingImages
-            pendingPrompt = nil
-            pendingImages = []
-            sendPrompt(p, images: imgs)
+      }
+    case "get_commands":
+      if let cmds = data?["commands"] as? [[String: Any]] {
+        commands = cmds.compactMap { c in
+          guard let name = c["name"] as? String else { return nil }
+          return SlashCommand(
+            name: name, description: c["description"] as? String,
+            source: (c["source"] as? String) ?? "",
+            argumentHint: c["argumentHint"] as? String)
         }
+      }
+    case "get_session_stats":
+      if let data { applyStats(data) }
+    default:
+      break
     }
+  }
 
-    // MARK: - User actions (lock guard enforced here)
+  private func applyStats(_ data: [String: Any]) {
+    if let t = data["tokens"] as? [String: Any] {
+      footer.inputTokens = (t["input"] as? Int) ?? footer.inputTokens
+      footer.outputTokens = (t["output"] as? Int) ?? footer.outputTokens
+      footer.totalTokens = (t["total"] as? Int) ?? footer.totalTokens
+    }
+    footer.cost = (data["cost"] as? Double) ?? footer.cost
+    if let cu = data["contextUsage"] as? [String: Any] {
+      footer.contextTokens = (cu["tokens"] as? Int) ?? 0
+      footer.contextWindow = (cu["contextWindow"] as? Int) ?? 0
+    }
+  }
 
-    func sendPrompt(_ text: String, images: [[String: Any]] = []) {
-        guard !text.isEmpty || !images.isEmpty else { return }
-        // If the session path/lock isn't established yet (state in flight), queue and send once
-        // get_state arrives. This also ensures the lock guard below is meaningful.
-        if sessionPath == nil && lock == nil {
-            pendingPrompt = text
-            pendingImages = images
-            return
+  private func handleEvent(type: String, raw: [String: Any]) {
+    switch type {
+    case "agent_start":
+      isStreaming = true
+      streamingText = ""
+      streamingThinking = ""
+    case "message_update":
+      if let ame = raw["assistantMessageEvent"] as? [String: Any] {
+        switch ame["type"] as? String {
+        case "text_delta": streamingText += (ame["delta"] as? String) ?? ""
+        case "thinking_delta": streamingThinking += (ame["delta"] as? String) ?? ""
+        default: break
         }
-        // Load-bearing re-check: refuse to write if we no longer hold the lock.
-        if let lock, !lock.isMine() {
-            lockStatus = .lost
-            notify("Lost the session lock — read-only.", type: "error")
-            return
+      }
+    case "tool_execution_start":
+      if let id = raw["toolCallId"] as? String {
+        let name = (raw["toolName"] as? String) ?? "tool"
+        let args = (raw["args"] as? [String: Any]) ?? [:]
+        liveTools.removeAll { $0.id == id }
+        liveTools.append(LiveTool(id: id, name: name, args: args, done: false, isError: false))
+        // The questionnaire tool ships its full structured questions in args; capture
+        // them to render one rich SwiftUI form instead of sequential native dialogs.
+        if name == "questionnaire", let qs = args["questions"] as? [[String: Any]] {
+          questionnaire = QuestionnaireState(toolCallId: id, questions: qs.map(QField.init))
         }
-        if isStreaming {
-            rpc.prompt(text, streamingBehavior: "steer", images: images)
-        } else {
-            rpc.prompt(text, images: images)
-        }
-    }
-
-    private var pendingPrompt: String?
-    private var pendingImages: [[String: Any]] = []
-    private var lockWatch: Timer?
-
-    /// In-flight tool calls during the current streaming turn (cleared on agent_end reload).
-    @Published var liveTools: [LiveTool] = []
-    /// Transient activity banner (retry countdown / compaction), shown above the composer.
-    @Published var activityBanner: String?
-
-    func abort() { rpc.abort() }
-    func setModel(provider: String, modelId: String) { rpc.setModel(provider: provider, modelId: modelId) }
-
-    /// Run a bash command in the session (the !/!! editor convention). The RPC `bash` command
-    /// adds the output to context (unless excludeFromContext). Result surfaces on next reload.
-    func runBash(_ command: String, excludeFromContext: Bool) {
-        guard !command.isEmpty else { return }
-        if let lock, !lock.isMine() { return }
-        rpc.send(["type": "bash", "command": command, "excludeFromContext": excludeFromContext])
-        // Reflect the result shortly after; bash is synchronous-ish over RPC.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.reloadFromFile() }
-    }
-
-    // MARK: - Test support
-
-    var sessionPathForTest: String? { sessionPath }
-    private var onAgentEndOnce: (() -> Void)?
-
-    /// Send a prompt and call back once the first agent_end fires. The prompt is auto-queued
-    /// until the session path/lock is ready (see sendPrompt). Used by the headless self-test.
-    func sendPromptWhenReady(_ text: String, completion: @escaping () -> Void) {
-        onAgentEndOnce = completion
-        sendPrompt(text)
-    }
-    func setThinking(_ level: String) { rpc.setThinkingLevel(level) }
-    func rename(_ name: String) { sessionName = name; rpc.setSessionName(name) }
-    func compact() { rpc.compact() }
-
-    func takeover() {
-        lock?.takeover()
-        lockStatus = .owned
-    }
-
-    /// Periodically re-check lock ownership so a takeover by the TUI or another writer
-    /// downgrades us to read-only in the UI even between prompts.
-    private func startLockWatch() {
-        lockWatch?.invalidate()
-        let t = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let lock = self.lock else { return }
-                if lock.isLost(), self.lockStatus != .lost {
-                    self.lockStatus = .lost
-                    self.notify("Session taken over elsewhere — read-only.", type: "warning")
-                }
-            }
-        }
-        RunLoop.main.add(t, forMode: .common)
-        lockWatch = t
-    }
-
-    func dispose() {
-        lockWatch?.invalidate(); lockWatch = nil
-        rpc.terminate()
-        lock?.release()
-        lock = nil
-    }
-
-    // MARK: - RpcClientDelegate
-
-    nonisolated func rpc(_ client: RpcClient, didReceive incoming: RpcIncoming) {
-        Task { @MainActor in self.handle(incoming) }
-    }
-    nonisolated func rpcDidExit(_ client: RpcClient, code: Int32) {
-        Task { @MainActor in self.isStreaming = false }
-    }
-
-    private func handle(_ incoming: RpcIncoming) {
-        switch incoming {
-        case .response(_, let command, let success, let data, _):
-            handleResponse(command: command, success: success, data: data)
-        case .uiRequest(let req):
-            handleUIRequest(req)
-        case .event(let type, let raw):
-            handleEvent(type: type, raw: raw)
-        }
-    }
-
-    private func handleResponse(command: String, success: Bool, data: [String: Any]?) {
-        switch command {
-        case "get_state":
-            if let data {
-                if let m = data["model"] as? [String: Any] { model = m["id"] as? String }
-                thinkingLevel = (data["thinkingLevel"] as? String) ?? thinkingLevel
-                sessionName = data["sessionName"] as? String
-                if let sf = data["sessionFile"] as? String {
-                    sessionPath = sf
-                    ensureLock(for: sf)
-                }
-            }
-        case "get_commands":
-            if let cmds = data?["commands"] as? [[String: Any]] {
-                commands = cmds.compactMap { c in
-                    guard let name = c["name"] as? String else { return nil }
-                    return SlashCommand(name: name, description: c["description"] as? String,
-                                        source: (c["source"] as? String) ?? "",
-                                        argumentHint: c["argumentHint"] as? String)
-                }
-            }
-        case "get_session_stats":
-            if let data { applyStats(data) }
-        default:
-            break
-        }
-    }
-
-    private func applyStats(_ data: [String: Any]) {
-        if let t = data["tokens"] as? [String: Any] {
-            footer.inputTokens = (t["input"] as? Int) ?? footer.inputTokens
-            footer.outputTokens = (t["output"] as? Int) ?? footer.outputTokens
-            footer.totalTokens = (t["total"] as? Int) ?? footer.totalTokens
-        }
-        footer.cost = (data["cost"] as? Double) ?? footer.cost
-        if let cu = data["contextUsage"] as? [String: Any] {
-            footer.contextTokens = (cu["tokens"] as? Int) ?? 0
-            footer.contextWindow = (cu["contextWindow"] as? Int) ?? 0
-        }
-    }
-
-    private func handleEvent(type: String, raw: [String: Any]) {
-        switch type {
-        case "agent_start":
-            isStreaming = true
-            streamingText = ""
-            streamingThinking = ""
-        case "message_update":
-            if let ame = raw["assistantMessageEvent"] as? [String: Any] {
-                switch ame["type"] as? String {
-                case "text_delta": streamingText += (ame["delta"] as? String) ?? ""
-                case "thinking_delta": streamingThinking += (ame["delta"] as? String) ?? ""
-                default: break
-                }
-            }
-        case "tool_execution_start":
-            if let id = raw["toolCallId"] as? String {
-                let name = (raw["toolName"] as? String) ?? "tool"
-                let args = (raw["args"] as? [String: Any]) ?? [:]
-                liveTools.removeAll { $0.id == id }
-                liveTools.append(LiveTool(id: id, name: name, args: args, done: false, isError: false))
-                // The questionnaire tool ships its full structured questions in args; capture
-                // them to render one rich SwiftUI form instead of sequential native dialogs.
-                if name == "questionnaire", let qs = args["questions"] as? [[String: Any]] {
-                    questionnaire = QuestionnaireState(toolCallId: id, questions: qs.map(QField.init))
-                }
-            }
-        case "tool_execution_end":
-            if let id = raw["toolCallId"] as? String,
-               let idx = liveTools.firstIndex(where: { $0.id == id }) {
-                liveTools[idx].done = true
-                liveTools[idx].isError = (raw["isError"] as? Bool) ?? false
-            }
-            if questionnaire?.toolCallId == (raw["toolCallId"] as? String) {
-                questionnaire = nil
-            }
-        case "turn_end", "agent_end":
-            if type == "agent_end" {
-                isStreaming = false
-                streamingText = ""
-                streamingThinking = ""
-                liveTools.removeAll()
-                // Reload committed truth from the file tail: captures tool calls/results,
-                // todo/goal/subagent custom entries, final assistant text, and usage.
-                reloadFromFile()
-                rpc.getSessionStats()
-                if let cb = onAgentEndOnce { onAgentEndOnce = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { cb() } }
-            }
-        case "session_error":
-            isStreaming = false
-            notify((raw["message"] as? String) ?? "Prompt rejected", type: "error")
-        case "backend_error":
-            notify((raw["message"] as? String) ?? "Backend error", type: "error")
-        case "auto_retry_start":
-            let attempt = (raw["attempt"] as? Int) ?? 1
-            let maxA = (raw["maxAttempts"] as? Int) ?? 1
-            let delay = ((raw["delayMs"] as? Int) ?? 0) / 1000
-            activityBanner = "Retrying (\(attempt)/\(maxA)) in \(delay)s\u{2026}"
-        case "auto_retry_end":
-            activityBanner = nil
-            if (raw["success"] as? Bool) == false {
-                notify("Retry failed: \((raw["finalError"] as? String) ?? "unknown")", type: "error")
-            }
-        case "compaction_start":
-            activityBanner = "Compacting context\u{2026}"
-        case "compaction_end":
-            activityBanner = nil
-            reloadFromFile()
-        default:
-            break
-        }
-    }
-
-    // MARK: - Extension UI
-
-    private func handleUIRequest(_ req: RpcUIRequest) {
-        if req.isDialog {
-            // If a questionnaire is active, its sequential select/input dialogs are driven by the
-            // rich form (matched in question order) rather than shown as generic dialogs.
-            if questionnaire != nil, req.method == "select" || req.method == "input" {
-                questionnaire?.pendingRequests.append(req)
-                drainQuestionnaireIfReady()
-                return
-            }
-            pendingDialog = PendingDialog(request: req)
-            return
-        }
-        // Fire-and-forget.
-        switch req.method {
-        case "setStatus":
-            let key = (req.raw["statusKey"] as? String) ?? ""
-            if let text = req.raw["statusText"] as? String {
-                statusEntries[key] = ANSI.strip(text)
-            } else {
-                statusEntries.removeValue(forKey: key)
-            }
-        case "notify":
-            notify((req.raw["message"] as? String) ?? "", type: (req.raw["notifyType"] as? String) ?? "info")
-        case "setTitle", "setWidget", "set_editor_text":
-            break // surfaced elsewhere or no-op
-        default:
-            break
-        }
-    }
-
-    func answerDialog(_ dialog: PendingDialog, value: String?, confirmed: Bool?) {
-        if let confirmed { rpc.uiRespond(id: dialog.request.id, confirmed: confirmed) }
-        else if let value { rpc.uiRespond(id: dialog.request.id, value: value) }
-        else { rpc.uiCancel(id: dialog.request.id) }
-        pendingDialog = nil
-    }
-
-    /// Submit the whole questionnaire form. Answers are matched to the sequential select/input
-    /// requests pi emits (in question order). Cancelling cancels the first pending request, which
-    /// makes the question extension abort the whole questionnaire.
-    func submitQuestionnaire(_ answers: [String]) {
-        guard let q = questionnaire else { return }
-        q.answers = answers
-        q.submitted = true
-        questionnaire = q
-        drainQuestionnaireIfReady()
-    }
-
-    func cancelQuestionnaire() {
-        guard let q = questionnaire else { return }
-        // Cancel any already-queued request; subsequent ones won't arrive once aborted.
-        for req in q.pendingRequests { rpc.uiCancel(id: req.id) }
+      }
+    case "tool_execution_end":
+      if let id = raw["toolCallId"] as? String,
+        let idx = liveTools.firstIndex(where: { $0.id == id })
+      {
+        liveTools[idx].done = true
+        liveTools[idx].isError = (raw["isError"] as? Bool) ?? false
+      }
+      if questionnaire?.toolCallId == (raw["toolCallId"] as? String) {
         questionnaire = nil
-    }
-
-    /// Match queued select/input requests to submitted answers in arrival order.
-    private func drainQuestionnaireIfReady() {
-        guard let q = questionnaire, q.submitted else { return }
-        while q.nextAnswerIndex < q.pendingRequests.count,
-              q.nextAnswerIndex < q.answers.count {
-            let req = q.pendingRequests[q.nextAnswerIndex]
-            let ans = q.answers[q.nextAnswerIndex]
-            if req.method == "select" {
-                // Map the chosen option value to the label pi expects back (it indexes by label).
-                let qf = q.questions[safe: q.nextAnswerIndex]
-                let label = qf?.options.first(where: { $0.value == ans })?.label ?? ans
-                rpc.uiRespond(id: req.id, value: label)
-            } else {
-                rpc.uiRespond(id: req.id, value: ans)
-            }
-            q.nextAnswerIndex += 1
+      }
+    case "turn_end", "agent_end":
+      if type == "agent_end" {
+        isStreaming = false
+        streamingText = ""
+        streamingThinking = ""
+        liveTools.removeAll()
+        // Reload committed truth from the file tail: captures tool calls/results,
+        // todo/goal/subagent custom entries, final assistant text, and usage.
+        reloadFromFile()
+        rpc.getSessionStats()
+        if let cb = onAgentEndOnce {
+          onAgentEndOnce = nil
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { cb() }
         }
-        questionnaire = q
+      }
+    case "session_error":
+      isStreaming = false
+      notify((raw["message"] as? String) ?? "Prompt rejected", type: "error")
+    case "backend_error":
+      notify((raw["message"] as? String) ?? "Backend error", type: "error")
+    case "auto_retry_start":
+      let attempt = (raw["attempt"] as? Int) ?? 1
+      let maxA = (raw["maxAttempts"] as? Int) ?? 1
+      let delay = ((raw["delayMs"] as? Int) ?? 0) / 1000
+      activityBanner = "Retrying (\(attempt)/\(maxA)) in \(delay)s\u{2026}"
+    case "auto_retry_end":
+      activityBanner = nil
+      if (raw["success"] as? Bool) == false {
+        notify("Retry failed: \((raw["finalError"] as? String) ?? "unknown")", type: "error")
+      }
+    case "compaction_start":
+      activityBanner = "Compacting context\u{2026}"
+    case "compaction_end":
+      activityBanner = nil
+      reloadFromFile()
+    default:
+      break
     }
+  }
 
-    private func notify(_ text: String, type: String) {
-        notifications.append(AppNotification(text: text, type: type))
+  // MARK: - Extension UI
+
+  private func handleUIRequest(_ req: RpcUIRequest) {
+    if req.isDialog {
+      // If a questionnaire is active, its sequential select/input dialogs are driven by the
+      // rich form (matched in question order) rather than shown as generic dialogs.
+      if questionnaire != nil, req.method == "select" || req.method == "input" {
+        questionnaire?.pendingRequests.append(req)
+        drainQuestionnaireIfReady()
+        return
+      }
+      pendingDialog = PendingDialog(request: req)
+      return
     }
+    // Fire-and-forget.
+    switch req.method {
+    case "setStatus":
+      let key = (req.raw["statusKey"] as? String) ?? ""
+      if let text = req.raw["statusText"] as? String {
+        statusEntries[key] = ANSI.strip(text)
+      } else {
+        statusEntries.removeValue(forKey: key)
+      }
+    case "notify":
+      notify(
+        (req.raw["message"] as? String) ?? "", type: (req.raw["notifyType"] as? String) ?? "info")
+    case "setTitle", "setWidget", "set_editor_text":
+      break  // surfaced elsewhere or no-op
+    default:
+      break
+    }
+  }
+
+  func answerDialog(_ dialog: PendingDialog, value: String?, confirmed: Bool?) {
+    if let confirmed {
+      rpc.uiRespond(id: dialog.request.id, confirmed: confirmed)
+    } else if let value {
+      rpc.uiRespond(id: dialog.request.id, value: value)
+    } else {
+      rpc.uiCancel(id: dialog.request.id)
+    }
+    pendingDialog = nil
+  }
+
+  /// Submit the whole questionnaire form. Answers are matched to the sequential select/input
+  /// requests pi emits (in question order). Cancelling cancels the first pending request, which
+  /// makes the question extension abort the whole questionnaire.
+  func submitQuestionnaire(_ answers: [String]) {
+    guard let q = questionnaire else { return }
+    q.answers = answers
+    q.submitted = true
+    questionnaire = q
+    drainQuestionnaireIfReady()
+  }
+
+  func cancelQuestionnaire() {
+    guard let q = questionnaire else { return }
+    // Cancel any already-queued request; subsequent ones won't arrive once aborted.
+    for req in q.pendingRequests { rpc.uiCancel(id: req.id) }
+    questionnaire = nil
+  }
+
+  /// Match queued select/input requests to submitted answers in arrival order.
+  private func drainQuestionnaireIfReady() {
+    guard let q = questionnaire, q.submitted else { return }
+    while q.nextAnswerIndex < q.pendingRequests.count,
+      q.nextAnswerIndex < q.answers.count
+    {
+      let req = q.pendingRequests[q.nextAnswerIndex]
+      let ans = q.answers[q.nextAnswerIndex]
+      if req.method == "select" {
+        // Map the chosen option value to the label pi expects back (it indexes by label).
+        let qf = q.questions[safe: q.nextAnswerIndex]
+        let label = qf?.options.first(where: { $0.value == ans })?.label ?? ans
+        rpc.uiRespond(id: req.id, value: label)
+      } else {
+        rpc.uiRespond(id: req.id, value: ans)
+      }
+      q.nextAnswerIndex += 1
+    }
+    questionnaire = q
+  }
+
+  private func notify(_ text: String, type: String) {
+    notifications.append(AppNotification(text: text, type: type))
+  }
 }
 
 struct PendingDialog: Identifiable {
-    let request: RpcUIRequest
-    var id: String { request.id }
-    var method: String { request.method }
-    var title: String { (request.raw["title"] as? String) ?? "" }
-    var message: String? { request.raw["message"] as? String }
-    var options: [String] { (request.raw["options"] as? [String]) ?? [] }
-    var placeholder: String? { request.raw["placeholder"] as? String }
-    var prefill: String? { request.raw["prefill"] as? String }
+  let request: RpcUIRequest
+  var id: String { request.id }
+  var method: String { request.method }
+  var title: String { (request.raw["title"] as? String) ?? "" }
+  var message: String? { request.raw["message"] as? String }
+  var options: [String] { (request.raw["options"] as? [String]) ?? [] }
+  var placeholder: String? { request.raw["placeholder"] as? String }
+  var prefill: String? { request.raw["prefill"] as? String }
 }
 
 struct AppNotification: Identifiable {
-    let id = UUID()
-    let text: String
-    let type: String
+  let id = UUID()
+  let text: String
+  let type: String
 }
 
 struct SlashCommand: Identifiable {
-    let name: String
-    let description: String?
-    let source: String
-    var argumentHint: String? = nil
-    var id: String { name }
+  let name: String
+  let description: String?
+  let source: String
+  var argumentHint: String? = nil
+  var id: String { name }
 }
 
 /// An in-flight tool call rendered live during streaming.
 struct LiveTool: Identifiable {
-    let id: String
-    let name: String
-    let args: [String: Any]
-    var done: Bool
-    var isError: Bool
+  let id: String
+  let name: String
+  let args: [String: Any]
+  var done: Bool
+  var isError: Bool
 }
 
 /// A single questionnaire field parsed from the questionnaire tool's args.
 struct QField: Identifiable {
-    let id: String
-    let prompt: String
-    let label: String?
-    let multiSelect: Bool
-    let options: [QOption]
+  let id: String
+  let prompt: String
+  let label: String?
+  let multiSelect: Bool
+  let options: [QOption]
 
-    init(_ raw: [String: Any]) {
-        self.id = (raw["id"] as? String) ?? UUID().uuidString
-        self.prompt = (raw["prompt"] as? String) ?? ""
-        self.label = raw["label"] as? String
-        self.multiSelect = (raw["multiSelect"] as? Bool) ?? false
-        self.options = ((raw["options"] as? [[String: Any]]) ?? []).map(QOption.init)
-    }
+  init(_ raw: [String: Any]) {
+    self.id = (raw["id"] as? String) ?? UUID().uuidString
+    self.prompt = (raw["prompt"] as? String) ?? ""
+    self.label = raw["label"] as? String
+    self.multiSelect = (raw["multiSelect"] as? Bool) ?? false
+    self.options = ((raw["options"] as? [[String: Any]]) ?? []).map(QOption.init)
+  }
 }
 
 struct QOption: Identifiable {
-    let value: String
-    let label: String
-    let description: String?
-    var id: String { value }
-    init(_ raw: [String: Any]) {
-        self.value = (raw["value"] as? String) ?? ""
-        self.label = (raw["label"] as? String) ?? (raw["value"] as? String) ?? ""
-        self.description = raw["description"] as? String
-    }
+  let value: String
+  let label: String
+  let description: String?
+  var id: String { value }
+  init(_ raw: [String: Any]) {
+    self.value = (raw["value"] as? String) ?? ""
+    self.label = (raw["label"] as? String) ?? (raw["value"] as? String) ?? ""
+    self.description = raw["description"] as? String
+  }
 }
 
 /// Live questionnaire state: the structured questions (from the tool args) plus the sequential
 /// select/input requests pi emits, which the rich form answers in order.
 final class QuestionnaireState {
-    let toolCallId: String
-    let questions: [QField]
-    var pendingRequests: [RpcUIRequest] = []
-    var answers: [String] = []
-    var submitted = false
-    var nextAnswerIndex = 0
-    init(toolCallId: String, questions: [QField]) {
-        self.toolCallId = toolCallId
-        self.questions = questions
-    }
+  let toolCallId: String
+  let questions: [QField]
+  var pendingRequests: [RpcUIRequest] = []
+  var answers: [String] = []
+  var submitted = false
+  var nextAnswerIndex = 0
+  init(toolCallId: String, questions: [QField]) {
+    self.toolCallId = toolCallId
+    self.questions = questions
+  }
 }
 
 extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
-    }
+  subscript(safe index: Int) -> Element? {
+    indices.contains(index) ? self[index] : nil
+  }
 }
 
 enum ANSI {
-    /// Strip ANSI SGR escape sequences (e.g. \u001b[38;2;102;102;102m).
-    static func strip(_ s: String) -> String {
-        guard s.contains("\u{1B}") else { return s }
-        var out = ""
-        var i = s.startIndex
-        while i < s.endIndex {
-            let c = s[i]
-            if c == "\u{1B}" {
-                // skip until a letter (the final byte of the CSI sequence)
-                var j = s.index(after: i)
-                while j < s.endIndex, !s[j].isLetter { j = s.index(after: j) }
-                if j < s.endIndex { j = s.index(after: j) }
-                i = j
-            } else {
-                out.append(c)
-                i = s.index(after: i)
-            }
-        }
-        return out
+  /// Strip ANSI SGR escape sequences (e.g. \u001b[38;2;102;102;102m).
+  static func strip(_ s: String) -> String {
+    guard s.contains("\u{1B}") else { return s }
+    var out = ""
+    var i = s.startIndex
+    while i < s.endIndex {
+      let c = s[i]
+      if c == "\u{1B}" {
+        // skip until a letter (the final byte of the CSI sequence)
+        var j = s.index(after: i)
+        while j < s.endIndex, !s[j].isLetter { j = s.index(after: j) }
+        if j < s.endIndex { j = s.index(after: j) }
+        i = j
+      } else {
+        out.append(c)
+        i = s.index(after: i)
+      }
     }
+    return out
+  }
 }

@@ -35,10 +35,11 @@ struct ContentView: View {
                     }
                 } else {
                     ContentUnavailableView {
-                        Label("No session open", systemImage: "bubble.left.and.bubble.right")
+                        Label("Select a conversation", systemImage: "bubble.left.and.bubble.right")
                     } description: {
                         Text("Pick a directory on the left and open or start a session.")
                     }
+                    .navigationTitle("Select conversation")
                 }
             }
             .toolbar {

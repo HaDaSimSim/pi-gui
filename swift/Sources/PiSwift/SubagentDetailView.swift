@@ -20,23 +20,26 @@ struct SubagentDetailView: View {
             header
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    ForEach(run.turns) { turn in
-                        turnBlock(turn)
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 20) {
+                        ForEach(run.turns) { turn in
+                            turnBlock(turn)
+                        }
+                        if run.turns.isEmpty {
+                            // Fallback: a running run before its first turn is persisted.
+                            Text(run.task).font(.callout).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if let err = run.error {
+                            Label(err, systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(Theme.danger).font(.callout)
+                        }
                     }
-                    if run.turns.isEmpty {
-                        // Fallback: a running run before its first turn is persisted.
-                        Text(run.task).font(.callout).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let err = run.error {
-                        Label(err, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(Theme.danger).font(.callout)
-                    }
+                    .frame(maxWidth: 720)
+                    .padding(20)
+                    Spacer(minLength: 0)
                 }
-                .padding(20)
-                .frame(maxWidth: 820)
-                .frame(maxWidth: .infinity)
             }
         }
         .frame(minWidth: 560, idealWidth: 760, minHeight: 400, idealHeight: 640)

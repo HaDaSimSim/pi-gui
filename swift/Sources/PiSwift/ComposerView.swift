@@ -10,6 +10,7 @@ struct ComposerView: View {
     @State private var showSlashMenu = false
     @State private var deliverAs: String = "steer"   // when streaming: steer | followUp
     @State private var attachments: [AttachedImage] = []
+    @State private var inputHeight: CGFloat = 34
 
     var body: some View {
         VStack(spacing: 6) {
@@ -48,8 +49,8 @@ struct ComposerView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 Button { pickImages() } label: { Image(systemName: "paperclip") }
                     .buttonStyle(.borderless).help("Attach image")
-                ComposerTextView(text: $draft, onSubmit: submit)
-                    .frame(minHeight: 34, maxHeight: 140)
+                ComposerTextView(text: $draft, measuredHeight: $inputHeight, onSubmit: submit)
+                    .frame(height: inputHeight)
                     .padding(.horizontal, 6)
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary, lineWidth: 1))

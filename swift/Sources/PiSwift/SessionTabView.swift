@@ -67,38 +67,38 @@ struct SessionTabView: View {
     private var scrollback: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    if runtime.hasEarlierHistory {
-                        Button {
-                            runtime.loadEarlierHistory()
-                        } label: {
-                            Label("Load earlier history", systemImage: "arrow.up.circle")
-                                .font(.caption)
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        if runtime.hasEarlierHistory {
+                            Button {
+                                runtime.loadEarlierHistory()
+                            } label: {
+                                Label("Load earlier history", systemImage: "arrow.up.circle")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, 4)
                         }
-                        .buttonStyle(.bordered)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 4)
-                    }
-                    ForEach(runtime.items) { item in
-                        TranscriptItemView(item: item, isStreaming: runtime.isStreaming)
-                            .id(item.id)
-                    }
-                    // Live streaming overlay (uncommitted partial assistant turn).
-                    if runtime.isStreaming {
-                        ForEach(runtime.liveTools) { lt in
-                            TranscriptItemView(
-                                item: .toolCall(id: lt.id, name: lt.name, args: lt.args,
-                                                result: lt.done ? "" : nil, isError: lt.isError),
-                                isStreaming: true)
+                        ForEach(runtime.items) { item in
+                            TranscriptItemView(item: item, isStreaming: runtime.isStreaming)
+                                .id(item.id)
                         }
-                        StreamingView(thinking: runtime.streamingThinking, text: runtime.streamingText)
-                            .id("__streaming__")
+                        // Live streaming overlay (uncommitted partial assistant turn).
+                        if runtime.isStreaming {
+                            ForEach(runtime.liveTools) { lt in
+                                LiveToolRow(name: lt.name, args: lt.args, done: lt.done, isError: lt.isError)
+                            }
+                            StreamingView(thinking: runtime.streamingThinking, text: runtime.streamingText)
+                                .id("__streaming__")
+                        }
+                        Color.clear.frame(height: 1).id("__bottom__")
                     }
-                    Color.clear.frame(height: 1).id("__bottom__")
+                    .frame(maxWidth: 760)
+                    .padding(.horizontal, 20).padding(.vertical, 16)
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 20).padding(.vertical, 16)
-                .frame(maxWidth: 900)
-                .frame(maxWidth: .infinity)
             }
             .onChange(of: runtime.items.count) { _, _ in scrollToBottom(proxy) }
             .onChange(of: runtime.streamingText) { _, _ in scrollToBottom(proxy) }

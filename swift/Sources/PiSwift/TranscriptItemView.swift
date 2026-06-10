@@ -10,12 +10,8 @@ struct TranscriptItemView: View {
         switch item {
         case .user(_, let text, let ts):
             UserBubble(text: text, timestamp: ts)
-        case .assistantText(_, let text, let ts, let modelName, let elapsed):
-            AssistantText(text: text, timestamp: ts, model: modelName, elapsed: elapsed)
-        case .thinking(_, let text):
-            ThinkingBlock(text: text)
-        case .toolCall(_, let name, let args, let result, let isError):
-            ToolCallCard(name: name, args: args, result: result, isError: isError)
+        case .assistant(_, let msg):
+            AssistantMessageView(msg: msg, isStreaming: isStreaming)
         case .bashJob(_, let label, let command, let status, let output):
             BashCard(label: label, command: command, status: status, output: output)
         case .subagentRun(_, let run):
@@ -47,6 +43,7 @@ private struct UserBubble: View {
                 .background(Color.accentColor, in: BubbleShape())
                 .foregroundStyle(.white)
                 .frame(maxWidth: 560, alignment: .trailing)
+                .fixedSize(horizontal: false, vertical: true)
             if let timestamp {
                 Text(timestamp, format: .dateTime.hour().minute())
                     .font(.caption2).foregroundStyle(.tertiary)
@@ -63,20 +60,51 @@ private struct BubbleShape: Shape {
     }
 }
 
-private struct AssistantText: View {
-    let text: String
-    let timestamp: Date?
-    let model: String?
-    var elapsed: Double? = nil
+private struct AssistantMessageView: View {
+    let msg: AssistantMessage
+    let isStreaming: Bool
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            MarkdownView(text)
-            if model != nil || elapsed != nil || timestamp != nil {
+        VStack(alignment: .leading, spacing: 8) {
+            if let thinking = msg.thinking, !thinking.isEmpty {
+                ThinkingBlock(text: thinking)
+            }
+            if !msg.text.isEmpty {
+                MarkdownView(msg.text)
+            } else if msg.thinking == nil && msg.toolCalls.isEmpty {
+                Text("…").foregroundStyle(.secondary)
+            }
+            if !msg.toolCalls.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(msg.toolCalls) { tc in
+                        ToolCallCard(name: tc.name, args: tc.args,
+                                     result: tc.resultText,
+                                     isError: tc.status == "error",
+                                     running: tc.status == "running")
+                    }
+                }
+            }
+            // Interrupted: a red rule with a centered notch label.
+            if msg.interrupted {
+                InterruptedRule()
+            } else if let err = msg.errorMessage, !err.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(Theme.danger)
+                    Text(err).foregroundStyle(Theme.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption)
+            }
+            // Meta: only on a finished turn (elapsed set) or while streaming (spinner).
+            if msg.elapsed != nil || isStreaming {
                 HStack(spacing: 6) {
-                    Text("Assistant").fontWeight(.medium)
-                    if let model { Text("·"); Text(model) }
-                    if let elapsed { Text("·"); Text(Fmt.elapsed(elapsed * 1000)) }
-                    if let timestamp { Text("·"); Text(timestamp, format: .dateTime.hour().minute()) }
+                    if msg.elapsed != nil {
+                        Text("Assistant").fontWeight(.medium)
+                        if let m = msg.model { Text("·"); Text(m) }
+                        if let e = msg.elapsed { Text("·"); Text(Fmt.elapsed(e * 1000)) }
+                        if let ts = msg.timestamp { Text("·"); Text(ts, format: .dateTime.hour().minute()) }
+                    }
+                    if isStreaming { ProgressView().controlSize(.small) }
                 }
                 .font(.caption2).foregroundStyle(.tertiary)
             }
@@ -85,25 +113,49 @@ private struct AssistantText: View {
     }
 }
 
+/// Red horizontal rule with a centered “interrupted” notch (mirrors the TUI/web interrupt marker).
+private struct InterruptedRule: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Rectangle().fill(Theme.danger.opacity(0.6)).frame(height: 1)
+            Text("interrupted").font(.caption2).foregroundStyle(Theme.danger)
+            Rectangle().fill(Theme.danger.opacity(0.6)).frame(height: 1)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 private struct ThinkingBlock: View {
     let text: String
     @State private var expanded = false
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            Text(text)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "brain")
-                Text("Thinking").italic()
-                if !expanded {
-                    Text(text.prefix(80)).lineLimit(1).foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 6) {
+            // Whole row toggles; chevron sits right after the text/preview.
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "brain")
+                    Text("Thinking").italic()
+                    if !expanded {
+                        Text(text.prefix(80)).lineLimit(1).foregroundStyle(.tertiary)
+                    }
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9))
+                    Spacer(minLength: 0)
                 }
+                .font(.caption).foregroundStyle(.secondary)
+                .contentShape(Rectangle())
             }
-            .font(.caption).foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            if expanded {
+                // No indent: text aligns to the same leading edge as the label.
+                Text(text)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -114,6 +166,7 @@ private struct ToolCallCard: View {
     let args: [String: Any]
     let result: String?
     let isError: Bool
+    var running: Bool = false
     @State private var expanded = false
 
     private var argSummary: String {
@@ -122,11 +175,31 @@ private struct ToolCallCard: View {
         for (_, v) in args { if let s = v as? String { return s }; if let n = v as? Int { return "\(n)" } }
         return ""
     }
-    private var statusColor: Color { isError ? Theme.danger : (result == nil ? Theme.streaming : Theme.success) }
+    private var statusColor: Color { isError ? Theme.danger : (running ? Theme.streaming : Theme.success) }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            // Whole box toggles; chevron pinned to the right edge of the box.
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: Theme.toolIcon(name)).foregroundStyle(statusColor).font(.caption)
+                    Text(name).font(.system(.caption, design: .monospaced)).fontWeight(.medium)
+                    Text(argSummary).font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if result != nil {
+                        Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 10)).foregroundStyle(statusColor)
+                    }
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
                 if !args.isEmpty {
                     CodeText(String(describing: argsJSON).prefix(2000).description)
                 }
@@ -135,23 +208,10 @@ private struct ToolCallCard: View {
                     CodeText(String(result.prefix(4000)))
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: Theme.toolIcon(name)).foregroundStyle(statusColor)
-                Text(name).font(.system(.callout, design: .monospaced)).fontWeight(.medium)
-                Text(argSummary).font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary).lineLimit(1)
-                Spacer()
-                if result != nil {
-                    Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
-                        .font(.caption2).foregroundStyle(statusColor)
-                }
-            }
         }
-        .padding(8)
-        .background(statusColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(statusColor.opacity(0.25), lineWidth: 1))
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(statusColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(statusColor.opacity(0.2), lineWidth: 1))
     }
 
     private var argsJSON: Any {
@@ -319,5 +379,16 @@ struct CodeText: View {
         .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
         .background(Color(nsColor: .textBackgroundColor).opacity(0.5),
                     in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+/// Public wrapper so the streaming overlay can render an in-flight tool call (ToolCallCard is private).
+struct LiveToolRow: View {
+    let name: String
+    let args: [String: Any]
+    let done: Bool
+    let isError: Bool
+    var body: some View {
+        ToolCallCard(name: name, args: args, result: done ? "" : nil, isError: isError, running: !done)
     }
 }

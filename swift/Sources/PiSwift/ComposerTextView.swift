@@ -6,8 +6,8 @@ import AppKit
 // NSTextView and check `hasMarkedText()` before treating Enter as send.
 struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
+    @Binding var measuredHeight: CGFloat
     var onSubmit: () -> Void
-    var onShiftSubmit: (() -> Void)? = nil   // optional alt action (unused; Shift+Enter = newline)
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
@@ -29,8 +29,9 @@ struct ComposerTextView: NSViewRepresentable {
         tv.isGrammarCheckingEnabled = false
         tv.smartInsertDeleteEnabled = false
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = false
+        scroll.hasVerticalScroller = true
         context.coordinator.textView = tv
+        DispatchQueue.main.async { context.coordinator.recomputeHeight() }
         return scroll
     }
 
@@ -39,6 +40,7 @@ struct ComposerTextView: NSViewRepresentable {
         if tv.string != text {
             tv.string = text
         }
+        context.coordinator.recomputeHeight()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -51,6 +53,19 @@ struct ComposerTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             parent.text = tv.string
+            recomputeHeight()
+        }
+
+        /// Measure the laid-out text height so SwiftUI can grow the field with content.
+        func recomputeHeight() {
+            guard let tv = textView, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            lm.ensureLayout(for: tc)
+            let used = lm.usedRect(for: tc).height
+            let h = ceil(used) + tv.textContainerInset.height * 2
+            let clamped = min(max(h, 34), 200)
+            if abs(clamped - parent.measuredHeight) > 0.5 {
+                DispatchQueue.main.async { self.parent.measuredHeight = clamped }
+            }
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

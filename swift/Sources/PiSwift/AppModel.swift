@@ -53,6 +53,11 @@ final class AppModel: ObservableObject {
         sessionsByCwd[cwd] = store.sessions(forCwd: cwd)
     }
 
+    /// Whether a session path is currently open as a live (started) runtime tab.
+    func isLive(_ path: String) -> Bool {
+        tabs.contains { $0.sessionPath == path && $0.runtime.isStarted }
+    }
+
     // MARK: - Tab persistence
 
     private let openTabsKey = "piswift.open-tabs"

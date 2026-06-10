@@ -6,9 +6,7 @@ import Foundation
 
 enum TranscriptItem: Identifiable {
     case user(id: String, text: String, timestamp: Date?)
-    case assistantText(id: String, text: String, timestamp: Date?, model: String?, elapsed: Double?)
-    case thinking(id: String, text: String)
-    case toolCall(id: String, name: String, args: [String: Any], result: String?, isError: Bool)
+    case assistant(id: String, msg: AssistantMessage)
     case bashJob(id: String, label: String, command: String, status: String, output: String)
     case subagentRun(id: String, run: SubagentRun)
     case todoList(id: String, todos: [TodoItem])
@@ -18,14 +16,35 @@ enum TranscriptItem: Identifiable {
 
     var id: String {
         switch self {
-        case .user(let id, _, _), .assistantText(let id, _, _, _, _), .thinking(let id, _),
-             .toolCall(let id, _, _, _, _), .bashJob(let id, _, _, _, _),
+        case .user(let id, _, _), .assistant(let id, _),
+             .bashJob(let id, _, _, _, _),
              .subagentRun(let id, _), .todoList(let id, _), .goalState(let id, _, _),
              .btwAnswer(let id, _, _),
              .notice(let id, _):
             return id
         }
     }
+}
+
+/// One assistant turn, grouped like the web's ChatMessage: text + thinking + tool calls, with
+/// meta (elapsed only on a finished turn), interrupted, and error flags.
+struct AssistantMessage {
+    var text: String
+    var thinking: String?
+    var toolCalls: [ToolCallView]
+    var model: String?
+    var timestamp: Date?
+    var elapsed: Double?       // seconds; set only when the turn finished (turn-meta)
+    var interrupted: Bool = false
+    var errorMessage: String?
+}
+
+struct ToolCallView: Identifiable {
+    let id: String
+    let name: String
+    let args: [String: Any]
+    var status: String         // running | done | error
+    var resultText: String?
 }
 
 struct TodoItem: Identifiable, Hashable {
@@ -111,31 +130,35 @@ struct Transcript {
                     }
                 case "assistant":
                     let model = msg["model"] as? String
+                    var text = ""
+                    var thinking = ""
+                    var toolCalls: [ToolCallView] = []
                     if let blocks = msg["content"] as? [[String: Any]] {
-                        for (i, block) in blocks.enumerated() {
-                            let bid = (e.id ?? UUID().uuidString) + "#\(i)"
+                        for block in blocks {
                             switch block["type"] as? String {
-                            case "text":
-                                if let t = block["text"] as? String, !t.isEmpty {
-                                    items.append(.assistantText(id: bid, text: t, timestamp: ts, model: model, elapsed: nil))
-                                }
-                            case "thinking":
-                                if !hideThinking, let t = block["thinking"] as? String, !t.isEmpty {
-                                    items.append(.thinking(id: bid, text: t))
-                                }
+                            case "text": if let t = block["text"] as? String { text += t }
+                            case "thinking": if let t = block["thinking"] as? String { thinking += t }
                             case "toolCall":
-                                let name = (block["name"] as? String) ?? "tool"
-                                let args = (block["arguments"] as? [String: Any]) ?? [:]
-                                let callId = (block["id"] as? String) ?? bid
+                                let callId = (block["id"] as? String) ?? UUID().uuidString
                                 let res = toolResults[callId]
-                                items.append(.toolCall(id: bid, name: name, args: args,
-                                                       result: res?.text, isError: res?.isError ?? false))
+                                toolCalls.append(ToolCallView(
+                                    id: callId,
+                                    name: (block["name"] as? String) ?? "tool",
+                                    args: (block["arguments"] as? [String: Any]) ?? [:],
+                                    status: res == nil ? "running" : (res!.isError ? "error" : "done"),
+                                    resultText: res?.text))
                             default: break
                             }
                         }
-                    } else if let text = SessionStore.extractText(msg["content"]), !text.isEmpty {
-                        items.append(.assistantText(id: e.id ?? UUID().uuidString, text: text, timestamp: ts, model: model, elapsed: nil))
+                    } else if let t = SessionStore.extractText(msg["content"]) {
+                        text = t
                     }
+                    let am = AssistantMessage(
+                        text: text,
+                        thinking: (hideThinking || thinking.isEmpty) ? nil : thinking,
+                        toolCalls: toolCalls,
+                        model: model, timestamp: ts, elapsed: nil)
+                    items.append(.assistant(id: e.id ?? UUID().uuidString, msg: am))
                 case "toolResult":
                     break // surfaced inline with the toolCall
                 case "bashExecution":
@@ -147,16 +170,16 @@ struct Transcript {
             case "custom":
                 if let item = buildCustom(e) { items.append(item) }
             case "custom_message":
-                // turn-meta carries {elapsed, model} in details; attach to the previous
-                // assistant text so each finished turn shows its elapsed time + model.
+                // turn-meta carries {elapsed, model} in details; attach to the previous assistant
+                // message so a FINISHED turn shows elapsed time (mid-turn messages get none).
                 if (e.raw["customType"] as? String) == "turn-meta",
                    let details = e.raw["details"] as? [String: Any],
                    let elapsed = details["elapsed"] as? Double {
                     for idx in stride(from: items.count - 1, through: 0, by: -1) {
-                        if case .assistantText(let aid, let t, let ats, let m, _) = items[idx] {
-                            items[idx] = .assistantText(id: aid, text: t, timestamp: ats,
-                                                        model: (details["model"] as? String) ?? m,
-                                                        elapsed: elapsed)
+                        if case .assistant(let aid, var am) = items[idx] {
+                            am.elapsed = elapsed
+                            if am.model == nil { am.model = details["model"] as? String }
+                            items[idx] = .assistant(id: aid, msg: am)
                             break
                         }
                     }

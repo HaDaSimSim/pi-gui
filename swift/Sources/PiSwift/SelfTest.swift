@@ -33,7 +33,7 @@ enum SelfTest {
             // Poll for completion off the published state.
             rt.sendPromptWhenReady("Reply with exactly: PONG") {
                 print("  streaming=\(rt.isStreaming) items=\(rt.items.count) model=\(rt.model ?? "nil")")
-                for it in rt.items { if case .assistantText(_, let t, _, _, _) = it { print("  assistant: \(t.prefix(80))"); if t.contains("PONG") { sawText = true } } }
+                for it in rt.items { if case .assistant(_, let am) = it { print("  assistant: \(am.text.prefix(80))"); if am.text.contains("PONG") { sawText = true } } }
                 print("  footer cost=\(String(format: "%.4f", rt.footer.cost)) sessionPath=\(rt.sessionPathForTest ?? "nil")")
                 rt.dispose()
                 done.signal()
@@ -175,7 +175,7 @@ enum SelfTest {
         var withElapsed = 0, todoLists = 0, subRuns = 0, subWithTurns = 0
         for it in items {
             switch it {
-            case .assistantText(_, _, _, _, let e): if e != nil { withElapsed += 1 }
+            case .assistant(_, let am): if am.elapsed != nil { withElapsed += 1 }
             case .todoList(_, let todos): if !todos.isEmpty { todoLists += 1 }
             case .subagentRun(_, let run): subRuns += 1; if !run.turns.isEmpty { subWithTurns += 1 }
             default: break

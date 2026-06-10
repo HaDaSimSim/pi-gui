@@ -140,8 +140,10 @@ private struct ThinkingBlock: View {
                     if !expanded {
                         Text(text.prefix(80)).lineLimit(1).foregroundStyle(.tertiary)
                     }
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    Image(systemName: "chevron.right")
                         .font(.system(size: 9))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 12, alignment: .center)
                     Spacer(minLength: 0)
                 }
                 .font(.caption).foregroundStyle(.secondary)
@@ -155,9 +157,11 @@ private struct ThinkingBlock: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.2), value: expanded)
     }
 }
 
@@ -178,14 +182,20 @@ private struct ToolCallCard: View {
     private var statusColor: Color { isError ? Theme.danger : (running ? Theme.streaming : Theme.success) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Whole box toggles; chevron pinned to the right edge of the box.
+        VStack(alignment: .leading, spacing: 0) {
+            // Whole box (incl. padding) toggles; chevron pinned to the right edge.
             Button {
                 expanded.toggle()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: Theme.toolIcon(name)).foregroundStyle(statusColor).font(.caption)
-                    Text(name).font(.system(.caption, design: .monospaced)).fontWeight(.medium)
+                    // Icon + tool name in a status-colored chip for a consistent, tidy left edge.
+                    HStack(spacing: 4) {
+                        Image(systemName: Theme.toolIcon(name)).font(.system(size: 10))
+                        Text(name).font(.system(.caption2, design: .monospaced)).fontWeight(.medium)
+                    }
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(statusColor.opacity(0.12), in: Capsule())
                     Text(argSummary).font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary).lineLimit(1)
                     Spacer(minLength: 4)
@@ -193,25 +203,32 @@ private struct ToolCallCard: View {
                         Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
                             .font(.system(size: 10)).foregroundStyle(statusColor)
                     }
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    Image(systemName: "chevron.right")
                         .font(.system(size: 9)).foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 12, alignment: .center)
                 }
+                .padding(.horizontal, 8).padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             if expanded {
-                if !args.isEmpty {
-                    CodeText(String(describing: argsJSON).prefix(2000).description)
+                VStack(alignment: .leading, spacing: 6) {
+                    if !args.isEmpty {
+                        CodeText(String(describing: argsJSON).prefix(2000).description)
+                    }
+                    if let result {
+                        Text("result").font(.caption2).foregroundStyle(.tertiary)
+                        CodeText(String(result.prefix(4000)))
+                    }
                 }
-                if let result {
-                    Text("result").font(.caption2).foregroundStyle(.tertiary)
-                    CodeText(String(result.prefix(4000)))
-                }
+                .padding(.horizontal, 8).padding(.bottom, 6)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(statusColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(statusColor.opacity(0.2), lineWidth: 1))
+        .animation(.easeInOut(duration: 0.2), value: expanded)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
     }
 
     private var argsJSON: Any {

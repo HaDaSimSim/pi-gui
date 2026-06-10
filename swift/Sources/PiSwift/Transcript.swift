@@ -67,6 +67,8 @@ struct SubagentRun {
     var turns: [SubagentTurn] = []
     var cost: Double = 0
     var error: String?
+    var batchId: String?
+    var stale: Bool = false    // persisted 'running' that hasn't updated in a long time
 }
 
 struct SubagentTurn: Identifiable {
@@ -228,7 +230,14 @@ struct Transcript {
                 startedAt: (data["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) },
                 turns: turns,
                 cost: (usage?["cost"] as? Double) ?? 0,
-                error: data["error"] as? String
+                error: data["error"] as? String,
+                batchId: data["batchId"] as? String,
+                stale: {
+                    // Persisted 'running' whose timestamp is old => producing process likely died.
+                    guard (data["status"] as? String) == "running",
+                          let started = data["startedAt"] as? Double else { return false }
+                    return Date().timeIntervalSince1970 * 1000 - started > 90_000
+                }()
             )
             return .subagentRun(id: id, run: run)
         case "todo-list":

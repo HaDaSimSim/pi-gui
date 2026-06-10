@@ -29,7 +29,7 @@ struct InfoPanelView: View {
                     case 0: infoTab
                     case 1: subagentsTab
                     case 2: tasksTab
-                    default: GitTab(cwd: tab.cwd)
+                    default: GitPanelView(cwd: tab.cwd)
                     }
                 }
                 .padding(12)
@@ -40,24 +40,50 @@ struct InfoPanelView: View {
     }
 
     private var infoTab: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            row("Model", runtime.model ?? "—")
-            row("Thinking", runtime.thinkingLevel)
-            row("Session", runtime.sessionName ?? "—")
+        VStack(alignment: .leading, spacing: 14) {
+            // Inline rename.
+            InlineRename(runtime: runtime)
+            // Model + effort controls (shared with the composer).
+            ModelEffortControls(runtime: runtime)
             Divider()
+            // Context window.
             if runtime.footer.contextWindow > 0 {
+                let pct = Int(Double(runtime.footer.contextTokens) / Double(runtime.footer.contextWindow) * 100)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Context").font(.caption).foregroundStyle(.secondary)
                     ProgressView(value: Double(runtime.footer.contextTokens),
                                  total: Double(runtime.footer.contextWindow))
-                    Text("\(Fmt.tokens(runtime.footer.contextTokens))/\(Fmt.tokens(runtime.footer.contextWindow))")
+                    Text("\(Fmt.tokens(runtime.footer.contextTokens))/\(Fmt.tokens(runtime.footer.contextWindow)) (\(pct)%)")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            row("Cost", Fmt.cost(runtime.footer.cost))
-            row("Input", Fmt.tokens(runtime.footer.inputTokens))
-            row("Output", Fmt.tokens(runtime.footer.outputTokens))
-            row("Cache R/W", "\(Fmt.tokens(runtime.footer.cacheRead))/\(Fmt.tokens(runtime.footer.cacheWrite))")
+            // Token composition bar.
+            TokenCompositionBar(footer: runtime.footer)
+            // Stats grid.
+            statsGrid
+            Divider()
+            // Capabilities (extensions / skills / prompts).
+            CapabilitiesSection(commands: runtime.commands)
+        }
+    }
+
+    private var statsGrid: some View {
+        let f = runtime.footer
+        return LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading),
+                                   GridItem(.flexible(), alignment: .leading)], spacing: 6) {
+            statCell("Cost", Fmt.cost(f.cost))
+            statCell("Tokens", Fmt.tokens(f.totalTokens))
+            statCell("Input", Fmt.tokens(f.inputTokens))
+            statCell("Output", Fmt.tokens(f.outputTokens))
+            statCell("Cache read", Fmt.tokens(f.cacheRead))
+            statCell("Cache write", Fmt.tokens(f.cacheWrite))
+        }
+    }
+
+    private func statCell(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(.caption).fontWeight(.medium)
         }
     }
 
@@ -65,26 +91,35 @@ struct InfoPanelView: View {
         let runs = runtime.items.compactMap { item -> SubagentRun? in
             if case .subagentRun(_, let r) = item { return r }; return nil
         }
-        return Group {
-            if runs.isEmpty {
-                Text("No subagent runs yet.").foregroundStyle(.secondary).font(.callout)
-            } else {
-                ForEach(runs, id: \.runId) { run in
-                    TranscriptItemView(item: .subagentRun(id: run.runId, run: run), isStreaming: false)
-                }
-            }
-        }
+        return SubagentsList(runs: runs)
     }
 
     private var tasksTab: some View {
         let todos = runtime.items.reversed().compactMap { item -> [TodoItem]? in
             if case .todoList(_, let t) = item { return t }; return nil
         }.first
-        return Group {
+        let goal = runtime.items.reversed().compactMap { item -> (String, String)? in
+            if case .goalState(_, let obj, let status) = item { return (obj, status) }; return nil
+        }.first
+        return VStack(alignment: .leading, spacing: 12) {
+            if let goal {
+                HStack(spacing: 7) {
+                    Text(Theme.goalEmoji(goal.1))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(goal.0).font(.callout).fontWeight(.medium)
+                        Text("goal \(goal.1)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+            }
             if let todos, !todos.isEmpty {
                 TodoWidget(todos: todos, isStreaming: runtime.isStreaming)
-            } else {
-                Text("No goal or todos yet.").foregroundStyle(.secondary).font(.callout)
+            }
+            if goal == nil && (todos?.isEmpty ?? true) {
+                ContentUnavailableView("No goal or todos yet", systemImage: "checklist")
             }
         }
     }
@@ -98,54 +133,114 @@ struct InfoPanelView: View {
     }
 }
 
-private struct GitTab: View {
-    let cwd: String
-    @State private var info = GitInfo()
-    @State private var loaded = false
+// MARK: - Info tab building blocks
 
+private struct InlineRename: View {
+    @ObservedObject var runtime: RuntimeSession
+    @State private var editing = false
+    @State private var draft = ""
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !loaded {
-                ProgressView().task { reload() }
-            } else if !info.isRepo {
-                Text("Not a git repository.").foregroundStyle(.secondary).font(.callout)
+        HStack(spacing: 6) {
+            Text("Session").font(.caption).foregroundStyle(.secondary)
+            if editing {
+                TextField("name", text: $draft).textFieldStyle(.roundedBorder)
+                    .disableAutocorrection(true)
+                    .onSubmit { commit() }
+                Button("Save") { commit() }.font(.caption)
+                Button("Cancel") { editing = false }.font(.caption)
             } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.branch")
-                    Text(info.branch ?? "detached").fontWeight(.medium)
-                    if info.ahead > 0 { Text("↑\(info.ahead)").foregroundStyle(Theme.success) }
-                    if info.behind > 0 { Text("↓\(info.behind)").foregroundStyle(Theme.streaming) }
-                    Spacer()
-                    Button { reload() } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless)
-                }
-                .font(.callout)
-                if info.staged.isEmpty && info.unstaged.isEmpty && info.untracked.isEmpty {
-                    Label("Working tree clean", systemImage: "checkmark.circle")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    fileGroup("Staged", info.staged, Theme.success)
-                    fileGroup("Unstaged", info.unstaged, Theme.streaming)
-                    fileGroup("Untracked", info.untracked, .secondary)
-                }
+                Text(runtime.sessionName ?? "—").font(.caption).fontWeight(.medium).lineLimit(1)
+                Button { draft = runtime.sessionName ?? ""; editing = true } label: {
+                    Image(systemName: "pencil").font(.caption2)
+                }.buttonStyle(.borderless)
+                Spacer()
             }
         }
     }
+    private func commit() {
+        if !draft.isEmpty { runtime.rename(draft) }
+        editing = false
+    }
+}
 
-    @ViewBuilder private func fileGroup(_ title: String, _ files: [String], _ color: Color) -> some View {
-        if !files.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption2).foregroundStyle(.secondary)
-                ForEach(files, id: \.self) { f in
-                    Text(f).font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(color).lineLimit(1).truncationMode(.middle)
+private struct ModelEffortControls: View {
+    @ObservedObject var runtime: RuntimeSession
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        HStack(spacing: 8) {
+            ModelPicker(runtime: runtime)
+            EffortPicker(runtime: runtime)
+            Spacer()
+        }
+    }
+}
+
+private struct TokenCompositionBar: View {
+    let footer: FooterStats
+    var body: some View {
+        let total = max(footer.inputTokens + footer.outputTokens + footer.cacheRead + footer.cacheWrite, 1)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("Token composition").font(.caption2).foregroundStyle(.secondary)
+            GeometryReader { geo in
+                HStack(spacing: 0) {
+                    seg(geo.size.width, footer.inputTokens, total, Theme.tokInput)
+                    seg(geo.size.width, footer.outputTokens, total, Theme.tokOutput)
+                    seg(geo.size.width, footer.cacheRead, total, Theme.tokCacheRead)
+                    seg(geo.size.width, footer.cacheWrite, total, Theme.tokCacheWrite)
                 }
+            }
+            .frame(height: 6)
+            .clipShape(Capsule())
+        }
+    }
+    private func seg(_ width: CGFloat, _ value: Int, _ total: Int, _ color: Color) -> some View {
+        color.frame(width: width * CGFloat(value) / CGFloat(total))
+    }
+}
+
+private struct CapabilitiesSection: View {
+    let commands: [SlashCommand]
+    var body: some View {
+        let groups: [(String, [SlashCommand])] = [
+            ("Extensions", commands.filter { $0.source == "extension" }),
+            ("Skills", commands.filter { $0.source == "skill" }),
+            ("Prompts", commands.filter { $0.source == "prompt" }),
+        ].filter { !$0.1.isEmpty }
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Capabilities").font(.caption).foregroundStyle(.secondary)
+            if groups.isEmpty {
+                Text("Send a message to load commands").font(.caption2).foregroundStyle(.tertiary)
+            }
+            ForEach(groups, id: \.0) { group in
+                CapabilityGroup(title: group.0, commands: group.1)
             }
         }
     }
+}
 
-    private func reload() {
-        info = GitInfo.load(cwd: cwd)
-        loaded = true
+private struct CapabilityGroup: View {
+    let title: String
+    let commands: [SlashCommand]
+    @State private var expanded = false
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            ForEach(commands) { c in
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 4) {
+                        Text("/\(c.name.replacingOccurrences(of: "skill:", with: ""))")
+                            .font(.system(.caption2, design: .monospaced)).fontWeight(.medium)
+                        if let hint = c.argumentHint {
+                            Text(hint).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                    if let d = c.description {
+                        Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } label: {
+            Text("\(title) · \(commands.count)").font(.caption2).foregroundStyle(.secondary)
+        }
     }
 }

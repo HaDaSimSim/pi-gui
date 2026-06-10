@@ -63,6 +63,8 @@ struct SubagentDetailView: View {
             Text("Read-only").font(.caption2).foregroundStyle(.tertiary)
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(.quaternary, in: Capsule())
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
     }

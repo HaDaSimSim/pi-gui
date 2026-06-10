@@ -41,71 +41,62 @@ struct ComposerView: View {
                 }
             }
 
-            HStack(alignment: .top, spacing: 8) {
-                modelControls
-                Spacer()
-            }
-
             HStack(alignment: .bottom, spacing: 8) {
-                Button { pickImages() } label: { Image(systemName: "paperclip") }
-                    .buttonStyle(.borderless).help("Attach image")
+                Button { pickImages() } label: {
+                    Image(systemName: "paperclip").font(.system(size: 15)).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain).help("Attach image").padding(.bottom, 5)
+
                 ComposerTextView(text: $draft, measuredHeight: $inputHeight, onSubmit: submit)
                     .frame(height: inputHeight)
-                    .padding(.horizontal, 6)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(.quaternary, lineWidth: 1))
                     .onChange(of: draft) { _, v in
                         showSlashMenu = v.hasPrefix("/") && !v.contains(" ")
                     }
 
                 if runtime.isStreaming {
-                    Button(role: .destructive) { runtime.abort() } label: {
-                        Image(systemName: "stop.fill")
-                    }
-                    .help("Stop")
-                    sendButton(label: deliverAs == "steer" ? "Steer" : "Follow-up", icon: "arrow.up")
+                    circleButton(icon: "stop.fill", tint: Theme.danger, enabled: true) { runtime.abort() }
+                        .padding(.bottom, 3)
+                    circleButton(icon: "arrow.up", tint: .accentColor,
+                                 enabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                                 action: submit)
+                        .padding(.bottom, 3)
                 } else {
-                    sendButton(label: "Send", icon: "arrow.up")
+                    circleButton(icon: "arrow.up", tint: .accentColor,
+                                 enabled: !(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty),
+                                 action: submit)
+                        .padding(.bottom, 3)
                 }
             }
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 20).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+
+            HStack(spacing: 10) {
+                modelControls
+                Spacer()
+            }
+            .padding(.horizontal, 4)
         }
         .padding(12)
     }
 
     private var modelControls: some View {
         HStack(spacing: 8) {
-            Menu {
-                ForEach(model.models) { m in
-                    Button(m.spec) {
-                        runtime.setModel(provider: m.provider, modelId: m.id)
-                    }
-                }
-            } label: {
-                Label(runtime.model ?? model.config.defaultModelSpec ?? "model",
-                      systemImage: "cpu")
-                    .font(.caption)
-            }
-            .menuStyle(.borderlessButton).fixedSize()
-
-            Menu {
-                ForEach(["off", "minimal", "low", "medium", "high", "xhigh"], id: \.self) { lvl in
-                    Button(lvl) { runtime.setThinking(lvl) }
-                }
-            } label: {
-                Text(runtime.thinkingLevel).font(.caption)
-            }
-            .menuStyle(.borderlessButton).fixedSize()
+            ModelPicker(runtime: runtime)
+            EffortPicker(runtime: runtime)
         }
     }
 
-    private func sendButton(label: String, icon: String) -> some View {
-        Button(action: submit) {
+    private func circleButton(icon: String, tint: Color, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Image(systemName: icon)
-                .fontWeight(.bold)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(enabled ? tint : Color.secondary.opacity(0.4)))
         }
-        .keyboardShortcut(.return, modifiers: [])
-        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        .help(label)
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     private var slashMenu: some View {

@@ -77,6 +77,7 @@ protocol RpcClientDelegate: AnyObject {
 /// One RpcClient == one `pi --mode rpc` process == one session.
 final class RpcClient {
     private let process = Process()
+    private var didLaunch = false
     private let stdinPipe = Pipe()
     private let stdoutPipe = Pipe()
     private let stderrPipe = Pipe()
@@ -128,10 +129,12 @@ final class RpcClient {
         }
 
         try process.run()
+        didLaunch = true
     }
 
     /// Send a command object as a single LF-terminated JSON line.
     func send(_ command: [String: Any]) {
+        guard didLaunch else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: command, options: []) else { return }
         var line = data
         line.append(0x0A)
@@ -141,14 +144,17 @@ final class RpcClient {
     }
 
     func terminate() {
+        // No-op if the process was never launched (browse-only tabs). Calling terminate() or
+        // writing to the stdin pipe before run() raises NSInvalidArgumentException and crashes.
+        guard didLaunch else { return }
         send(["type": "abort"])
         writeQueue.async { [weak self] in
             try? self?.stdinPipe.fileHandleForWriting.close()
         }
-        process.terminate()
+        if process.isRunning { process.terminate() }
     }
 
-    var isRunning: Bool { process.isRunning }
+    var isRunning: Bool { didLaunch && process.isRunning }
 
     // MARK: - Typed command helpers
 

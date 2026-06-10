@@ -20,6 +20,8 @@ RES="$CONTENTS/Resources"
 rm -rf "$APP"
 mkdir -p "$MACOS" "$RES"
 cp "$BIN" "$MACOS/$APP_NAME"
+# App icon (serif π). Regenerate with: swift make-icon.swift Resources/AppIcon.iconset && iconutil -c icns ...
+if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$RES/AppIcon.icns"; fi
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -33,6 +35,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>2.0.0</string>
     <key>CFBundleShortVersionString</key><string>2.0.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>

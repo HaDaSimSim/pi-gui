@@ -236,7 +236,8 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
                 commands = cmds.compactMap { c in
                     guard let name = c["name"] as? String else { return nil }
                     return SlashCommand(name: name, description: c["description"] as? String,
-                                        source: (c["source"] as? String) ?? "")
+                                        source: (c["source"] as? String) ?? "",
+                                        argumentHint: c["argumentHint"] as? String)
                 }
             }
         case "get_session_stats":
@@ -434,6 +435,7 @@ struct SlashCommand: Identifiable {
     let name: String
     let description: String?
     let source: String
+    var argumentHint: String? = nil
     var id: String { name }
 }
 

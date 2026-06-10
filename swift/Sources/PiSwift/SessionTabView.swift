@@ -27,6 +27,14 @@ struct SessionTabView: View {
         .sheet(item: $runtime.pendingDialog) { dialog in
             DialogView(dialog: dialog, runtime: runtime)
         }
+        .sheet(isPresented: Binding(
+            get: { runtime.questionnaire != nil },
+            set: { if !$0 { runtime.cancelQuestionnaire() } }
+        )) {
+            if let q = runtime.questionnaire {
+                QuestionnaireSheet(runtime: runtime, state: q)
+            }
+        }
         .overlay(alignment: .bottom) { notifications }
     }
 

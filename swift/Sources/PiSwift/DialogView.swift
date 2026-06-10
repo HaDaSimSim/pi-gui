@@ -39,6 +39,7 @@ struct DialogView: View {
             case "input":
                 TextField(dialog.placeholder ?? "", text: $inputText)
                     .textFieldStyle(.roundedBorder)
+                    .disableAutocorrection(true)
                     .onSubmit { runtime.answerDialog(dialog, value: inputText, confirmed: nil) }
                 buttons {
                     Button("Cancel") { runtime.answerDialog(dialog, value: nil, confirmed: nil) }
@@ -48,6 +49,7 @@ struct DialogView: View {
             case "editor":
                 TextEditor(text: $inputText)
                     .font(.system(.body, design: .monospaced))
+                    .disableAutocorrection(true)
                     .frame(minHeight: 120)
                     .border(.quaternary)
                     .onAppear { if inputText.isEmpty { inputText = dialog.prefill ?? "" } }

@@ -24,6 +24,8 @@ struct TranscriptItemView: View {
             TodoCard(todos: todos, isStreaming: isStreaming)
         case .goalState(_, let objective, let status):
             GoalCard(objective: objective, status: status)
+        case .btwAnswer(_, let question, let answer):
+            BtwCard(question: question, answer: answer)
         case .notice(_, let text):
             HStack {
                 Spacer()
@@ -244,6 +246,30 @@ private struct TodoCard: View {
             else { Image(systemName: "smallcircle.filled.circle").foregroundStyle(Theme.info) }
         default: Image(systemName: "circle").foregroundStyle(.tertiary)
         }
+    }
+}
+
+private struct BtwCard: View {
+    let question: String
+    let answer: String
+    @State private var expanded = true
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left.and.text.bubble.right").foregroundStyle(Theme.info)
+                Text("by the way").fontWeight(.medium)
+                Spacer()
+                Text("not saved to the conversation")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            Text(question).font(.callout).foregroundStyle(.secondary)
+            Divider()
+            MarkdownView(answer)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.info.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.info.opacity(0.25), lineWidth: 1))
     }
 }
 

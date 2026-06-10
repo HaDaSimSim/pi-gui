@@ -18,6 +18,16 @@ struct ComposerTextView: NSViewRepresentable {
         tv.allowsUndo = true
         tv.drawsBackground = false
         tv.textContainerInset = NSSize(width: 4, height: 7)
+        // Disable all macOS automatic text substitutions — code/prompts must stay verbatim.
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
+        tv.isAutomaticTextReplacementEnabled = false
+        tv.isAutomaticSpellingCorrectionEnabled = false
+        tv.isAutomaticDataDetectionEnabled = false
+        tv.isAutomaticLinkDetectionEnabled = false
+        tv.isContinuousSpellCheckingEnabled = false
+        tv.isGrammarCheckingEnabled = false
+        tv.smartInsertDeleteEnabled = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = false
         context.coordinator.textView = tv

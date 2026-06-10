@@ -129,7 +129,16 @@ struct ComposerView: View {
         if let tab = model.activeTab, tab.id == model.activeTabID {
             model.ensureRuntimeStarted(for: tab)
         }
-        runtime.sendPrompt(text)
+        // !cmd / !!cmd run a bash command in the session (!! keeps output out of LLM context).
+        if text.hasPrefix("!!") {
+            let cmd = String(text.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            if !cmd.isEmpty { runtime.runBash(cmd, excludeFromContext: true) }
+        } else if text.hasPrefix("!") {
+            let cmd = String(text.dropFirst(1)).trimmingCharacters(in: .whitespaces)
+            if !cmd.isEmpty { runtime.runBash(cmd, excludeFromContext: false) }
+        } else {
+            runtime.sendPrompt(text)
+        }
         draft = ""
         showSlashMenu = false
     }

@@ -329,12 +329,19 @@ func renderInlineMarkdown(_ raw: String) -> AttributedString {
     options.interpretedSyntax = .inlineOnlyPreservingWhitespace
     options.allowsExtendedAttributes = true
     if var attributed = try? AttributedString(markdown: raw, options: options) {
-        // Style links: keep the visible text + a hint color/underline, but the
-        // URL stays as inert metadata (no tap-to-open is wired up).
+        let inlineFontSize = CGFloat(AppSettings.fontSize)
         for run in attributed.runs {
+            // Style links: keep the visible text + a hint color/underline, but the
+            // URL stays as inert metadata (no tap-to-open is wired up).
             if attributed[run.range].link != nil {
                 attributed[run.range].foregroundColor = .accentColor
                 attributed[run.range].underlineStyle = .single
+            }
+            // Inline `code`: monospaced glyphs on a subtle chip background.
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                attributed[run.range].font = .system(size: inlineFontSize, design: .monospaced)
+                attributed[run.range].backgroundColor = Color.secondary.opacity(0.15)
+                attributed[run.range].foregroundColor = Color(nsColor: .systemPink)
             }
         }
         return attributed
@@ -370,11 +377,16 @@ private struct HeadingView: View {
     }
 
     var body: some View {
-        Text(renderInlineMarkdown(raw))
-            .font(font)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, level <= 2 ? 4 : 0)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(renderInlineMarkdown(raw))
+                .font(font)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if level <= 2 {
+                Divider().opacity(0.6)
+            }
+        }
+        .padding(.top, level <= 2 ? 4 : 0)
     }
 }
 
@@ -382,9 +394,9 @@ private struct BlockquoteView: View {
     let raw: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 10) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(Color.secondary.opacity(0.4))
+                .fill(Color.accentColor.opacity(0.5))
                 .frame(width: 3)
             Text(renderInlineMarkdown(raw))
                 .font(.body)
@@ -392,7 +404,12 @@ private struct BlockquoteView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.leading, 2)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.secondary.opacity(0.06))
+        )
     }
 }
 
@@ -432,8 +449,9 @@ private struct TableView: View {
             VStack(alignment: .leading, spacing: 0) {
                 tableRow(header, isHeader: true)
                 Divider()
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                     tableRow(row, isHeader: false)
+                        .background(index.isMultiple(of: 2) ? Color.clear : Color.secondary.opacity(0.04))
                 }
             }
             .overlay(
@@ -468,25 +486,54 @@ struct CodeBlockView: View {
     let code: String
     let language: String?
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
     @State private var didCopy = false
 
+    private var theme: CodeTheme {
+        colorScheme == .dark ? .dark : .light
+    }
+
+    // Honor the user's mono font + size from AppSettings, falling back to the
+    // system monospaced face if the configured font isn't installed.
+    private var monoFont: Font {
+        let size = CGFloat(AppSettings.fontSize)
+        let name = AppSettings.monoFontName
+        if !name.isEmpty, NSFont(name: name, size: size) != nil {
+            return .custom(name, size: size)
+        }
+        return .system(size: size, design: .monospaced)
+    }
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            Text(highlight(code, language: language))
-                .font(.system(.body, design: .monospaced))
+            Text(highlight(code, language: language, theme: theme))
+                .font(monoFont)
                 .textSelection(.enabled)
-                .padding(12)
+                .padding(.horizontal, 14)
+                .padding(.top, languageLabel == nil ? 12 : 26)
+                .padding(.bottom, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .textBackgroundColor))
+            RoundedRectangle(cornerRadius: 10)
+                .fill(theme.background)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(theme.border, lineWidth: 1)
         )
+        .overlay(alignment: .topLeading) {
+            if let label = languageLabel {
+                Text(label)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .opacity(isHovering ? 0.35 : 0.7)
+                    .animation(.easeInOut(duration: 0.15), value: isHovering)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             copyButton
                 .padding(8)
@@ -495,6 +542,11 @@ struct CodeBlockView: View {
                 .animation(.easeInOut(duration: 0.15), value: didCopy)
         }
         .onHover { isHovering = $0 }
+    }
+
+    private var languageLabel: String? {
+        guard let language, !language.isEmpty else { return nil }
+        return language.lowercased()
     }
 
     private var copyButton: some View {
@@ -523,111 +575,293 @@ struct CodeBlockView: View {
     }
 }
 
+// MARK: - Syntax theme
+
+/// A token-category color palette for fenced code blocks. Two palettes (light /
+/// dark) keep the highlight legible on the block's own background. Colors are
+/// fixed sRGB values close to a modern editor theme rather than system colors,
+/// so they read consistently regardless of accent tint.
+struct CodeTheme {
+    let background: Color
+    let border: Color
+    let plain: Color
+    let keyword: Color
+    let string: Color
+    let number: Color
+    let comment: Color
+    let type: Color
+    let function: Color
+    let attribute: Color
+    let punctuation: Color
+
+    static let light = CodeTheme(
+        background: Color(hex: 0xF6F7F9),
+        border: Color.secondary.opacity(0.18),
+        plain: Color(hex: 0x24292E),
+        keyword: Color(hex: 0xCF222E),      // red/pink
+        string: Color(hex: 0x0A7D33),       // green
+        number: Color(hex: 0xBC5215),       // orange
+        comment: Color(hex: 0x6E7781),      // gray
+        type: Color(hex: 0x117CA8),         // teal
+        function: Color(hex: 0x6639BA),     // purple-blue
+        attribute: Color(hex: 0x8250DF),    // violet
+        punctuation: Color(hex: 0x57606A)   // slate
+    )
+
+    static let dark = CodeTheme(
+        background: Color(hex: 0x1E1E22),
+        border: Color.white.opacity(0.08),
+        plain: Color(hex: 0xD4D4D4),
+        keyword: Color(hex: 0xC586C0),      // pink/purple
+        string: Color(hex: 0xCE9178),       // peach
+        number: Color(hex: 0xD7BA7D),       // soft orange
+        comment: Color(hex: 0x6A9955),      // muted green-gray
+        type: Color(hex: 0x4EC9B0),         // teal
+        function: Color(hex: 0xDCDCAA),     // soft yellow
+        attribute: Color(hex: 0x9CDCFE),    // light blue
+        punctuation: Color(hex: 0x9D9D9D)   // gray
+    )
+}
+
+extension Color {
+    /// Build an opaque sRGB color from a 0xRRGGBB literal.
+    init(hex: UInt32) {
+        let r = Double((hex >> 16) & 0xFF) / 255.0
+        let g = Double((hex >> 8) & 0xFF) / 255.0
+        let b = Double(hex & 0xFF) / 255.0
+        self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
+    }
+}
+
 // MARK: - Lightweight syntax highlighting
 
-/// A tiny, self-contained tokenizer. It highlights strings, comments, numbers,
-/// and a small set of common keywords. It is deliberately language-agnostic and
-/// best-effort — no external dependencies, no remote anything.
-func highlight(_ code: String, language: String?) -> AttributedString {
+/// A small, dependency-free, regex-based tokenizer. It assigns token categories
+/// (keyword, string, number, comment, type, function, attribute, punctuation)
+/// for a set of common languages with a generic fallback, then colors them via
+/// the supplied `CodeTheme`. Best-effort — no external deps, no remote anything.
+func highlight(_ code: String, language: String?, theme: CodeTheme) -> AttributedString {
     var result = AttributedString(code)
-    result.font = .system(.body, design: .monospaced)
+    result.foregroundColor = theme.plain
 
     // Skip highlighting for very large blocks to keep rendering snappy.
     guard code.count <= 20_000 else { return result }
 
-    let keywords = SyntaxKeywords.forLanguage(language)
+    let spec = LanguageSpec.forLanguage(language)
     let nsString = code as NSString
     let fullRange = NSRange(location: 0, length: nsString.length)
 
     func apply(_ color: Color, to nsRange: NSRange) {
-        guard let range = Range(nsRange, in: code),
+        guard nsRange.length > 0,
+              let range = Range(nsRange, in: code),
               let lo = AttributedString.Index(range.lowerBound, within: result),
               let hi = AttributedString.Index(range.upperBound, within: result) else { return }
         result[lo..<hi].foregroundColor = color
     }
 
-    let commentColor = Color.secondary
-    let stringColor = Color(nsColor: .systemGreen)
-    let numberColor = Color(nsColor: .systemPurple)
-    let keywordColor = Color(nsColor: .systemPink)
+    func matches(_ pattern: String, _ options: NSRegularExpression.Options = []) -> [NSTextCheckingResult] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { return [] }
+        return regex.matches(in: code, range: fullRange)
+    }
 
-    // Keywords (whole-word).
-    if !keywords.isEmpty {
-        let pattern = "\\b(" + keywords.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|") + ")\\b"
-        if let regex = try? NSRegularExpression(pattern: pattern) {
-            for match in regex.matches(in: code, range: fullRange) {
-                apply(keywordColor, to: match.range)
-            }
+    // Order matters: later passes overwrite earlier ones where they overlap. We
+    // run low-confidence passes (types, functions, punctuation) first and end
+    // with strings then comments, so a `//` inside a string stays a string and
+    // a keyword inside a comment is recolored as a comment.
+
+    // 1. Types / title-case identifiers (low priority, easily overridden).
+    if spec.highlightTypes {
+        for m in matches("\\b[A-Z][A-Za-z0-9_]*\\b") {
+            apply(theme.type, to: m.range)
         }
     }
 
-    // Numbers.
-    if let regex = try? NSRegularExpression(pattern: "\\b\\d+(\\.\\d+)?\\b") {
-        for match in regex.matches(in: code, range: fullRange) {
-            apply(numberColor, to: match.range)
+    // 2. Function calls: identifier immediately followed by '('.
+    if spec.highlightFunctions {
+        for m in matches("\\b[A-Za-z_][A-Za-z0-9_]*\\s*(?=\\()") {
+            apply(theme.function, to: m.range)
         }
     }
 
-    // Strings: "...", '...', `...` (non-greedy, single line).
-    if let regex = try? NSRegularExpression(pattern: "\"[^\"\\n]*\"|'[^'\\n]*'|`[^`\\n]*`") {
-        for match in regex.matches(in: code, range: fullRange) {
-            apply(stringColor, to: match.range)
+    // 3. Punctuation / operators.
+    for m in matches("[{}()\\[\\];,.:]|[-+*/%=<>!&|^~?]+") {
+        apply(theme.punctuation, to: m.range)
+    }
+
+    // 4. Attributes / annotations / decorators / variables (@foo, #[..], $var).
+    for pattern in spec.attributePatterns {
+        for m in matches(pattern) {
+            apply(theme.attribute, to: m.range)
         }
     }
 
-    // Line comments: // ... and # ... (apply last so they win over keywords).
-    if let regex = try? NSRegularExpression(pattern: "//[^\\n]*|#[^\\n]*") {
-        for match in regex.matches(in: code, range: fullRange) {
-            apply(commentColor, to: match.range)
+    // 5. Keywords (whole-word).
+    if !spec.keywords.isEmpty {
+        let body = spec.keywords.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+        for m in matches("\\b(" + body + ")\\b") {
+            apply(theme.keyword, to: m.range)
+        }
+    }
+
+    // 6. Numbers (int, float with exponent, hex).
+    for m in matches("\\b(0[xX][0-9a-fA-F]+|\\d+(\\.\\d+)?([eE][+-]?\\d+)?)\\b") {
+        apply(theme.number, to: m.range)
+    }
+
+    // 7. Strings.
+    for pattern in spec.stringPatterns {
+        for m in matches(pattern, [.dotMatchesLineSeparators]) {
+            apply(theme.string, to: m.range)
+        }
+    }
+
+    // 8. Comments (win over everything they cover).
+    for pattern in spec.commentPatterns {
+        for m in matches(pattern, [.dotMatchesLineSeparators]) {
+            apply(theme.comment, to: m.range)
         }
     }
 
     return result
 }
 
-private enum SyntaxKeywords {
-    static func forLanguage(_ language: String?) -> [String] {
-        guard let language = language?.lowercased() else { return common }
-        switch language {
+// MARK: - Language specifications
+
+/// Per-language tokenizer configuration: keyword set, which extra passes to run,
+/// and the comment/string syntaxes that apply. Regex literals use doubled
+/// backslashes for Swift string escaping.
+private struct LanguageSpec {
+    var keywords: [String]
+    var highlightTypes: Bool = true
+    var highlightFunctions: Bool = true
+    var attributePatterns: [String] = []
+    var stringPatterns: [String] = [#""(\\.|[^"\\\n])*""#, #"'(\\.|[^'\\\n])*'"#, "`[^`]*`"]
+    var commentPatterns: [String] = ["//[^\\n]*", "/\\*.*?\\*/"]
+
+    static let cComments = ["//[^\\n]*", "/\\*.*?\\*/"]
+    static let hashComments = ["#[^\\n]*"]
+    static let dqString = #""(\\.|[^"\\\n])*""#
+    static let sqString = #"'(\\.|[^'\\\n])*'"#
+
+    static func forLanguage(_ language: String?) -> LanguageSpec {
+        switch (language ?? "").lowercased() {
         case "swift":
-            return ["func", "let", "var", "if", "else", "guard", "return", "struct",
-                    "class", "enum", "protocol", "extension", "import", "for", "while",
-                    "switch", "case", "default", "do", "try", "catch", "throw", "throws",
-                    "async", "await", "self", "init", "deinit", "static", "private",
-                    "public", "internal", "fileprivate", "open", "in", "where", "nil",
-                    "true", "false", "some", "any", "actor", "weak", "unowned", "lazy"]
-        case "js", "javascript", "ts", "typescript", "jsx", "tsx":
-            return ["function", "const", "let", "var", "if", "else", "return", "class",
-                    "extends", "import", "export", "from", "for", "while", "switch",
-                    "case", "default", "do", "try", "catch", "throw", "async", "await",
-                    "new", "this", "null", "undefined", "true", "false", "typeof",
-                    "instanceof", "interface", "type", "enum", "public", "private",
-                    "protected", "static", "readonly", "void"]
+            return LanguageSpec(
+                keywords: ["func", "let", "var", "if", "else", "guard", "return", "struct",
+                           "class", "enum", "protocol", "extension", "import", "for", "while",
+                           "switch", "case", "default", "do", "try", "catch", "throw", "throws",
+                           "rethrows", "async", "await", "self", "init", "deinit", "subscript",
+                           "static", "private", "public", "internal", "fileprivate", "open", "in",
+                           "where", "nil", "true", "false", "some", "any", "actor", "weak",
+                           "unowned", "lazy", "final", "override", "convenience", "required",
+                           "mutating", "nonmutating", "typealias", "associatedtype", "defer",
+                           "repeat", "break", "continue", "as", "is", "inout", "indirect",
+                           "willSet", "didSet"],
+                attributePatterns: ["@[A-Za-z_][A-Za-z0-9_]*"],
+                commentPatterns: cComments)
+        case "js", "javascript", "jsx", "mjs", "cjs":
+            return LanguageSpec(
+                keywords: ["function", "const", "let", "var", "if", "else", "return", "class",
+                           "extends", "super", "import", "export", "from", "as", "for", "while",
+                           "switch", "case", "default", "do", "try", "catch", "finally", "throw",
+                           "async", "await", "new", "delete", "this", "null", "undefined", "true",
+                           "false", "typeof", "instanceof", "void", "in", "of", "yield", "break",
+                           "continue", "static", "get", "set"],
+                attributePatterns: ["@[A-Za-z_][A-Za-z0-9_]*"],
+                commentPatterns: cComments)
+        case "ts", "typescript", "tsx":
+            return LanguageSpec(
+                keywords: ["function", "const", "let", "var", "if", "else", "return", "class",
+                           "extends", "implements", "super", "import", "export", "from", "as",
+                           "for", "while", "switch", "case", "default", "do", "try", "catch",
+                           "finally", "throw", "async", "await", "new", "delete", "this", "null",
+                           "undefined", "true", "false", "typeof", "instanceof", "void", "in",
+                           "of", "yield", "break", "continue", "interface", "type", "enum",
+                           "namespace", "declare", "public", "private", "protected", "static",
+                           "readonly", "abstract", "keyof", "infer", "satisfies", "is", "get", "set"],
+                attributePatterns: ["@[A-Za-z_][A-Za-z0-9_]*"],
+                commentPatterns: cComments)
         case "python", "py":
-            return ["def", "class", "if", "elif", "else", "return", "import", "from",
-                    "for", "while", "try", "except", "finally", "raise", "with", "as",
-                    "lambda", "yield", "async", "await", "None", "True", "False", "and",
-                    "or", "not", "in", "is", "pass", "break", "continue", "global", "nonlocal"]
+            return LanguageSpec(
+                keywords: ["def", "class", "if", "elif", "else", "return", "import", "from",
+                           "for", "while", "try", "except", "finally", "raise", "with", "as",
+                           "lambda", "yield", "async", "await", "None", "True", "False", "and",
+                           "or", "not", "in", "is", "pass", "break", "continue", "global",
+                           "nonlocal", "assert", "del", "match", "case"],
+                attributePatterns: ["@[A-Za-z_][A-Za-z0-9_.]*"],
+                stringPatterns: [#""""(.|\n)*?""""#, "'''(.|\\n)*?'''", dqString, sqString],
+                commentPatterns: hashComments)
         case "rust", "rs":
-            return ["fn", "let", "mut", "if", "else", "match", "return", "struct",
-                    "enum", "trait", "impl", "use", "for", "while", "loop", "break",
-                    "continue", "pub", "mod", "async", "await", "self", "Self", "where",
-                    "true", "false", "const", "static", "ref", "move", "dyn", "type"]
+            return LanguageSpec(
+                keywords: ["fn", "let", "mut", "if", "else", "match", "return", "struct",
+                           "enum", "trait", "impl", "use", "for", "while", "loop", "break",
+                           "continue", "pub", "mod", "async", "await", "self", "Self", "where",
+                           "true", "false", "const", "static", "ref", "move", "dyn", "type",
+                           "crate", "super", "as", "in", "unsafe", "extern", "box"],
+                attributePatterns: ["#!?\\[[^\\]]*\\]"],
+                commentPatterns: cComments)
         case "go", "golang":
-            return ["func", "var", "const", "if", "else", "return", "struct", "type",
-                    "interface", "import", "package", "for", "range", "switch", "case",
-                    "default", "go", "defer", "chan", "map", "nil", "true", "false",
-                    "break", "continue", "select", "fallthrough"]
-        case "json":
-            return ["true", "false", "null"]
+            return LanguageSpec(
+                keywords: ["func", "var", "const", "if", "else", "return", "struct", "type",
+                           "interface", "import", "package", "for", "range", "switch", "case",
+                           "default", "go", "defer", "chan", "map", "nil", "true", "false",
+                           "break", "continue", "select", "fallthrough", "goto"],
+                commentPatterns: cComments)
+        case "json", "jsonc":
+            return LanguageSpec(
+                keywords: ["true", "false", "null"],
+                highlightTypes: false,
+                highlightFunctions: false,
+                stringPatterns: [dqString],
+                commentPatterns: cComments)
+        case "bash", "sh", "shell", "zsh", "console":
+            return LanguageSpec(
+                keywords: ["if", "then", "else", "elif", "fi", "for", "while", "do", "done",
+                           "case", "esac", "in", "function", "return", "local", "export",
+                           "source", "echo", "cd", "exit", "set", "unset", "read", "true",
+                           "false", "break", "continue"],
+                highlightTypes: false,
+                attributePatterns: ["\\$\\{?[A-Za-z_][A-Za-z0-9_]*\\}?", "\\$[0-9@*#?]"],
+                commentPatterns: hashComments)
+        case "html", "xml", "svg", "xhtml":
+            return LanguageSpec(
+                keywords: [],
+                highlightTypes: false,
+                highlightFunctions: false,
+                attributePatterns: ["</?[A-Za-z][A-Za-z0-9-]*", "/?>", "\\b[A-Za-z-]+(?==)"],
+                stringPatterns: [dqString, sqString],
+                commentPatterns: ["<!--.*?-->"])
+        case "css", "scss", "less":
+            return LanguageSpec(
+                keywords: ["important", "inherit", "initial", "unset", "none", "auto", "hidden",
+                           "block", "inline", "flex", "grid", "absolute", "relative", "fixed"],
+                highlightTypes: false,
+                attributePatterns: ["[.#][A-Za-z_][A-Za-z0-9_-]*", "[A-Za-z-]+(?=\\s*:)", "@[A-Za-z-]+"],
+                stringPatterns: [dqString, sqString],
+                commentPatterns: ["/\\*.*?\\*/"])
+        case "sql", "mysql", "postgres", "postgresql", "sqlite":
+            return LanguageSpec(
+                keywords: ["SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
+                           "DELETE", "CREATE", "TABLE", "DROP", "ALTER", "ADD", "INDEX", "VIEW",
+                           "JOIN", "INNER", "LEFT", "RIGHT", "OUTER", "FULL", "ON", "AS", "AND",
+                           "OR", "NOT", "NULL", "IS", "IN", "LIKE", "BETWEEN", "GROUP", "BY",
+                           "ORDER", "HAVING", "LIMIT", "OFFSET", "DISTINCT", "COUNT", "SUM", "AVG",
+                           "MIN", "MAX", "PRIMARY", "KEY", "FOREIGN", "REFERENCES", "UNIQUE",
+                           "DEFAULT", "CASE", "WHEN", "THEN", "ELSE", "END", "UNION", "ALL",
+                           "EXISTS", "select", "from", "where", "insert", "into", "values",
+                           "update", "set", "delete", "create", "table", "join", "on", "and",
+                           "or", "not", "null"],
+                highlightTypes: false,
+                stringPatterns: [sqString, dqString],
+                commentPatterns: ["--[^\\n]*", "/\\*.*?\\*/"])
         default:
-            return common
+            // Generic fallback: a broad keyword set, C-style + hash comments.
+            return LanguageSpec(
+                keywords: ["if", "else", "for", "while", "return", "function", "func", "def",
+                           "class", "import", "export", "const", "let", "var", "true", "false",
+                           "null", "nil", "none", "switch", "case", "break", "continue", "try",
+                           "catch", "throw", "new", "struct", "enum", "type", "public", "private"],
+                attributePatterns: ["@[A-Za-z_][A-Za-z0-9_]*"],
+                commentPatterns: ["//[^\\n]*", "/\\*.*?\\*/", "#[^\\n]*"])
         }
     }
-
-    static let common: [String] = [
-        "if", "else", "for", "while", "return", "function", "func", "def", "class",
-        "import", "export", "const", "let", "var", "true", "false", "null", "nil",
-        "switch", "case", "break", "continue", "try", "catch", "throw", "new"
-    ]
 }

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-APP_NAME="pi.swift"
+APP_NAME="pi"
 BUNDLE_ID="me.mingeon.pi.swift"
 CONFIG="${1:-debug}"
 
@@ -27,11 +27,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key><string>$APP_NAME</string>
-    <key>CFBundleDisplayName</key><string>pi.swift</string>
+    <key>CFBundleDisplayName</key><string>pi</string>
     <key>CFBundleExecutable</key><string>$APP_NAME</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-    <key>CFBundleVersion</key><string>0.1.0</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>2.0.0</string>
+    <key>CFBundleShortVersionString</key><string>2.0.0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>

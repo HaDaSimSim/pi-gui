@@ -13,6 +13,7 @@ enum TranscriptItem: Identifiable {
     case subagentRun(id: String, run: SubagentRun)
     case todoList(id: String, todos: [TodoItem])
     case goalState(id: String, objective: String, status: String)
+    case btwAnswer(id: String, question: String, answer: String)
     case notice(id: String, text: String)   // model_change, compaction, etc.
 
     var id: String {
@@ -20,6 +21,7 @@ enum TranscriptItem: Identifiable {
         case .user(let id, _, _), .assistantText(let id, _, _, _), .thinking(let id, _),
              .toolCall(let id, _, _, _, _), .bashJob(let id, _, _, _, _),
              .subagentRun(let id, _), .todoList(let id, _), .goalState(let id, _, _),
+             .btwAnswer(let id, _, _),
              .notice(let id, _):
             return id
         }
@@ -163,6 +165,9 @@ struct Transcript {
         case "goal-state":
             guard let obj = data["objective"] as? String else { return nil }
             return .goalState(id: id, objective: obj, status: (data["status"] as? String) ?? "")
+        case "btw-answer":
+            guard let q = data["question"] as? String, let a = data["answer"] as? String else { return nil }
+            return .btwAnswer(id: id, question: q, answer: a)
         case "bash-job":
             guard let jobId = data["jobId"] as? String else { return nil }
             return .bashJob(

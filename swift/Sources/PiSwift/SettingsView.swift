@@ -28,8 +28,6 @@ enum AppSettingsKeys {
     static let themeMode = "piswift.themeMode"
     static let trueDark = "piswift.trueDark"
     static let reduceMotion = "piswift.reduceMotion"
-    static let monoFont = "piswift.monoFont"
-    static let fontSize = "piswift.fontSize"
 }
 
 // MARK: - Defaults
@@ -37,8 +35,6 @@ enum AppSettingsKeys {
 private enum SettingsDefaults {
     static let lang = "en"
     static let themeMode = "auto"   // auto | light | dark
-    static let monoFont = "SF Mono"
-    static let fontSize: Double = 14
 }
 
 // MARK: - Settings view
@@ -52,10 +48,16 @@ struct SettingsView: View {
             AppearanceSettingsTab()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
 
-            FontsSettingsTab()
-                .tabItem { Label("Fonts", systemImage: "textformat") }
+            PiSettingsTab()
+                .tabItem { Label("pi", systemImage: "slider.horizontal.3") }
+
+            ProvidersTab()
+                .tabItem { Label("Providers", systemImage: "server.rack") }
+
+            ShortcutsTab()
+                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
         }
-        .frame(width: 460)
+        .frame(width: 560, height: 460)
     }
 }
 
@@ -101,46 +103,6 @@ private struct AppearanceSettingsTab: View {
 
 // MARK: - Fonts
 
-private struct FontsSettingsTab: View {
-    @AppStorage(AppSettingsKeys.monoFont) private var monoFont: String = SettingsDefaults.monoFont
-    @AppStorage(AppSettingsKeys.fontSize) private var fontSize: Double = SettingsDefaults.fontSize
-
-    var body: some View {
-        Form {
-            TextField("Monospace font", text: $monoFont)
-                .textFieldStyle(.roundedBorder)
-
-            VStack(alignment: .leading) {
-                Slider(value: $fontSize, in: 11...22, step: 1) {
-                    Text("Base font size")
-                } minimumValueLabel: {
-                    Text("11")
-                } maximumValueLabel: {
-                    Text("22")
-                }
-                Text("\(Int(fontSize)) pt")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-            }
-
-            Section("Preview") {
-                VStack(alignment: .leading, spacing: 8) {
-                    // Korean + latin sample at the chosen base size.
-                    Text("안녕 world 123")
-                        .font(.system(size: fontSize))
-                    // Monospaced code line in the chosen family at the chosen size.
-                    Text("let x = 42; // code")
-                        .font(.custom(monoFont, size: fontSize))
-                        .monospaced()
-                }
-                .padding(.vertical, 2)
-            }
-        }
-        .formStyle(.grouped)
-        .frame(minHeight: 260)
-    }
-}
-
 // MARK: - Theme application
 
 extension View {
@@ -170,16 +132,11 @@ extension View {
 // MARK: - Read-only accessors
 
 /// Plain (non-reactive) reads of the same settings for code that isn't a View.
+/// Fonts are fixed to Apple system defaults (no user font customization).
 struct AppSettings {
-    static var fontSize: Double {
-        let v = UserDefaults.standard.double(forKey: AppSettingsKeys.fontSize)
-        return v == 0 ? SettingsDefaults.fontSize : v
-    }
-
-    static var monoFontName: String {
-        UserDefaults.standard.string(forKey: AppSettingsKeys.monoFont) ?? SettingsDefaults.monoFont
-    }
-
+    /// Fixed body font size (Apple default). Mono code uses the system monospaced face.
+    static var fontSize: Double { 13 }
+    static var monoFontName: String { "" }   // empty => use system monospaced
     static var lang: String {
         UserDefaults.standard.string(forKey: AppSettingsKeys.lang) ?? SettingsDefaults.lang
     }

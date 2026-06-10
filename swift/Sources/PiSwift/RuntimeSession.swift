@@ -22,6 +22,7 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
     @Published var sessionName: String?
     @Published var lockStatus: LockUIStatus = .owned
     @Published var pendingDialog: PendingDialog?
+    @Published var questionnaire: QuestionnaireState?
     @Published var statusEntries: [String: String] = [:]   // statusKey -> text (ANSI stripped)
     @Published var notifications: [AppNotification] = []
     @Published var commands: [SlashCommand] = []
@@ -121,6 +122,16 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
 
     func abort() { rpc.abort() }
     func setModel(provider: String, modelId: String) { rpc.setModel(provider: provider, modelId: modelId) }
+
+    /// Run a bash command in the session (the !/!! editor convention). The RPC `bash` command
+    /// adds the output to context (unless excludeFromContext). Result surfaces on next reload.
+    func runBash(_ command: String, excludeFromContext: Bool) {
+        guard !command.isEmpty else { return }
+        if let lock, !lock.isMine() { return }
+        rpc.send(["type": "bash", "command": command, "excludeFromContext": excludeFromContext])
+        // Reflect the result shortly after; bash is synchronous-ish over RPC.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.reloadFromFile() }
+    }
 
     // MARK: - Test support
 
@@ -246,12 +257,20 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
                 let args = (raw["args"] as? [String: Any]) ?? [:]
                 liveTools.removeAll { $0.id == id }
                 liveTools.append(LiveTool(id: id, name: name, args: args, done: false, isError: false))
+                // The questionnaire tool ships its full structured questions in args; capture
+                // them to render one rich SwiftUI form instead of sequential native dialogs.
+                if name == "questionnaire", let qs = args["questions"] as? [[String: Any]] {
+                    questionnaire = QuestionnaireState(toolCallId: id, questions: qs.map(QField.init))
+                }
             }
         case "tool_execution_end":
             if let id = raw["toolCallId"] as? String,
                let idx = liveTools.firstIndex(where: { $0.id == id }) {
                 liveTools[idx].done = true
                 liveTools[idx].isError = (raw["isError"] as? Bool) ?? false
+            }
+            if questionnaire?.toolCallId == (raw["toolCallId"] as? String) {
+                questionnaire = nil
             }
         case "turn_end", "agent_end":
             if type == "agent_end" {
@@ -265,9 +284,6 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
                 rpc.getSessionStats()
                 if let cb = onAgentEndOnce { onAgentEndOnce = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { cb() } }
             }
-        case "tool_execution_end":
-            // Live tool result will be reflected on the next reload (agent_end).
-            break
         default:
             break
         }
@@ -277,6 +293,13 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
 
     private func handleUIRequest(_ req: RpcUIRequest) {
         if req.isDialog {
+            // If a questionnaire is active, its sequential select/input dialogs are driven by the
+            // rich form (matched in question order) rather than shown as generic dialogs.
+            if questionnaire != nil, req.method == "select" || req.method == "input" {
+                questionnaire?.pendingRequests.append(req)
+                drainQuestionnaireIfReady()
+                return
+            }
             pendingDialog = PendingDialog(request: req)
             return
         }
@@ -303,6 +326,44 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
         else if let value { rpc.uiRespond(id: dialog.request.id, value: value) }
         else { rpc.uiCancel(id: dialog.request.id) }
         pendingDialog = nil
+    }
+
+    /// Submit the whole questionnaire form. Answers are matched to the sequential select/input
+    /// requests pi emits (in question order). Cancelling cancels the first pending request, which
+    /// makes the question extension abort the whole questionnaire.
+    func submitQuestionnaire(_ answers: [String]) {
+        guard let q = questionnaire else { return }
+        q.answers = answers
+        q.submitted = true
+        questionnaire = q
+        drainQuestionnaireIfReady()
+    }
+
+    func cancelQuestionnaire() {
+        guard let q = questionnaire else { return }
+        // Cancel any already-queued request; subsequent ones won't arrive once aborted.
+        for req in q.pendingRequests { rpc.uiCancel(id: req.id) }
+        questionnaire = nil
+    }
+
+    /// Match queued select/input requests to submitted answers in arrival order.
+    private func drainQuestionnaireIfReady() {
+        guard let q = questionnaire, q.submitted else { return }
+        while q.nextAnswerIndex < q.pendingRequests.count,
+              q.nextAnswerIndex < q.answers.count {
+            let req = q.pendingRequests[q.nextAnswerIndex]
+            let ans = q.answers[q.nextAnswerIndex]
+            if req.method == "select" {
+                // Map the chosen option value to the label pi expects back (it indexes by label).
+                let qf = q.questions[safe: q.nextAnswerIndex]
+                let label = qf?.options.first(where: { $0.value == ans })?.label ?? ans
+                rpc.uiRespond(id: req.id, value: label)
+            } else {
+                rpc.uiRespond(id: req.id, value: ans)
+            }
+            q.nextAnswerIndex += 1
+        }
+        questionnaire = q
     }
 
     private func notify(_ text: String, type: String) {
@@ -341,6 +402,56 @@ struct LiveTool: Identifiable {
     let args: [String: Any]
     var done: Bool
     var isError: Bool
+}
+
+/// A single questionnaire field parsed from the questionnaire tool's args.
+struct QField: Identifiable {
+    let id: String
+    let prompt: String
+    let label: String?
+    let multiSelect: Bool
+    let options: [QOption]
+
+    init(_ raw: [String: Any]) {
+        self.id = (raw["id"] as? String) ?? UUID().uuidString
+        self.prompt = (raw["prompt"] as? String) ?? ""
+        self.label = raw["label"] as? String
+        self.multiSelect = (raw["multiSelect"] as? Bool) ?? false
+        self.options = ((raw["options"] as? [[String: Any]]) ?? []).map(QOption.init)
+    }
+}
+
+struct QOption: Identifiable {
+    let value: String
+    let label: String
+    let description: String?
+    var id: String { value }
+    init(_ raw: [String: Any]) {
+        self.value = (raw["value"] as? String) ?? ""
+        self.label = (raw["label"] as? String) ?? (raw["value"] as? String) ?? ""
+        self.description = raw["description"] as? String
+    }
+}
+
+/// Live questionnaire state: the structured questions (from the tool args) plus the sequential
+/// select/input requests pi emits, which the rich form answers in order.
+final class QuestionnaireState {
+    let toolCallId: String
+    let questions: [QField]
+    var pendingRequests: [RpcUIRequest] = []
+    var answers: [String] = []
+    var submitted = false
+    var nextAnswerIndex = 0
+    init(toolCallId: String, questions: [QField]) {
+        self.toolCallId = toolCallId
+        self.questions = questions
+    }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }
 
 enum ANSI {

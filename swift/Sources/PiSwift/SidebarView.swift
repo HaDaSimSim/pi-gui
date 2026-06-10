@@ -42,7 +42,7 @@ struct SidebarView: View {
                             Button { model.newSession(cwd: dir.cwd) } label: {
                                 Label("New session", systemImage: "plus.circle").font(.caption)
                             }
-                            .buttonStyle(.plain).foregroundStyle(Color.accentColor)
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
                             .padding(.leading, 22).padding(.vertical, 3)
                             ForEach(visibleSessions(dir.cwd)) { s in
                                 SessionRow(summary: s, isLive: model.isLive(s.path))

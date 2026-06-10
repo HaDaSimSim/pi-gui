@@ -14,17 +14,6 @@ struct TabStripView: View {
                         onSelect: { model.activeTabID = tab.id },
                         onClose: { model.closeTab(tab.id) })
             }
-            Button {
-                if let cwd = model.activeTab?.cwd { model.newSession(cwd: cwd) }
-                else { model.pickFolderAndStart() }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)

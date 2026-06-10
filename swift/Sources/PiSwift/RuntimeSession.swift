@@ -12,9 +12,9 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
   private(set) var sessionPath: String?
 
   // Live transcript built from streamed events (separate from the file-read scrollback).
+  // The in-progress assistant turn is committed directly into `items` like the web's
+  // messages[] (no clear-then-reload), so a racing file read can never blank a live turn.
   @Published var items: [TranscriptItem] = []
-  @Published var streamingText: String = ""  // partial assistant text during streaming
-  @Published var streamingThinking: String = ""
   @Published var isStreaming = false
   @Published var footer = FooterStats()
   @Published var model: String?
@@ -46,13 +46,28 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
 
   /// Reload the committed transcript from the session file tail (OOM-safe). This is the
   /// source of truth for tool calls/results, todo/goal/subagent state, and final text.
-  func reloadFromFile() {
+  ///
+  /// P0-2: this is NON-DESTRUCTIVE. pi appends to the jsonl with appendFileSync while we open
+  /// our own FileHandle, so a reload fired on agent_end can race the write and capture a
+  /// truncated tail. We therefore only adopt the reloaded items when they're non-empty; an
+  /// empty/failed read keeps whatever we already streamed into `items`, so a live turn is
+  /// never blanked. `localElapsed` re-applies the locally-measured elapsed to the
+  /// just-finished assistant turn (the file's turn-meta lands one turn late — P0-3).
+  func reloadFromFile(localElapsed: Double? = nil) {
     guard let path = sessionPath else { return }
     let sf = SessionFile(path: path)
     guard let entries = try? sf.tailEntries(maxLines: Int.max, maxBytes: historyBytes) else {
       return
     }
-    items = Transcript.build(from: entries, hideThinking: false)
+    let rebuilt = Transcript.build(from: entries, hideThinking: false, liveCallIds: liveCallIds)
+    // Don't clear a streamed turn if the read came back empty (truncated/racing write).
+    if !rebuilt.isEmpty || items.isEmpty {
+      var next = rebuilt
+      if let localElapsed { applyElapsed(localElapsed, to: &next) }
+      items = next
+    } else if let localElapsed {
+      applyElapsed(localElapsed, to: &items)
+    }
     // Footer/token totals must reflect the WHOLE session, not just the loaded window.
     if let full = try? sf.fullFooter() {
       footer = full
@@ -63,6 +78,18 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
     // Detect whether earlier history exists beyond the current window.
     let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int) ?? 0
     hasEarlierHistory = size > historyBytes
+  }
+
+  /// Stamp `elapsed` onto the most recent assistant item (the just-finished turn). Mirrors
+  /// web's agent_end loop that sets elapsedMs on the last assistant message.
+  private func applyElapsed(_ elapsed: Double, to items: inout [TranscriptItem]) {
+    for idx in stride(from: items.count - 1, through: 0, by: -1) {
+      if case .assistant(let aid, var am) = items[idx] {
+        am.elapsed = elapsed
+        items[idx] = .assistant(id: aid, msg: am)
+        break
+      }
+    }
   }
 
   /// Load an earlier slice of history (doubles the window) and re-render.
@@ -138,6 +165,12 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
     if isStreaming {
       rpc.prompt(text, streamingBehavior: "steer", images: images)
     } else {
+      // P1-1: optimistically show the user's own message immediately (web's send() does the
+      // same for non-steer sends). The agent_end reload replaces items with file truth, so
+      // this is just bridging the gap from submit → agent_end; appendUserIfNew dedups against
+      // a re-emitted message_start(user). Steer/followUp aren't added optimistically (their
+      // position only settles when the message_start(user) event arrives).
+      if !text.isEmpty { appendUserIfNew(text) }
       rpc.prompt(text, images: images)
     }
   }
@@ -150,6 +183,20 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
   @Published var liveTools: [LiveTool] = []
   /// Transient activity banner (retry countdown / compaction), shown above the composer.
   @Published var activityBanner: String?
+
+  // MARK: - Streaming turn accumulation (mirrors web's streamingRef + turnStartRef)
+
+  /// The `items` index of the assistant message currently being streamed, or nil when idle.
+  /// We mutate this item in place as deltas/tools arrive so live order == committed order.
+  private var streamingIndex: Int?
+  /// Wall-clock start of the current agent run, used to compute elapsed locally for the
+  /// just-finished turn (ui-cosmetics writes the file turn-meta one turn late — P0-3).
+  private var turnStart: Date?
+  /// Set by abort() so the next agent_end marks the streamed turn as interrupted (web's
+  /// interruptedRef).
+  private var userInterrupted = false
+  /// Ordered call-ids of tools seen in the live turn, so a reload can map split results.
+  private var liveCallIds: Set<String> = []
 
   /// Re-check lock ownership before any write command. Returns true only when we positively
   /// hold the lock. nil lock (not yet acquired) or a lost lock both refuse — this is the
@@ -168,6 +215,7 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
 
   func abort() {
     guard holdsLockForWrite() else { return }
+    userInterrupted = true  // consumed at the next agent_end to mark the turn interrupted.
     rpc.abort()
   }
   func setModel(provider: String, modelId: String) {
@@ -315,13 +363,34 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
     switch type {
     case "agent_start":
       isStreaming = true
-      streamingText = ""
-      streamingThinking = ""
+      turnStart = Date()  // P0-3: measure elapsed locally for the just-finished turn.
+      userInterrupted = false
+      liveCallIds.removeAll()
+      streamingIndex = nil  // a fresh assistant message will be opened on message_start.
+    case "message_start":
+      // P1-2: open a NEW assistant item per assistant message so text/thinking reset between
+      // messages within one agent run (mirrors web's streamingRef reset on message_start).
+      if let msg = raw["message"] as? [String: Any] {
+        let role = msg["role"] as? String
+        if role == "assistant" {
+          openStreamingAssistant()
+        } else if role == "user" {
+          // A user message delivered via steer/followUp. Add it unless already present
+          // (matches web: scan back to the previous assistant turn for the same text).
+          if let text = SessionStore.extractText(msg["content"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
+          {
+            appendUserIfNew(text)
+          }
+        }
+      }
     case "message_update":
       if let ame = raw["assistantMessageEvent"] as? [String: Any] {
         switch ame["type"] as? String {
-        case "text_delta": streamingText += (ame["delta"] as? String) ?? ""
-        case "thinking_delta": streamingThinking += (ame["delta"] as? String) ?? ""
+        case "text_delta":
+          mutateStreaming { $0.text += (ame["delta"] as? String) ?? "" }
+        case "thinking_delta":
+          mutateStreaming { $0.thinking = ($0.thinking ?? "") + ((ame["delta"] as? String) ?? "") }
         default: break
         }
       }
@@ -329,39 +398,53 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
       if let id = raw["toolCallId"] as? String {
         let name = (raw["toolName"] as? String) ?? "tool"
         let args = (raw["args"] as? [String: Any]) ?? [:]
-        liveTools.removeAll { $0.id == id }
-        liveTools.append(LiveTool(id: id, name: name, args: args, done: false, isError: false))
+        liveCallIds.insert(id)
+        // P1-3: interleave the tool into the streaming assistant message in submission order
+        // (text → tool → text renders in the right order, matching the eventual commit).
+        upsertStreamingTool(id: id, name: name, args: args, status: "running", result: nil)
         // The questionnaire tool ships its full structured questions in args; capture
         // them to render one rich SwiftUI form instead of sequential native dialogs.
         if name == "questionnaire", let qs = args["questions"] as? [[String: Any]] {
           questionnaire = QuestionnaireState(toolCallId: id, questions: qs.map(QField.init))
         }
       }
+    case "tool_execution_update":
+      if let id = raw["toolCallId"] as? String {
+        let partial = SessionStore.extractText((raw["partialResult"] as? [String: Any])?["content"])
+        updateStreamingTool(id: id) { tc in
+          tc.status = "running"
+          if let partial { tc.resultText = partial }
+        }
+      }
     case "tool_execution_end":
-      if let id = raw["toolCallId"] as? String,
-        let idx = liveTools.firstIndex(where: { $0.id == id })
-      {
-        liveTools[idx].done = true
-        liveTools[idx].isError = (raw["isError"] as? Bool) ?? false
+      if let id = raw["toolCallId"] as? String {
+        let isError = (raw["isError"] as? Bool) ?? false
+        let result = SessionStore.extractText((raw["result"] as? [String: Any])?["content"])
+        updateStreamingTool(id: id) { tc in
+          tc.status = isError ? "error" : "done"
+          if let result { tc.resultText = result }
+        }
       }
       if questionnaire?.toolCallId == (raw["toolCallId"] as? String) {
         questionnaire = nil
       }
-    case "turn_end", "agent_end":
-      if type == "agent_end" {
-        isStreaming = false
-        streamingText = ""
-        streamingThinking = ""
-        liveTools.removeAll()
-        // Reload committed truth from the file tail: captures tool calls/results,
-        // todo/goal/subagent custom entries, final assistant text, and usage.
-        reloadFromFile()
-        rpc.getSessionStats()
-        if let cb = onAgentEndOnce {
-          onAgentEndOnce = nil
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { cb() }
+    case "message_end":
+      // Mark the streamed message done; attach errorMessage if it ended in abort/error
+      // (tools still run after message_end, so don't touch tool statuses here — web parity).
+      if let stop = (raw["message"] as? [String: Any])?["stopReason"] as? String,
+        stop == "aborted" || stop == "error"
+      {
+        let errMsg = (raw["message"] as? [String: Any])?["errorMessage"] as? String
+        mutateStreaming { am in
+          if stop == "error" { am.errorMessage = errMsg ?? "Error" }
         }
       }
+      mutateStreaming { $0.streaming = false }
+      streamingIndex = nil
+    case "turn_end":
+      break
+    case "agent_end":
+      finishTurn()
     case "session_error":
       isStreaming = false
       notify((raw["message"] as? String) ?? "Prompt rejected", type: "error")
@@ -384,6 +467,122 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
       reloadFromFile()
     default:
       break
+    }
+  }
+
+  // MARK: - Streaming turn helpers (mirror web's streamingRef / flushStreaming)
+
+  /// Open a fresh assistant item for a new streamed message and remember its index.
+  private func openStreamingAssistant() {
+    let am = AssistantMessage(
+      text: "", thinking: nil, toolCalls: [], model: model,
+      timestamp: Date(), elapsed: nil, streaming: true)
+    items.append(.assistant(id: "stream-\(UUID().uuidString)", msg: am))
+    streamingIndex = items.count - 1
+  }
+
+  /// Mutate the in-progress streamed assistant message in place. Opens one lazily if a delta
+  /// arrives before message_start (web does the same).
+  private func mutateStreaming(_ body: (inout AssistantMessage) -> Void) {
+    if streamingIndex == nil || !indexIsStreamingAssistant(streamingIndex!) {
+      openStreamingAssistant()
+    }
+    guard let idx = streamingIndex, case .assistant(let aid, var am) = items[idx] else { return }
+    body(&am)
+    items[idx] = .assistant(id: aid, msg: am)
+  }
+
+  private func indexIsStreamingAssistant(_ idx: Int) -> Bool {
+    guard items.indices.contains(idx), case .assistant = items[idx] else { return false }
+    return true
+  }
+
+  /// Append or replace a tool call within the streaming assistant message (submission order).
+  private func upsertStreamingTool(
+    id: String, name: String, args: [String: Any], status: String, result: String?
+  ) {
+    mutateStreaming { am in
+      if let j = am.toolCalls.firstIndex(where: { $0.id == id }) {
+        am.toolCalls[j].status = status
+        if let result { am.toolCalls[j].resultText = result }
+      } else {
+        am.toolCalls.append(
+          ToolCallView(id: id, name: name, args: args, status: status, resultText: result))
+      }
+    }
+  }
+
+  /// Update a tool call by id wherever it lives (streaming item first, else scan back through
+  /// committed items — a tool may finish after message_end when streamingIndex is nil).
+  private func updateStreamingTool(id: String, _ mutate: (inout ToolCallView) -> Void) {
+    for idx in stride(from: items.count - 1, through: 0, by: -1) {
+      if case .assistant(let aid, var am) = items[idx],
+        let j = am.toolCalls.firstIndex(where: { $0.id == id })
+      {
+        mutate(&am.toolCalls[j])
+        items[idx] = .assistant(id: aid, msg: am)
+        return
+      }
+    }
+  }
+
+  /// Append a user message unless the same text already sits in the trailing run of user
+  /// messages (back to the previous assistant turn). Mirrors web's message_start(user) dedup
+  /// and also dedups against the optimistic message added in sendPrompt.
+  private func appendUserIfNew(_ text: String) {
+    for idx in stride(from: items.count - 1, through: 0, by: -1) {
+      switch items[idx] {
+      case .assistant: return  // stop at the previous assistant turn
+      case .user(_, let t, _): if t == text { return }
+      default: break
+      }
+    }
+    items.append(.user(id: "u-\(UUID().uuidString)", text: text, timestamp: Date()))
+  }
+
+  /// agent_end: finalize the streamed turn in place (P0-2 — no clear-then-reload), compute
+  /// elapsed locally (P0-3), mark interrupted if the user aborted, then do a guarded reload to
+  /// adopt committed truth (tool results, custom entries) WITHOUT blanking the live turn.
+  private func finishTurn() {
+    isStreaming = false
+    streamingIndex = nil
+    let elapsed = turnStart.map { Date().timeIntervalSince($0) }
+    turnStart = nil
+
+    // Drop a trailing empty assistant message (created right after abort/end with no content).
+    if case .assistant(_, let am)? = items.last,
+      am.text.trimmingCharacters(in: .whitespaces).isEmpty,
+      (am.thinking ?? "").isEmpty, am.toolCalls.isEmpty
+    {
+      items.removeLast()
+    }
+    // Finalize the last assistant turn: clear the streaming flag, stamp elapsed, and mark
+    // interruption (any still-running tool becomes error, like web).
+    for idx in stride(from: items.count - 1, through: 0, by: -1) {
+      if case .assistant(let aid, var am) = items[idx] {
+        am.streaming = false
+        if let elapsed { am.elapsed = elapsed }
+        if userInterrupted {
+          am.interrupted = true
+          for j in am.toolCalls.indices where am.toolCalls[j].status == "running" {
+            am.toolCalls[j].status = "error"
+          }
+        }
+        items[idx] = .assistant(id: aid, msg: am)
+        break
+      }
+    }
+    userInterrupted = false
+    liveTools.removeAll()
+
+    // Guarded reload: adopt the file's committed items (which carry tool results, todo/goal/
+    // subagent custom entries, and final usage) but keep the local elapsed on the just-
+    // finished turn. reloadFromFile won't clear `items` if the read is empty/truncated.
+    reloadFromFile(localElapsed: elapsed)
+    rpc.getSessionStats()
+    if let cb = onAgentEndOnce {
+      onAgentEndOnce = nil
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { cb() }
     }
   }
 

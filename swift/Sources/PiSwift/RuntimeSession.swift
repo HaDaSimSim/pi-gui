@@ -669,7 +669,7 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
     questionnaire = q
   }
 
-  private func notify(_ text: String, type: String) {
+  func notify(_ text: String, type: String) {
     notifications.append(AppNotification(text: text, type: type))
   }
 }

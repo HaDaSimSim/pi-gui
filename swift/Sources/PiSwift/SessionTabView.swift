@@ -97,9 +97,14 @@ struct SessionTabView: View {
           Spacer(minLength: 0)
         }
       }
-      .onChange(of: runtime.items.count) { _, _ in scrollToBottom(proxy) }
+      .onChange(of: runtime.items.count) { _, count in
+        if count > 0 { scrollToBottom(proxy) }
+      }
       .onChange(of: streamingTick) { _, _ in scrollToBottom(proxy) }
-      .onAppear { scrollToBottom(proxy) }
+      .onAppear {
+        // Delay scroll slightly so the initial reloadFromFile has time to populate items.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollToBottom(proxy) }
+      }
       .overlay(alignment: .bottomTrailing) {
         Button {
           scrollToBottom(proxy)

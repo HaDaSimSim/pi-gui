@@ -176,7 +176,11 @@ final class AppModel: ObservableObject {
   /// Start the runtime for a tab on first prompt (lazy — browsing didn't spawn pi).
   func ensureRuntimeStarted(for tab: Tab) {
     if !tab.runtime.isStarted {
-      try? tab.runtime.start()
+      do {
+        try tab.runtime.start()
+      } catch {
+        tab.runtime.notify("Failed to start pi: \(error.localizedDescription)", type: "error")
+      }
     }
   }
 

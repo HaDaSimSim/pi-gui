@@ -150,6 +150,19 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Open a session directly by file path (read-only browse). Used by the visual-test hook
+    /// and any "reveal session" path.
+    func openSessionByPath(_ path: String) {
+        guard let header = try? SessionFile(path: path).header() else { return }
+        let cwd = header.cwd ?? FileManager.default.currentDirectoryPath
+        let meta = store.sessions(inDir: (path as NSString).deletingLastPathComponent)
+            .first(where: { $0.path == path })
+        let summary = SessionSummary(id: header.id, path: path, cwd: cwd,
+                                     name: meta?.name, modified: meta?.modified ?? Date(),
+                                     sizeBytes: meta?.sizeBytes ?? 0, preview: meta?.preview)
+        openSession(summary)
+    }
+
     /// Open a native folder picker and start a NEW session in the chosen directory — this is how
     /// you begin work in a project that has no sessions yet (otherwise you're stuck browsing only
     /// directories that already appear in the list).

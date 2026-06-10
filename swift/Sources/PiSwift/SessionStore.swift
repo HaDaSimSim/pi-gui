@@ -155,6 +155,33 @@ struct SessionStore {
 }
 
 extension SessionFile {
+    /// Aggregate footer stats over the WHOLE file by streaming line-by-line, so token/cost
+    /// totals are correct even when scrollback only shows a tail window. Memory stays bounded.
+    func fullFooter() throws -> FooterStats {
+        guard let fh = FileHandle(forReadingAtPath: path) else { throw SessionParseError.notFound }
+        defer { try? fh.close() }
+        var stats = FooterStats()
+        var buffer = Data()
+        func handle(_ lineData: Data) {
+            guard !lineData.isEmpty,
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else { return }
+            Transcript.accumulateFooter(obj, into: &stats)
+        }
+        while true {
+            let chunk = fh.readData(ofLength: 1024 * 1024)
+            if chunk.isEmpty { break }
+            buffer.append(chunk)
+            while let nl = buffer.firstIndex(of: 0x0A) {
+                var line = buffer.subdata(in: buffer.startIndex..<nl)
+                buffer = buffer.subdata(in: buffer.index(after: nl)..<buffer.endIndex)
+                if line.last == 0x0D { line = line.dropLast() }
+                handle(line)
+            }
+        }
+        handle(buffer)
+        return stats
+    }
+
     /// Read up to maxBytes from the START of the file (for cheap metadata scans).
     static func tailHead(path: String, maxBytes: Int) throws -> Data {
         guard let fh = FileHandle(forReadingAtPath: path) else { throw SessionParseError.notFound }

@@ -6,7 +6,7 @@ import Foundation
 
 enum TranscriptItem: Identifiable {
     case user(id: String, text: String, timestamp: Date?)
-    case assistantText(id: String, text: String, timestamp: Date?, model: String?)
+    case assistantText(id: String, text: String, timestamp: Date?, model: String?, elapsed: Double?)
     case thinking(id: String, text: String)
     case toolCall(id: String, name: String, args: [String: Any], result: String?, isError: Bool)
     case bashJob(id: String, label: String, command: String, status: String, output: String)
@@ -18,7 +18,7 @@ enum TranscriptItem: Identifiable {
 
     var id: String {
         switch self {
-        case .user(let id, _, _), .assistantText(let id, _, _, _), .thinking(let id, _),
+        case .user(let id, _, _), .assistantText(let id, _, _, _, _), .thinking(let id, _),
              .toolCall(let id, _, _, _, _), .bashJob(let id, _, _, _, _),
              .subagentRun(let id, _), .todoList(let id, _), .goalState(let id, _, _),
              .btwAnswer(let id, _, _),
@@ -45,6 +45,27 @@ struct SubagentRun {
     let sessionDir: String?
     let sessionId: String?
     let startedAt: Date?
+    var turns: [SubagentTurn] = []
+    var cost: Double = 0
+    var error: String?
+}
+
+struct SubagentTurn: Identifiable {
+    let index: Int
+    let prompt: String
+    let items: [SubagentTranscriptItem]
+    let finalOutput: String
+    let error: String?
+    var id: Int { index }
+}
+
+struct SubagentTranscriptItem: Identifiable {
+    let id = UUID()
+    let kind: String          // thinking | text | toolCall | toolResult
+    let text: String
+    let toolName: String?
+    let args: [String: Any]?
+    let isError: Bool
 }
 
 struct FooterStats {
@@ -96,7 +117,7 @@ struct Transcript {
                             switch block["type"] as? String {
                             case "text":
                                 if let t = block["text"] as? String, !t.isEmpty {
-                                    items.append(.assistantText(id: bid, text: t, timestamp: ts, model: model))
+                                    items.append(.assistantText(id: bid, text: t, timestamp: ts, model: model, elapsed: nil))
                                 }
                             case "thinking":
                                 if !hideThinking, let t = block["thinking"] as? String, !t.isEmpty {
@@ -113,7 +134,7 @@ struct Transcript {
                             }
                         }
                     } else if let text = SessionStore.extractText(msg["content"]), !text.isEmpty {
-                        items.append(.assistantText(id: e.id ?? UUID().uuidString, text: text, timestamp: ts, model: model))
+                        items.append(.assistantText(id: e.id ?? UUID().uuidString, text: text, timestamp: ts, model: model, elapsed: nil))
                     }
                 case "toolResult":
                     break // surfaced inline with the toolCall
@@ -125,6 +146,21 @@ struct Transcript {
                 }
             case "custom":
                 if let item = buildCustom(e) { items.append(item) }
+            case "custom_message":
+                // turn-meta carries {elapsed, model} in details; attach to the previous
+                // assistant text so each finished turn shows its elapsed time + model.
+                if (e.raw["customType"] as? String) == "turn-meta",
+                   let details = e.raw["details"] as? [String: Any],
+                   let elapsed = details["elapsed"] as? Double {
+                    for idx in stride(from: items.count - 1, through: 0, by: -1) {
+                        if case .assistantText(let aid, let t, let ats, let m, _) = items[idx] {
+                            items[idx] = .assistantText(id: aid, text: t, timestamp: ats,
+                                                        model: (details["model"] as? String) ?? m,
+                                                        elapsed: elapsed)
+                            break
+                        }
+                    }
+                }
             case "model_change":
                 let mid = (e.raw["modelId"] as? String) ?? "?"
                 items.append(.notice(id: e.id ?? UUID().uuidString, text: "Model → \(mid)"))
@@ -142,6 +178,21 @@ struct Transcript {
         switch ct {
         case "subagent-run":
             guard let runId = data["runId"] as? String else { return nil }
+            let turnsRaw = (data["turns"] as? [[String: Any]]) ?? []
+            let turns: [SubagentTurn] = turnsRaw.enumerated().map { (i, t) in
+                let items = ((t["transcript"] as? [[String: Any]]) ?? []).map { ti in
+                    SubagentTranscriptItem(
+                        kind: (ti["kind"] as? String) ?? "text",
+                        text: (ti["text"] as? String) ?? "",
+                        toolName: ti["toolName"] as? String,
+                        args: ti["args"] as? [String: Any],
+                        isError: (ti["isError"] as? Bool) ?? false)
+                }
+                return SubagentTurn(index: i, prompt: (t["prompt"] as? String) ?? "",
+                                    items: items, finalOutput: (t["finalOutput"] as? String) ?? "",
+                                    error: t["error"] as? String)
+            }
+            let usage = data["usage"] as? [String: Any]
             let run = SubagentRun(
                 runId: runId,
                 title: (data["title"] as? String) ?? "subagent",
@@ -151,7 +202,10 @@ struct Transcript {
                 status: (data["status"] as? String) ?? "running",
                 sessionDir: data["sessionDir"] as? String,
                 sessionId: data["sessionId"] as? String,
-                startedAt: (data["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
+                startedAt: (data["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) },
+                turns: turns,
+                cost: (usage?["cost"] as? Double) ?? 0,
+                error: data["error"] as? String
             )
             return .subagentRun(id: id, run: run)
         case "todo-list":
@@ -186,36 +240,40 @@ struct Transcript {
     /// and the most recent model. Mirrors the server footer route.
     static func footer(from entries: [SessionEntry]) -> FooterStats {
         var s = FooterStats()
-        for e in entries {
-            switch e.type {
-            case "message":
-                guard let msg = e.raw["message"] as? [String: Any],
-                      (msg["role"] as? String) == "assistant",
-                      let usage = msg["usage"] as? [String: Any] else { continue }
-                s.inputTokens += (usage["input"] as? Int) ?? 0
-                s.outputTokens += (usage["output"] as? Int) ?? 0
-                s.cacheRead += (usage["cacheRead"] as? Int) ?? 0
-                s.cacheWrite += (usage["cacheWrite"] as? Int) ?? 0
-                s.totalTokens += (usage["totalTokens"] as? Int) ?? 0
-                if let cost = usage["cost"] as? [String: Any] {
-                    s.cost += (cost["total"] as? Double) ?? 0
-                }
-                if let m = msg["model"] as? String { s.model = m }
-            case "model_change":
-                if let m = e.raw["modelId"] as? String { s.model = m }
-            case "custom":
-                guard let ct = e.raw["customType"] as? String,
-                      let data = e.raw["data"] as? [String: Any] else { continue }
-                if ct == "todo-list", let todos = data["todos"] as? [[String: Any]] {
-                    s.todosTotal = todos.count
-                    s.todosDone = todos.filter { ($0["status"] as? String) == "completed" }.count
-                } else if ct == "goal-state" {
-                    s.goalStatus = data["status"] as? String
-                }
-            default: break
-            }
-        }
+        for e in entries { accumulateFooter(e.raw, into: &s) }
         return s
+    }
+
+    /// Fold one raw entry's contribution into footer stats. Shared by footer(from:) and the
+    /// streaming fullFooter() so totals match whether we parse a window or the whole file.
+    static func accumulateFooter(_ raw: [String: Any], into s: inout FooterStats) {
+        switch raw["type"] as? String {
+        case "message":
+            guard let msg = raw["message"] as? [String: Any],
+                  (msg["role"] as? String) == "assistant",
+                  let usage = msg["usage"] as? [String: Any] else { return }
+            s.inputTokens += (usage["input"] as? Int) ?? 0
+            s.outputTokens += (usage["output"] as? Int) ?? 0
+            s.cacheRead += (usage["cacheRead"] as? Int) ?? 0
+            s.cacheWrite += (usage["cacheWrite"] as? Int) ?? 0
+            s.totalTokens += (usage["totalTokens"] as? Int) ?? 0
+            if let cost = usage["cost"] as? [String: Any] {
+                s.cost += (cost["total"] as? Double) ?? 0
+            }
+            if let m = msg["model"] as? String { s.model = m }
+        case "model_change":
+            if let m = raw["modelId"] as? String { s.model = m }
+        case "custom":
+            guard let ct = raw["customType"] as? String,
+                  let data = raw["data"] as? [String: Any] else { return }
+            if ct == "todo-list", let todos = data["todos"] as? [[String: Any]] {
+                s.todosTotal = todos.count
+                s.todosDone = todos.filter { ($0["status"] as? String) == "completed" }.count
+            } else if ct == "goal-state" {
+                s.goalStatus = data["status"] as? String
+            }
+        default: break
+        }
     }
 
     static func parseDate(_ s: String?) -> Date? {

@@ -33,7 +33,7 @@ enum SelfTest {
             // Poll for completion off the published state.
             rt.sendPromptWhenReady("Reply with exactly: PONG") {
                 print("  streaming=\(rt.isStreaming) items=\(rt.items.count) model=\(rt.model ?? "nil")")
-                for it in rt.items { if case .assistantText(_, let t, _, _) = it { print("  assistant: \(t.prefix(80))"); if t.contains("PONG") { sawText = true } } }
+                for it in rt.items { if case .assistantText(_, let t, _, _, _) = it { print("  assistant: \(t.prefix(80))"); if t.contains("PONG") { sawText = true } } }
                 print("  footer cost=\(String(format: "%.4f", rt.footer.cost)) sessionPath=\(rt.sessionPathForTest ?? "nil")")
                 rt.dispose()
                 done.signal()
@@ -171,6 +171,19 @@ enum SelfTest {
         print("  tailEntries: \(entries.count) entries in \(String(format: "%.3f", dt))s")
         let items = Transcript.build(from: entries, hideThinking: false)
         print("  transcript items: \(items.count)")
+        // Verify turn-meta elapsed attached, todo lists, subagent turns parsed.
+        var withElapsed = 0, todoLists = 0, subRuns = 0, subWithTurns = 0
+        for it in items {
+            switch it {
+            case .assistantText(_, _, _, _, let e): if e != nil { withElapsed += 1 }
+            case .todoList(_, let todos): if !todos.isEmpty { todoLists += 1 }
+            case .subagentRun(_, let run): subRuns += 1; if !run.turns.isEmpty { subWithTurns += 1 }
+            default: break
+            }
+        }
+        print("  assistant msgs with elapsed (turn-meta): \(withElapsed)")
+        print("  todo-list items: \(todoLists)")
+        print("  subagent runs: \(subRuns) (with full turns: \(subWithTurns))")
         let footer = Transcript.footer(from: entries)
         print("  footer: in=\(footer.inputTokens) out=\(footer.outputTokens) cost=\(String(format: "%.4f", footer.cost)) model=\(footer.model ?? "nil") todos=\(footer.todosDone)/\(footer.todosTotal)")
 

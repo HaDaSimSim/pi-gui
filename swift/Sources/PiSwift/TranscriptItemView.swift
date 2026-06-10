@@ -10,8 +10,8 @@ struct TranscriptItemView: View {
         switch item {
         case .user(_, let text, let ts):
             UserBubble(text: text, timestamp: ts)
-        case .assistantText(_, let text, let ts, let modelName):
-            AssistantText(text: text, timestamp: ts, model: modelName)
+        case .assistantText(_, let text, let ts, let modelName, let elapsed):
+            AssistantText(text: text, timestamp: ts, model: modelName, elapsed: elapsed)
         case .thinking(_, let text):
             ThinkingBlock(text: text)
         case .toolCall(_, let name, let args, let result, let isError):
@@ -67,13 +67,15 @@ private struct AssistantText: View {
     let text: String
     let timestamp: Date?
     let model: String?
+    var elapsed: Double? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             MarkdownView(text)
-            if let model {
+            if model != nil || elapsed != nil || timestamp != nil {
                 HStack(spacing: 6) {
                     Text("Assistant").fontWeight(.medium)
-                    Text("·"); Text(model)
+                    if let model { Text("·"); Text(model) }
+                    if let elapsed { Text("·"); Text(Fmt.elapsed(elapsed * 1000)) }
                     if let timestamp { Text("·"); Text(timestamp, format: .dateTime.hour().minute()) }
                 }
                 .font(.caption2).foregroundStyle(.tertiary)
@@ -184,6 +186,7 @@ private struct BashCard: View {
 
 private struct SubagentCard: View {
     let run: SubagentRun
+    @State private var showDetail = false
     private var color: Color {
         switch run.status {
         case "running": return Theme.streaming
@@ -203,6 +206,11 @@ private struct SubagentCard: View {
                         .background(Capsule().fill(.quaternary))
                 }
                 Spacer()
+                if run.turns.count > 1 {
+                    Text("\(run.turns.count) turns").font(.caption2).foregroundStyle(.tertiary)
+                }
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.caption2).foregroundStyle(.tertiary)
             }
             if !run.task.isEmpty {
                 Text(run.task).font(.caption).foregroundStyle(.secondary).lineLimit(3)
@@ -210,6 +218,12 @@ private struct SubagentCard: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { showDetail = true }
+        .help("Open the subagent conversation")
+        .sheet(isPresented: $showDetail) {
+            SubagentDetailView(run: run)
+        }
         .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
     }
 }

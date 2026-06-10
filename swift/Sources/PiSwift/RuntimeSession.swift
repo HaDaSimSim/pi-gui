@@ -39,15 +39,30 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
         sessionPath = path
     }
 
+    /// How many bytes from the end of the session file the scrollback currently covers. Grows
+    /// when the user loads earlier history. Footer aggregation always uses the full file.
+    @Published var historyBytes = 8 * 1024 * 1024
+    @Published var hasEarlierHistory = false
+
     /// Reload the committed transcript from the session file tail (OOM-safe). This is the
     /// source of truth for tool calls/results, todo/goal/subagent state, and final text.
     func reloadFromFile() {
         guard let path = sessionPath else { return }
         let sf = SessionFile(path: path)
-        guard let entries = try? sf.tailEntries() else { return }
+        guard let entries = try? sf.tailEntries(maxLines: Int.max, maxBytes: historyBytes) else { return }
         items = Transcript.build(from: entries, hideThinking: false)
-        footer = Transcript.footer(from: entries)
+        // Footer/token totals must reflect the WHOLE session, not just the loaded window.
+        if let full = try? sf.fullFooter() { footer = full } else { footer = Transcript.footer(from: entries) }
         if footer.model != nil { model = footer.model }
+        // Detect whether earlier history exists beyond the current window.
+        let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int) ?? 0
+        hasEarlierHistory = size > historyBytes
+    }
+
+    /// Load an earlier slice of history (doubles the window) and re-render.
+    func loadEarlierHistory() {
+        historyBytes *= 2
+        reloadFromFile()
     }
 
     enum LockUIStatus: Equatable { case owned, readOnly, lost }

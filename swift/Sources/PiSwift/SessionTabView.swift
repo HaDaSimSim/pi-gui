@@ -68,6 +68,17 @@ struct SessionTabView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
+                    if runtime.hasEarlierHistory {
+                        Button {
+                            runtime.loadEarlierHistory()
+                        } label: {
+                            Label("Load earlier history", systemImage: "arrow.up.circle")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 4)
+                    }
                     ForEach(runtime.items) { item in
                         TranscriptItemView(item: item, isStreaming: runtime.isStreaming)
                             .id(item.id)

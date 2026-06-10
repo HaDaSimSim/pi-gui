@@ -24,6 +24,10 @@ struct PiSwiftApp: App {
                     if let probe = ProcessInfo.processInfo.environment["PISWIFT_UITEST"] {
                         model.runUITest(cwdSubstring: probe)
                     }
+                    // Open a specific session file (read-only browse) for visual verification.
+                    if let openPath = ProcessInfo.processInfo.environment["PISWIFT_OPEN"] {
+                        model.openSessionByPath(openPath)
+                    }
                 }
         }
         .windowStyle(.titleBar)

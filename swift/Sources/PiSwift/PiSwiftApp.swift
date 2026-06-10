@@ -30,6 +30,8 @@ struct PiSwiftApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(after: .newItem) {
+                Button("Open Folder…") { model.pickFolderAndStart() }
+                    .keyboardShortcut("o", modifiers: [.command])
                 Button("Refresh Sessions") { model.refresh() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                 Button("Close Tab") { if let id = model.activeTabID { model.closeTab(id) } }

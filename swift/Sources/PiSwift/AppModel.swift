@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Combine
 
 // Top-level app state: browsing (directories/sessions) + open tabs of live runtimes.
@@ -113,10 +114,54 @@ final class AppModel: ObservableObject {
         persistTabs()
     }
 
+    /// Rename a session via the live runtime if open (writes the session file), else just relabel
+    /// the tab. pi persists the name through set_session_name on the runtime.
+    func renameSession(_ summary: SessionSummary, to name: String) {
+        if let tab = tabs.first(where: { $0.sessionPath == summary.path }) {
+            ensureRuntimeStarted(for: tab)
+            tab.runtime.rename(name)
+        }
+        // Refresh the listing so the new name shows even without an open tab.
+        loadSessions(forCwd: summary.cwd)
+    }
+
+    /// Delete a session file. Refuses if a live/locked runtime holds it (matches the web
+    /// backend's DELETE guard).
+    func deleteSession(_ summary: SessionSummary) -> String? {
+        if tabs.contains(where: { $0.sessionPath == summary.path }) {
+            return "Session is open — close its tab first."
+        }
+        if listLocks().contains(where: { $0.sessionPath == summary.path }) {
+            return "Session is locked by another writer."
+        }
+        do {
+            try FileManager.default.removeItem(atPath: summary.path)
+            loadSessions(forCwd: summary.cwd)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     /// Start the runtime for a tab on first prompt (lazy — browsing didn't spawn pi).
     func ensureRuntimeStarted(for tab: Tab) {
         if !tab.runtime.isStarted {
             try? tab.runtime.start()
+        }
+    }
+
+    /// Open a native folder picker and start a NEW session in the chosen directory — this is how
+    /// you begin work in a project that has no sessions yet (otherwise you're stuck browsing only
+    /// directories that already appear in the list).
+    func pickFolderAndStart() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Start session here"
+        panel.message = "Choose a project folder to start a pi session"
+        if panel.runModal() == .OK, let url = panel.url {
+            newSession(cwd: url.path)
         }
     }
 

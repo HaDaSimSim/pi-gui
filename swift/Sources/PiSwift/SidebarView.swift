@@ -6,6 +6,10 @@ struct SidebarView: View {
     @EnvironmentObject var model: AppModel
     @State private var expanded: Set<String> = []
     @State private var search = ""
+    @State private var renaming: SessionSummary?
+    @State private var renameText = ""
+    @State private var deleting: SessionSummary?
+    @State private var deleteError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,6 +20,12 @@ struct SidebarView: View {
                             SessionRow(summary: s)
                                 .contentShape(Rectangle())
                                 .onTapGesture { model.openSession(s) }
+                                .contextMenu {
+                                    Button("Open") { model.openSession(s) }
+                                    Button("Rename…") { renaming = s; renameText = s.name ?? "" }
+                                    Divider()
+                                    Button("Delete…", role: .destructive) { deleting = s }
+                                }
                         }
                         Button {
                             model.newSession(cwd: dir.cwd)
@@ -53,14 +63,36 @@ struct SidebarView: View {
             }
             .listStyle(.sidebar)
             .searchable(text: $search, placement: .sidebar, prompt: "Search directories")
+            .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                TextField("Name", text: $renameText).disableAutocorrection(true)
+                Button("Cancel", role: .cancel) { renaming = nil }
+                Button("Rename") {
+                    if let s = renaming, !renameText.isEmpty { model.renameSession(s, to: renameText) }
+                    renaming = nil
+                }
+            }
+            .alert("Delete this session?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+                Button("Cancel", role: .cancel) { deleting = nil }
+                Button("Delete", role: .destructive) {
+                    if let s = deleting { deleteError = model.deleteSession(s) }
+                    deleting = nil
+                }
+            } message: {
+                Text("This permanently deletes the session file. This cannot be undone.")
+            }
+            .alert("Couldn't delete", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
+                Button("OK") { deleteError = nil }
+            } message: { Text(deleteError ?? "") }
 
             Divider()
             HStack {
                 Text("pi.swift").font(.caption).fontWeight(.semibold)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button { model.pickFolderAndStart() } label: { Image(systemName: "folder.badge.plus") }
+                    .buttonStyle(.borderless).help("Open a folder and start a session")
                 Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderless).help("Refresh")
                 SettingsLink { Image(systemName: "gearshape") }
                     .buttonStyle(.borderless)
             }

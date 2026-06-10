@@ -85,20 +85,24 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
             lockStatus = r.acquired ? .owned : .readOnly
         }
         // Flush a prompt that was issued before the session path/lock was known.
-        if let p = pendingPrompt {
+        if pendingPrompt != nil || !pendingImages.isEmpty {
+            let p = pendingPrompt ?? ""
+            let imgs = pendingImages
             pendingPrompt = nil
-            sendPrompt(p)
+            pendingImages = []
+            sendPrompt(p, images: imgs)
         }
     }
 
     // MARK: - User actions (lock guard enforced here)
 
-    func sendPrompt(_ text: String) {
-        guard !text.isEmpty else { return }
+    func sendPrompt(_ text: String, images: [[String: Any]] = []) {
+        guard !text.isEmpty || !images.isEmpty else { return }
         // If the session path/lock isn't established yet (state in flight), queue and send once
         // get_state arrives. This also ensures the lock guard below is meaningful.
         if sessionPath == nil && lock == nil {
             pendingPrompt = text
+            pendingImages = images
             return
         }
         // Load-bearing re-check: refuse to write if we no longer hold the lock.
@@ -108,17 +112,20 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
             return
         }
         if isStreaming {
-            rpc.prompt(text, streamingBehavior: "steer")
+            rpc.prompt(text, streamingBehavior: "steer", images: images)
         } else {
-            rpc.prompt(text)
+            rpc.prompt(text, images: images)
         }
     }
 
     private var pendingPrompt: String?
+    private var pendingImages: [[String: Any]] = []
     private var lockWatch: Timer?
 
     /// In-flight tool calls during the current streaming turn (cleared on agent_end reload).
     @Published var liveTools: [LiveTool] = []
+    /// Transient activity banner (retry countdown / compaction), shown above the composer.
+    @Published var activityBanner: String?
 
     func abort() { rpc.abort() }
     func setModel(provider: String, modelId: String) { rpc.setModel(provider: provider, modelId: modelId) }
@@ -284,6 +291,26 @@ final class RuntimeSession: ObservableObject, RpcClientDelegate {
                 rpc.getSessionStats()
                 if let cb = onAgentEndOnce { onAgentEndOnce = nil; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { cb() } }
             }
+        case "session_error":
+            isStreaming = false
+            notify((raw["message"] as? String) ?? "Prompt rejected", type: "error")
+        case "backend_error":
+            notify((raw["message"] as? String) ?? "Backend error", type: "error")
+        case "auto_retry_start":
+            let attempt = (raw["attempt"] as? Int) ?? 1
+            let maxA = (raw["maxAttempts"] as? Int) ?? 1
+            let delay = ((raw["delayMs"] as? Int) ?? 0) / 1000
+            activityBanner = "Retrying (\(attempt)/\(maxA)) in \(delay)s\u{2026}"
+        case "auto_retry_end":
+            activityBanner = nil
+            if (raw["success"] as? Bool) == false {
+                notify("Retry failed: \((raw["finalError"] as? String) ?? "unknown")", type: "error")
+            }
+        case "compaction_start":
+            activityBanner = "Compacting context\u{2026}"
+        case "compaction_end":
+            activityBanner = nil
+            reloadFromFile()
         default:
             break
         }

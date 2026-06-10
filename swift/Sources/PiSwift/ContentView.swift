@@ -4,6 +4,15 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @State private var showInfo = false
+    // Observe theme/language so changes in Settings apply live to the whole app.
+    @AppStorage(AppSettingsKeys.themeMode) private var themeMode = "auto"
+    @AppStorage(AppSettingsKeys.trueDark) private var trueDark = false
+    @AppStorage(AppSettingsKeys.lang) private var lang = "en"
+
+    private var colorScheme: ColorScheme? {
+        if trueDark { return .dark }
+        switch themeMode { case "light": return .light; case "dark": return .dark; default: return nil }
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -42,5 +51,7 @@ struct ContentView: View {
                 }
             }
         }
+        .preferredColorScheme(colorScheme)
+        .environment(\.locale, Locale(identifier: lang))
     }
 }

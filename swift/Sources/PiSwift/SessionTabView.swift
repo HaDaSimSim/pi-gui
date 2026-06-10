@@ -19,6 +19,15 @@ struct SessionTabView: View {
             }
             scrollback
             Divider()
+            if let banner = runtime.activityBanner {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(banner).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14).padding(.vertical, 6)
+                .background(Theme.streaming.opacity(0.1))
+            }
             ComposerView(runtime: runtime, draft: $draft)
             FooterView(runtime: runtime, cwd: tab.cwd)
         }
@@ -74,6 +83,7 @@ struct SessionTabView: View {
                         StreamingView(thinking: runtime.streamingThinking, text: runtime.streamingText)
                             .id("__streaming__")
                     }
+                    Color.clear.frame(height: 1).id("__bottom__")
                 }
                 .padding(.horizontal, 20).padding(.vertical, 16)
                 .frame(maxWidth: 900)
@@ -83,14 +93,21 @@ struct SessionTabView: View {
             .onChange(of: runtime.streamingText) { _, _ in scrollToBottom(proxy) }
             .onChange(of: runtime.liveTools.count) { _, _ in scrollToBottom(proxy) }
             .onAppear { scrollToBottom(proxy) }
+            .overlay(alignment: .bottomTrailing) {
+                Button { scrollToBottom(proxy) } label: {
+                    Image(systemName: "arrow.down").padding(8)
+                        .background(.regularMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(16)
+                .help("Jump to latest")
+            }
         }
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        let target = runtime.isStreaming ? "__streaming__" : runtime.items.last?.id
-        guard let target else { return }
         withAnimation(.easeOut(duration: 0.15)) {
-            proxy.scrollTo(target, anchor: .bottom)
+            proxy.scrollTo("__bottom__", anchor: .bottom)
         }
     }
 

@@ -152,10 +152,12 @@ final class RpcClient {
 
     // MARK: - Typed command helpers
 
-    func prompt(_ message: String, streamingBehavior: String? = nil, id: String? = nil) {
+    func prompt(_ message: String, streamingBehavior: String? = nil, id: String? = nil,
+                images: [[String: Any]] = []) {
         var cmd: [String: Any] = ["type": "prompt", "message": message]
         if let id { cmd["id"] = id }
         if let streamingBehavior { cmd["streamingBehavior"] = streamingBehavior }
+        if !images.isEmpty { cmd["images"] = images }
         send(cmd)
     }
     func steer(_ message: String) { send(["type": "steer", "message": message]) }

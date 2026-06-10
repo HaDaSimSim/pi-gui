@@ -29,6 +29,7 @@ private struct TabItem: View {
     let onClose: () -> Void
     @ObservedObject var runtime: RuntimeSession
     @State private var hovering = false
+    @State private var confirmClose = false
 
     init(tab: AppModel.Tab, isActive: Bool, onSelect: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.tab = tab
@@ -53,12 +54,17 @@ private struct TabItem: View {
             }
             .frame(maxWidth: 150, alignment: .leading)
 
-            Button(action: onClose) {
+            Button(action: { if runtime.isStreaming { confirmClose = true } else { onClose() } }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9))
             }
             .buttonStyle(.borderless)
             .opacity(hovering || isActive ? 0.7 : 0)
+            .confirmationDialog("This session is still running. Stop it and close the tab?",
+                                isPresented: $confirmClose) {
+                Button("Stop and close", role: .destructive) { runtime.abort(); onClose() }
+                Button("Cancel", role: .cancel) {}
+            }
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
         .frame(maxHeight: .infinity)

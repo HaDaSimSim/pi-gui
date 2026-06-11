@@ -24,7 +24,7 @@ struct SessionTabView: View {
           Spacer()
         }
         .padding(.horizontal, 14).padding(.vertical, 6)
-        .background(Theme.streaming.opacity(0.1))
+        .background(Theme.streaming.opacity(0.15))
       }
       ComposerView(runtime: runtime, draft: $draft, controller: controller)
       FooterView(runtime: runtime, cwd: cwd)
@@ -59,7 +59,7 @@ struct SessionTabView: View {
         .buttonStyle(.borderedProminent)
     }
     .padding(.horizontal, 14).padding(.vertical, 8)
-    .background(Theme.streaming.opacity(0.12))
+    .background(Theme.streaming.opacity(0.18))
   }
 
   private var scrollback: some View {
@@ -133,8 +133,8 @@ struct SessionTabView: View {
       Text(last.text)
         .font(.caption)
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(notifColor(last.type).opacity(0.9), in: Capsule())
-        .foregroundStyle(.white)
+        .background(notifColor(last.type), in: Capsule())
+        .foregroundStyle(Color(nsColor: .alternateSelectedControlTextColor))
         .padding(.bottom, 90)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .id(last.id)

@@ -42,7 +42,7 @@ private struct UserBubble: View {
         .textSelection(.enabled)
         .padding(.horizontal, 14).padding(.vertical, 9)
         .background(Color.accentColor, in: BubbleShape())
-        .foregroundStyle(.white)
+        .foregroundStyle(Color(nsColor: .alternateSelectedControlTextColor))
         .frame(maxWidth: 560, alignment: .trailing)
         .fixedSize(horizontal: false, vertical: true)
       if let timestamp {
@@ -134,9 +134,9 @@ private struct AssistantMessageView: View {
 private struct InterruptedRule: View {
   var body: some View {
     HStack(spacing: 8) {
-      Rectangle().fill(Theme.danger.opacity(0.6)).frame(height: 1)
+      Rectangle().fill(Theme.danger.opacity(0.8)).frame(height: 1)
       Text("interrupted").font(.caption2).foregroundStyle(Theme.danger)
-      Rectangle().fill(Theme.danger.opacity(0.6)).frame(height: 1)
+      Rectangle().fill(Theme.danger.opacity(0.8)).frame(height: 1)
     }
     .padding(.vertical, 2)
   }
@@ -190,6 +190,7 @@ private struct ToolCallCard: View {
   var running: Bool = false
   var unknown: Bool = false
   @State private var expanded = false
+  @State private var hovering = false
 
   private var argSummary: String {
     let keys = [
@@ -261,8 +262,15 @@ private struct ToolCallCard: View {
       }
     }
     .animation(.easeInOut(duration: 0.2), value: expanded)
-    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
-    .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.secondary.opacity(0.15), lineWidth: 1))
+    .background(
+      hovering ? Color.secondary.opacity(0.14) : Color.secondary.opacity(0.08),
+      in: RoundedRectangle(cornerRadius: 8)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+    )
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 
   private var argsJSON: Any {
@@ -274,6 +282,7 @@ private struct ToolCallCard: View {
 private struct BashCard: View {
   let job: BashJobView
   @State private var expanded = true
+  @State private var hovering = false
   private var running: Bool { job.status == "running" }
   private var failed: Bool { job.status == "failed" || (job.exitCode ?? 0) != 0 }
   private var color: Color {
@@ -309,13 +318,19 @@ private struct BashCard: View {
       }
     }
     .padding(8)
-    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    .background(
+      hovering ? Color.secondary.opacity(0.1) : Color.secondary.opacity(0.08),
+      in: RoundedRectangle(cornerRadius: 8)
+    )
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 }
 
 private struct SubagentCard: View {
   let run: SubagentRun
   @State private var showDetail = false
+  @State private var hovering = false
   private var color: Color {
     switch run.status {
     case "running": return Theme.streaming
@@ -353,13 +368,19 @@ private struct SubagentCard: View {
     .sheet(isPresented: $showDetail) {
       SubagentDetailView(run: run)
     }
-    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+    .background(
+      hovering ? Color.secondary.opacity(0.1) : Color.secondary.opacity(0.08),
+      in: RoundedRectangle(cornerRadius: 8)
+    )
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 }
 
 private struct TodoCard: View {
   let todos: [TodoItem]
   let isStreaming: Bool
+  @State private var hovering = false
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       ForEach(sorted) { t in
@@ -375,7 +396,12 @@ private struct TodoCard: View {
     }
     .padding(10)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+    .background(
+      hovering ? Color.secondary.opacity(0.1) : Color.secondary.opacity(0.08),
+      in: RoundedRectangle(cornerRadius: 8)
+    )
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
   private var sorted: [TodoItem] {
     let order = ["in_progress": 0, "pending": 1, "completed": 2]
@@ -433,7 +459,7 @@ private struct GoalCard: View {
     }
     .padding(10)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
   }
 }
 
@@ -451,7 +477,7 @@ struct CodeText: View {
     .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
     .background(
       Color(nsColor: .textBackgroundColor).opacity(0.5),
-      in: RoundedRectangle(cornerRadius: 6))
+      in: RoundedRectangle(cornerRadius: 8))
   }
 }
 

@@ -25,7 +25,7 @@ struct SubagentsList: View {
       ContentUnavailableView("No subagent runs yet", systemImage: "person.2")
     } else {
       VStack(alignment: .leading, spacing: 14) {
-        ForEach(Array(batches.enumerated()), id: \.offset) { _, batch in
+        ForEach(Array(batches.enumerated()), id: \.element.first?.runId) { _, batch in
           VStack(alignment: .leading, spacing: 6) {
             if batch.count > 1 {
               let cost = batch.reduce(0) { $0 + $1.cost }
@@ -58,6 +58,7 @@ private struct RunBox: Identifiable {
 
 private struct SubagentListRow: View {
   let run: SubagentRun
+  @State private var hovering = false
   private var color: Color {
     if run.stale { return Theme.danger }
     switch run.status {
@@ -91,7 +92,15 @@ private struct SubagentListRow: View {
         .top, 3)
     }
     .padding(8)
-    .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.12), lineWidth: 1))
+    .background(
+      hovering ? Color.secondary.opacity(0.1) : Color.secondary.opacity(0.05),
+      in: RoundedRectangle(cornerRadius: 8)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 8).stroke(
+        Color.secondary.opacity(hovering ? 0.2 : 0.12), lineWidth: 1)
+    )
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 }

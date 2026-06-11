@@ -77,7 +77,7 @@ struct ComposerView: View {
       .padding(.horizontal, 12).padding(.vertical, 7)
       .background(RoundedRectangle(cornerRadius: 20).fill(Color(nsColor: .textBackgroundColor)))
       .overlay(
-        RoundedRectangle(cornerRadius: 20).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+        RoundedRectangle(cornerRadius: 20).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
 
       HStack(spacing: 10) {
         modelControls
@@ -98,15 +98,7 @@ struct ComposerView: View {
   private func circleButton(icon: String, tint: Color, enabled: Bool, action: @escaping () -> Void)
     -> some View
   {
-    Button(action: action) {
-      Image(systemName: icon)
-        .font(.system(size: 13, weight: .bold))
-        .foregroundStyle(.white)
-        .frame(width: 26, height: 26)
-        .background(Circle().fill(enabled ? tint : Color.secondary.opacity(0.4)))
-    }
-    .buttonStyle(.plain)
-    .disabled(!enabled)
+    CircleButtonView(icon: icon, tint: tint, enabled: enabled, action: action)
   }
 
   private var slashMenu: some View {
@@ -180,6 +172,29 @@ struct ComposerView: View {
   }
 }
 
+/// Circle button with hover scale effect for the composer.
+private struct CircleButtonView: View {
+  let icon: String
+  let tint: Color
+  let enabled: Bool
+  let action: () -> Void
+  @State private var hovering = false
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: icon)
+        .font(.system(size: 13, weight: .bold))
+        .foregroundStyle(Color(nsColor: .alternateSelectedControlTextColor))
+        .frame(width: 26, height: 26)
+        .background(Circle().fill(enabled ? tint : Color.secondary.opacity(0.4)))
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+    .scaleEffect(hovering && enabled ? 1.1 : 1.0)
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
+  }
+}
+
 /// A staged image attachment, encoded for the RPC prompt `images` field.
 struct AttachedImage: Identifiable {
   let id = UUID()
@@ -234,7 +249,7 @@ struct TodoWidget: View {
       }
     }
     .padding(8)
-    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
   }
   private var sorted: [TodoItem] {
     let order = ["in_progress": 0, "pending": 1, "completed": 2]

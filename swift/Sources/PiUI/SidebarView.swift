@@ -65,7 +65,7 @@ struct SidebarView: View {
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12).padding(.vertical, 4)
-        .background(Color.accentColor.opacity(0.08))
+        .background(Color.accentColor.opacity(0.12))
       }
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 1) {

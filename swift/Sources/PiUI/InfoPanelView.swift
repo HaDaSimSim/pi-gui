@@ -237,22 +237,36 @@ private struct CapabilityGroup: View {
   var body: some View {
     DisclosureGroup(isExpanded: $expanded) {
       ForEach(commands) { c in
-        VStack(alignment: .leading, spacing: 0) {
-          HStack(spacing: 4) {
-            Text("/\(c.name.replacingOccurrences(of: "skill:", with: ""))")
-              .font(.system(.caption2, design: .monospaced)).fontWeight(.medium)
-            if let hint = c.argumentHint {
-              Text(hint).font(.caption2).foregroundStyle(.tertiary)
-            }
-          }
-          if let d = c.description {
-            Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-          }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        CapabilityCommandRow(command: c)
       }
     } label: {
       Text("\(title) · \(commands.count)").font(.caption2).foregroundStyle(.secondary)
     }
+  }
+}
+
+private struct CapabilityCommandRow: View {
+  let command: SlashCommand
+  @State private var hovering = false
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 4) {
+        Text("/\(command.name.replacingOccurrences(of: "skill:", with: ""))")
+          .font(.system(.caption2, design: .monospaced)).fontWeight(.medium)
+        if let hint = command.argumentHint {
+          Text(hint).font(.caption2).foregroundStyle(.tertiary)
+        }
+      }
+      if let d = command.description {
+        Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 6).padding(.vertical, 3)
+    .background(
+      hovering ? Color.secondary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 5)
+    )
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 }

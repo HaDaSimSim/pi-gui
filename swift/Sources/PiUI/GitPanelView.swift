@@ -147,6 +147,7 @@ struct GitPanelView: View {
 private struct CommitRow: View {
   let commit: GitCommit
   let isLast: Bool
+  @State private var hovering = false
   var body: some View {
     HStack(alignment: .top, spacing: 8) {
       VStack(spacing: 0) {
@@ -187,6 +188,12 @@ private struct CommitRow: View {
       .padding(.bottom, 8)
       Spacer(minLength: 0)
     }
+    .padding(.horizontal, 4).padding(.vertical, 2)
+    .background(
+      hovering ? Color.secondary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 6)
+    )
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 }
 

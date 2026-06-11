@@ -67,10 +67,34 @@ struct MarkdownBlock: Identifiable {
     case orderedList([String], startIndex: Int)
     case table(header: [String], rows: [[String]])
     case horizontalRule
+
+    /// A short stable key for identity derivation (not meant to be unique alone).
+    var hashKey: String {
+      switch self {
+      case .prose(let s): return "p\(s.prefix(20).hashValue)"
+      case .heading(let s, _): return "h\(s.prefix(20).hashValue)"
+      case .code(let s, _): return "c\(s.prefix(20).hashValue)"
+      case .blockquote(let s): return "q\(s.prefix(20).hashValue)"
+      case .bulletList(let items): return "bl\(items.count)"
+      case .orderedList(let items, _): return "ol\(items.count)"
+      case .table(let h, _): return "t\(h.count)"
+      case .horizontalRule: return "hr"
+      }
+    }
   }
 
-  let id = UUID()
+  let id: String
   let kind: Kind
+
+  private init(id: String = UUID().uuidString, kind: Kind) {
+    self.id = id
+    self.kind = kind
+  }
+
+  /// Convenience: create a block with a stable ID derived from its position in the parse.
+  private static func make(index: Int, kind: Kind) -> MarkdownBlock {
+    MarkdownBlock(id: "\(index)-\(kind.hashKey)", kind: kind)
+  }
 
   /// Split raw markdown into top-level blocks. The parser is intentionally
   /// small: it understands fenced code, headings, lists, blockquotes, tables,
@@ -89,7 +113,7 @@ struct MarkdownBlock: Identifiable {
       let joined = proseBuffer.joined(separator: "\n")
         .trimmingCharacters(in: .whitespacesAndNewlines)
       if !joined.isEmpty {
-        blocks.append(MarkdownBlock(kind: .prose(joined)))
+        blocks.append(MarkdownBlock.make(index: blocks.count, kind: .prose(joined)))
       }
       proseBuffer.removeAll(keepingCapacity: true)
     }
@@ -114,14 +138,15 @@ struct MarkdownBlock: Identifiable {
           i += 1
         }
         let code = codeLines.joined(separator: "\n")
-        blocks.append(MarkdownBlock(kind: .code(code, language: language)))
+        blocks.append(
+          MarkdownBlock.make(index: blocks.count, kind: .code(code, language: language)))
         continue
       }
 
       // Horizontal rule: ---, ***, ___ (3+).
       if isHorizontalRule(trimmed) {
         flushProse()
-        blocks.append(MarkdownBlock(kind: .horizontalRule))
+        blocks.append(MarkdownBlock.make(index: blocks.count, kind: .horizontalRule))
         i += 1
         continue
       }
@@ -129,7 +154,8 @@ struct MarkdownBlock: Identifiable {
       // ATX heading: #..###### followed by space.
       if let (headingText, level) = atxHeading(trimmed) {
         flushProse()
-        blocks.append(MarkdownBlock(kind: .heading(headingText, level: level)))
+        blocks.append(
+          MarkdownBlock.make(index: blocks.count, kind: .heading(headingText, level: level)))
         i += 1
         continue
       }
@@ -146,7 +172,9 @@ struct MarkdownBlock: Identifiable {
           quoteLines.append(stripped)
           i += 1
         }
-        blocks.append(MarkdownBlock(kind: .blockquote(quoteLines.joined(separator: "\n"))))
+        blocks.append(
+          MarkdownBlock.make(
+            index: blocks.count, kind: .blockquote(quoteLines.joined(separator: "\n"))))
         continue
       }
 
@@ -164,7 +192,8 @@ struct MarkdownBlock: Identifiable {
           rows.append(splitTableRow(rowLine))
           i += 1
         }
-        blocks.append(MarkdownBlock(kind: .table(header: header, rows: rows)))
+        blocks.append(
+          MarkdownBlock.make(index: blocks.count, kind: .table(header: header, rows: rows)))
         continue
       }
 
@@ -178,7 +207,7 @@ struct MarkdownBlock: Identifiable {
           items.append(stripBulletMarker(t))
           i += 1
         }
-        blocks.append(MarkdownBlock(kind: .bulletList(items)))
+        blocks.append(MarkdownBlock.make(index: blocks.count, kind: .bulletList(items)))
         continue
       }
 
@@ -193,7 +222,9 @@ struct MarkdownBlock: Identifiable {
           items.append(stripOrderedMarker(t))
           i += 1
         }
-        blocks.append(MarkdownBlock(kind: .orderedList(items, startIndex: startIndex)))
+        blocks.append(
+          MarkdownBlock.make(index: blocks.count, kind: .orderedList(items, startIndex: startIndex))
+        )
         continue
       }
 

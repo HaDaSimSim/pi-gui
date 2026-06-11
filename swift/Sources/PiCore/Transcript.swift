@@ -104,7 +104,7 @@ public struct TodoItem: Identifiable, Hashable {
   public let content: String
   public let status: String  // pending | in_progress | completed
   public let activeForm: String?
-  public var id: String { content }
+  public var id: String { "\(status):\(content)" }
 
   public init(content: String, status: String, activeForm: String?) {
     self.content = content
@@ -172,7 +172,7 @@ public struct SubagentTurn: Identifiable {
 }
 
 public struct SubagentTranscriptItem: Identifiable {
-  public let id = UUID()
+  public let id: String
   public let kind: String  // thinking | text | toolCall | toolResult
   public let text: String
   public let toolName: String?
@@ -183,6 +183,7 @@ public struct SubagentTranscriptItem: Identifiable {
     kind: String, text: String, toolName: String? = nil, args: [String: Any]? = nil,
     isError: Bool = false
   ) {
+    self.id = "\(kind)-\(text.prefix(32).hashValue)"
     self.kind = kind
     self.text = text
     self.toolName = toolName

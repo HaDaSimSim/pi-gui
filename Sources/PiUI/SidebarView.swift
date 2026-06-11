@@ -135,7 +135,7 @@ struct SidebarView: View {
   private func openSessionRow(_ rt: RuntimeSession) -> some View {
     Label {
       VStack(alignment: .leading, spacing: 2) {
-        Text(rt.sessionName ?? "Untitled session")
+        Text(rt.displayTitle)
           .font(.callout)
           .lineLimit(1)
         Text(Fmt.tildePath(rt.cwd))
@@ -149,7 +149,7 @@ struct SidebarView: View {
         .foregroundStyle(rt.isStarted ? .green : .secondary)
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel(rt.sessionName ?? "Untitled session")
+    .accessibilityLabel(rt.displayTitle)
   }
 
   /// Row for a session from disk in the PROJECTS section.
@@ -157,7 +157,7 @@ struct SidebarView: View {
   private func sessionRow(_ summary: SessionSummary) -> some View {
     Label {
       VStack(alignment: .leading, spacing: 2) {
-        Text(summary.name ?? summary.preview ?? "Untitled session")
+        Text(summary.name ?? summary.preview ?? Fmt.dirBasename(summary.cwd))
           .font(.callout)
           .lineLimit(1)
         Text(summary.modified, format: .relative(presentation: .named))
@@ -170,7 +170,7 @@ struct SidebarView: View {
         .foregroundStyle(model.isLive(summary.path) ? .green : .secondary)
     }
     .accessibilityElement(children: .combine)
-    .accessibilityLabel(summary.name ?? summary.preview ?? "Untitled session")
+    .accessibilityLabel(summary.name ?? summary.preview ?? Fmt.dirBasename(summary.cwd))
   }
 
   // MARK: - Selection

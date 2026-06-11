@@ -35,23 +35,27 @@ struct InfoPanelView: View {
       .id(selection)
       .transition(.opacity)
     }
-    .background(.background)
+    .background(Color(nsColor: .controlBackgroundColor))
   }
 
   // MARK: - Info tab
 
   private var infoTab: some View {
-    Form {
-      Section("Session") {
+    List {
+      Section {
         InlineRename(runtime: runtime)
+      } header: {
+        InfoSectionHeader("SESSION")
       }
 
-      Section("Model") {
+      Section {
         ModelEffortControls(runtime: runtime)
+      } header: {
+        InfoSectionHeader("MODEL")
       }
 
       if runtime.footer.contextWindow > 0 {
-        Section("Context") {
+        Section {
           let pct = Int(
             Double(runtime.footer.contextTokens) / Double(runtime.footer.contextWindow) * 100)
           LabeledContent("Usage") {
@@ -62,10 +66,12 @@ struct InfoPanelView: View {
           ProgressView(
             value: Double(runtime.footer.contextTokens),
             total: Double(runtime.footer.contextWindow))
+        } header: {
+          InfoSectionHeader("CONTEXT")
         }
       }
 
-      Section("Tokens") {
+      Section {
         TokenCompositionBar(footer: runtime.footer)
         LabeledContent("Input", value: Fmt.tokens(runtime.footer.inputTokens))
         LabeledContent("Output", value: Fmt.tokens(runtime.footer.outputTokens))
@@ -73,13 +79,17 @@ struct InfoPanelView: View {
         LabeledContent("Cache write", value: Fmt.tokens(runtime.footer.cacheWrite))
         LabeledContent("Total", value: Fmt.tokens(runtime.footer.totalTokens))
         LabeledContent("Cost", value: Fmt.cost(runtime.footer.cost))
+      } header: {
+        InfoSectionHeader("TOKENS")
       }
 
-      Section("Capabilities") {
+      Section {
         CapabilitiesSection(commands: runtime.commands)
+      } header: {
+        InfoSectionHeader("CAPABILITIES")
       }
     }
-    .formStyle(.grouped)
+    .listStyle(.sidebar)
   }
 
   // MARK: - Subagents tab
@@ -109,24 +119,28 @@ struct InfoPanelView: View {
       if case .goalState(_, let obj, let status) = item { return (obj, status) }
       return nil
     }.first
-    return Form {
+    return List {
       if let goal {
-        Section("Goal") {
+        Section {
           LabeledContent(goal.0) {
             Text("\(Theme.goalEmoji(goal.1)) \(goal.1)")
           }
+        } header: {
+          InfoSectionHeader("GOAL")
         }
       }
       if let todos, !todos.isEmpty {
-        Section("Todos") {
+        Section {
           TodoWidget(todos: todos, isStreaming: runtime.isStreaming)
+        } header: {
+          InfoSectionHeader("TODOS")
         }
       }
       if goal == nil && (todos?.isEmpty ?? true) {
         ContentUnavailableView("No goal or todos yet", systemImage: "checklist")
       }
     }
-    .formStyle(.grouped)
+    .listStyle(.sidebar)
   }
 }
 
@@ -139,6 +153,19 @@ private struct InspectorPickerBackground: ViewModifier {
     } else {
       content.background(.bar)
     }
+  }
+}
+
+// MARK: - Section header matching left sidebar style
+
+private struct InfoSectionHeader: View {
+  let title: String
+  init(_ title: String) { self.title = title }
+  var body: some View {
+    Text(title)
+      .font(.caption)
+      .fontWeight(.semibold)
+      .foregroundStyle(.secondary)
   }
 }
 
@@ -162,7 +189,7 @@ private struct InlineRename: View {
     } else {
       LabeledContent("Name") {
         HStack(spacing: 4) {
-          Text(runtime.sessionName ?? "Untitled")
+          Text(runtime.displayTitle)
             .lineLimit(1)
           Button {
             draft = runtime.sessionName ?? ""

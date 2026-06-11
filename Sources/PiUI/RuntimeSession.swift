@@ -8,7 +8,7 @@ import PiCore
 @MainActor
 @Observable
 public final class RuntimeSession: RpcClientDelegate {
-  let id = UUID()
+  public let id = UUID()
   public let cwd: String
   public private(set) var sessionPath: String?
 
@@ -23,6 +23,18 @@ public final class RuntimeSession: RpcClientDelegate {
   public var model: String?
   public var thinkingLevel: String = "off"
   public var sessionName: String?
+
+  /// Display title for UI (tabs, sidebar, window title): session name → first user prompt → cwd basename.
+  public var displayTitle: String {
+    if let name = sessionName, !name.isEmpty { return name }
+    // Fallback: first user message text (truncated).
+    for item in items {
+      if case .user(_, let text, _) = item, !text.isEmpty {
+        return String(text.prefix(40))
+      }
+    }
+    return Fmt.dirBasename(cwd)
+  }
   public var lockStatus: LockUIStatus = .owned
   public var pendingDialog: PendingDialog?
   public var questionnaire: QuestionnaireState?

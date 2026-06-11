@@ -45,6 +45,11 @@ public struct SessionWindowContent: View {
           .padding(.horizontal, 10)
           .frame(height: 36)
           .background(.bar)
+          // Tab bar for open sessions.
+          if model.openSessions.count > 1 {
+            Divider()
+            SessionTabBar()
+          }
           Divider()
           // Session content + optional info panel.
           HSplitView {
@@ -58,6 +63,13 @@ public struct SessionWindowContent: View {
           }
         }
         .animation(.easeInOut(duration: 0.2), value: showInfo)
+      } else if !model.openSessions.isEmpty {
+        // Open sessions exist but none is active (shouldn't happen, but recover).
+        VStack(spacing: 0) {
+          SessionTabBar()
+          Divider()
+          emptyState
+        }
       } else {
         emptyState
       }

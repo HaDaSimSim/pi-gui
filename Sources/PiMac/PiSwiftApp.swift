@@ -57,6 +57,17 @@ struct PiSwiftApp: App {
         Button("Compact Context") { appDelegate.compactCurrentSession() }
           .keyboardShortcut("k", modifiers: [.command])
       }
+      // Tab management commands.
+      CommandGroup(after: .newItem) {
+        Divider()
+        Button("Close Tab") { appDelegate.closeActiveTab() }
+          .keyboardShortcut("w", modifiers: [.command])
+        Divider()
+        ForEach(1...9, id: \.self) { idx in
+          Button("Tab \(idx)") { appDelegate.switchToTab(idx - 1) }
+            .keyboardShortcut(KeyEquivalent(Character("\(idx)")), modifiers: [.command])
+        }
+      }
     }
 
     Settings {
@@ -99,6 +110,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let model, let rt = model.activeSession else { return }
     model.ensureRuntimeStarted(rt)
     rt.compact()
+  }
+
+  /// Close the active tab (Cmd+W).
+  func closeActiveTab() {
+    guard let model, let id = model.activeSessionId else { return }
+    model.closeSession(id: id)
+  }
+
+  /// Switch to the Nth open tab (0-indexed). Cmd+1 = index 0, etc.
+  func switchToTab(_ index: Int) {
+    guard let model, index >= 0, index < model.openSessions.count else { return }
+    model.activeSessionId = model.openSessions[index].id
   }
 
   /// Re-show the main window when the dock icon is clicked with no visible windows.

@@ -152,6 +152,7 @@ private struct ThinkingBlock: View {
       .onTapGesture { expanded.toggle() }
     }
     .disclosureGroupStyle(.automatic)
+    .clipped()
     .animation(.easeInOut(duration: 0.2), value: expanded)
   }
 }
@@ -224,6 +225,7 @@ private struct ToolCallCard: View {
       .onTapGesture { expanded.toggle() }
     }
     .disclosureGroupStyle(.automatic)
+    .clipped()
     .animation(.easeInOut(duration: 0.2), value: expanded)
     .padding(.horizontal, 8).padding(.vertical, 4)
     .background(
@@ -288,6 +290,7 @@ private struct BashCard: View {
       .contentShape(Rectangle())
       .onTapGesture { expanded.toggle() }
     }
+    .clipped()
     .animation(.easeInOut(duration: 0.2), value: expanded)
     .padding(8)
     .background(

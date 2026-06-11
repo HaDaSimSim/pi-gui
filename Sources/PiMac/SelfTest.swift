@@ -1,6 +1,6 @@
 import Foundation
 import PiCore
-import PiUI
+@preconcurrency import PiUI
 
 // Headless self-test harness (PISWIFT_SELFTEST=1). Validates the load-bearing core against
 // real data without launching the UI: jsonl parsing, footer aggregation, lock byte-compat.

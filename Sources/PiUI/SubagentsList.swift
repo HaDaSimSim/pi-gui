@@ -11,7 +11,7 @@ struct SubagentsList: View {
   private var batches: [[SubagentRun]] {
     var out: [[SubagentRun]] = []
     for run in runs {
-      if let last = out.last, let bid = run.batchId, bid == last.first?.batchId, bid != nil {
+      if let last = out.last, let bid = run.batchId, bid == last.first?.batchId {
         out[out.count - 1].append(run)
       } else {
         out.append([run])

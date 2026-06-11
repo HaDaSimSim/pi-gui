@@ -11,8 +11,10 @@ struct SidebarView: View {
   @State private var renameText = ""
   @State private var deleting: SessionSummary?
   @State private var deleteError: String?
-  /// Local expansion state for directory sections, defaulting to expanded.
-  @State private var expanded: [String: Bool] = [:]
+  /// Expansion state for directory sections, persisted across launches.
+  @State private var expanded: [String: Bool] = {
+    (UserDefaults.standard.dictionary(forKey: "piswift.sidebar.expanded") as? [String: Bool]) ?? [:]
+  }()
 
   var body: some View {
     List(
@@ -30,7 +32,10 @@ struct SidebarView: View {
         Section(
           isExpanded: Binding(
             get: { expanded[dir.cwd] ?? false },
-            set: { expanded[dir.cwd] = $0 }
+            set: {
+              expanded[dir.cwd] = $0
+              UserDefaults.standard.set(expanded, forKey: "piswift.sidebar.expanded")
+            }
           )
         ) {
           // "New session" row

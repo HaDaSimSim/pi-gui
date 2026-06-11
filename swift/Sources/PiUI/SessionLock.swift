@@ -79,6 +79,7 @@ public func isStaleRecord(_ rec: LockRecord) -> Bool {
 /// An exclusive advisory lock on a single session file.
 public final class SessionLock {
   private let file: String
+  public var lockFilePath: String { file }
   private let dir: String
   private let sessionPath: String
   private let owner: String

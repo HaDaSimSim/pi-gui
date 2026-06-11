@@ -9,6 +9,7 @@ struct SessionTabView: View {
   weak var controller: SessionWindowController?
 
   @State private var draft = ""
+  @State private var isAtBottom = true
 
   var body: some View {
     VStack(spacing: 0) {
@@ -85,6 +86,8 @@ struct SessionTabView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             Color.clear.frame(height: 1).id("__bottom__")
+              .onAppear { isAtBottom = true }
+              .onDisappear { isAtBottom = false }
           }
           .frame(maxWidth: 760)
           .padding(.horizontal, 20).padding(.vertical, 16)
@@ -93,24 +96,24 @@ struct SessionTabView: View {
           Spacer(minLength: 0)
         }
       }
+      .defaultScrollAnchor(.bottom)
       .onChange(of: runtime.items.count) { _, count in
         if count > 0 { scrollToBottom(proxy) }
       }
       .onChange(of: streamingTick) { _, _ in scrollToBottom(proxy) }
-      .onAppear {
-        // Delay scroll slightly so the initial reloadFromFile has time to populate items.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { scrollToBottom(proxy) }
-      }
       .overlay(alignment: .bottomTrailing) {
-        Button {
-          scrollToBottom(proxy)
-        } label: {
-          Image(systemName: "arrow.down").padding(8)
-            .background(.regularMaterial, in: Circle())
+        if !isAtBottom {
+          Button {
+            scrollToBottom(proxy)
+          } label: {
+            Image(systemName: "arrow.down").padding(8)
+              .background(.regularMaterial, in: Circle())
+          }
+          .buttonStyle(.plain)
+          .padding(16)
+          .help("Jump to latest")
+          .transition(.opacity)
         }
-        .buttonStyle(.plain)
-        .padding(16)
-        .help("Jump to latest")
       }
     }
   }
@@ -126,6 +129,59 @@ struct SessionTabView: View {
     withAnimation(.easeOut(duration: 0.15)) {
       proxy.scrollTo("__bottom__", anchor: .bottom)
     }
+  }
+
+  // MARK: - Message grouping helpers
+
+  /// Determines whether item at `index` is from the "user" sender.
+  private func isUserItem(_ item: TranscriptItem) -> Bool {
+    if case .user = item { return true }
+    return false
+  }
+
+  /// Spacing between consecutive messages: 8pt same sender, 16pt different sender.
+  private func spacingBefore(index: Int) -> CGFloat {
+    let items = runtime.items
+    guard index > 0 else { return 0 }
+    let prev = items[index - 1]
+    let curr = items[index]
+    // Notices get uniform spacing
+    if case .notice = curr { return 12 }
+    if case .notice = prev { return 12 }
+    return isUserItem(prev) == isUserItem(curr) ? 8 : 16
+  }
+
+  /// Get the timestamp for an item (user has it directly, assistant from its message).
+  private func itemTimestamp(at index: Int) -> Date? {
+    let item = runtime.items[index]
+    switch item {
+    case .user(_, _, let ts): return ts
+    case .assistant(_, let msg): return msg.timestamp
+    default: return nil
+    }
+  }
+
+  /// Show a relative timestamp when sender changes, or when >5 minutes elapsed since the last
+  /// shown timestamp (Messages.app style).
+  private func shouldShowTimestamp(at index: Int) -> Bool {
+    guard let ts = itemTimestamp(at: index) else { return false }
+    // Always show before the very first message
+    if index == 0 { return true }
+    // Show when sender changes
+    let prev = runtime.items[index - 1]
+    let curr = runtime.items[index]
+    if isUserItem(prev) != isUserItem(curr) {
+      // But only if there's a meaningful time gap (>5 min)
+      if let prevTs = itemTimestamp(at: index - 1) {
+        return ts.timeIntervalSince(prevTs) > 300
+      }
+      return true
+    }
+    // Show if >5 minutes since previous item's timestamp
+    if let prevTs = itemTimestamp(at: index - 1) {
+      return ts.timeIntervalSince(prevTs) > 300
+    }
+    return false
   }
 
   @ViewBuilder private var notifications: some View {

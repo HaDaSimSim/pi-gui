@@ -30,25 +30,30 @@ private enum SettingsDefaults {
 // MARK: - Settings view
 
 public struct SettingsView: View {
+  @State private var selection: String? = "general"
   public init() {}
   public var body: some View {
-    TabView {
-      GeneralSettingsTab()
-        .tabItem { Label("General", systemImage: "gearshape") }
-
-      AppearanceSettingsTab()
-        .tabItem { Label("Appearance", systemImage: "paintbrush") }
-
-      PiSettingsTab()
-        .tabItem { Label("pi", systemImage: "slider.horizontal.3") }
-
-      ProvidersTab()
-        .tabItem { Label("Providers", systemImage: "server.rack") }
-
-      ShortcutsTab()
-        .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+    NavigationSplitView {
+      List(selection: $selection) {
+        Label("General", systemImage: "gearshape").tag("general")
+        Label("Appearance", systemImage: "paintbrush").tag("appearance")
+        Label("pi", systemImage: "slider.horizontal.3").tag("pi")
+        Label("Providers", systemImage: "server.rack").tag("providers")
+        Label("Shortcuts", systemImage: "keyboard").tag("shortcuts")
+      }
+      .listStyle(.sidebar)
+      .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
+    } detail: {
+      switch selection {
+      case "general": GeneralSettingsTab()
+      case "appearance": AppearanceSettingsTab()
+      case "pi": PiSettingsTab()
+      case "providers": ProvidersTab()
+      case "shortcuts": ShortcutsTab()
+      default: GeneralSettingsTab()
+      }
     }
-    .frame(width: 560, height: 460)
+    .frame(width: 680, height: 480)
   }
 }
 

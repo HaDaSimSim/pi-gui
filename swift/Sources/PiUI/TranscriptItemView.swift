@@ -1,16 +1,16 @@
 import PiCore
 import SwiftUI
 
-// Renders a single TranscriptItem. Native chat aesthetic: user messages as trailing bubbles,
-// assistant content left-aligned, tools/bash/subagent/todo as inset cards.
+// Renders a single TranscriptItem. Messages.app aesthetic: user messages as trailing
+// accent bubbles, assistant content left-aligned without a bubble background.
 struct TranscriptItemView: View {
   let item: TranscriptItem
   let isStreaming: Bool
 
   var body: some View {
     switch item {
-    case .user(_, let text, let ts):
-      UserBubble(text: text, timestamp: ts)
+    case .user(_, let text, _):
+      UserBubble(text: text)
     case .assistant(_, let msg):
       AssistantMessageView(msg: msg, isStreaming: isStreaming)
     case .bashJob(_, let job):
@@ -35,31 +35,29 @@ struct TranscriptItemView: View {
 
 private struct UserBubble: View {
   let text: String
-  let timestamp: Date?
   var body: some View {
-    VStack(alignment: .trailing, spacing: 2) {
+    HStack {
+      Spacer(minLength: 0)
       Text(text)
         .textSelection(.enabled)
-        .padding(.horizontal, 14).padding(.vertical, 9)
-        .background(Color.accentColor, in: BubbleShape())
-        .foregroundStyle(Color(nsColor: .alternateSelectedControlTextColor))
-        .frame(maxWidth: 560, alignment: .trailing)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.accentColor, in: UserBubbleShape())
+        .foregroundStyle(.white)
         .fixedSize(horizontal: false, vertical: true)
-      if let timestamp {
-        Text(timestamp, format: .dateTime.hour().minute())
-          .font(.caption2).foregroundStyle(.tertiary)
-      }
+        .frame(maxWidth: 500, alignment: .trailing)
     }
     .frame(maxWidth: .infinity, alignment: .trailing)
   }
 }
 
-private struct BubbleShape: Shape {
+/// User bubble: 18pt rounded corners with a tighter tail on bottom-right.
+private struct UserBubbleShape: Shape {
   func path(in rect: CGRect) -> Path {
     Path(
       roundedRect: rect,
       cornerRadii: RectangleCornerRadii(
-        topLeading: 16, bottomLeading: 16, bottomTrailing: 4, topTrailing: 16))
+        topLeading: 18, bottomLeading: 18, bottomTrailing: 4, topTrailing: 18))
   }
 }
 
@@ -100,27 +98,21 @@ private struct AssistantMessageView: View {
         }
         .font(.caption)
       }
-      // Meta: on a finished turn (elapsed set) or while THIS message is streaming.
+      // Meta line below assistant text (model + elapsed), like Messages.app metadata.
       if msg.elapsed != nil || msg.streaming {
         HStack(spacing: 6) {
           if msg.elapsed != nil {
-            Text("Assistant").fontWeight(.medium)
             if let m = msg.model {
-              Text("·")
               Text(m)
             }
             if let e = msg.elapsed {
               Text("·")
               Text(Fmt.elapsed(e * 1000))
             }
-            if let ts = msg.timestamp {
-              Text("·")
-              Text(ts, format: .dateTime.hour().minute())
-            }
           }
           if msg.streaming {
             ProgressView().controlSize(.small)
-            Text("working…").font(.caption2).foregroundStyle(.tertiary)
+            Text("working…")
           }
         }
         .font(.caption2).foregroundStyle(.tertiary)
@@ -146,39 +138,23 @@ private struct ThinkingBlock: View {
   let text: String
   @State private var expanded = false
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      // Whole row toggles; chevron sits right after the text/preview.
-      Button {
-        expanded.toggle()
-      } label: {
-        HStack(spacing: 6) {
-          Image(systemName: "brain")
-          Text("Thinking").italic()
-          if !expanded {
-            Text(text.prefix(80)).lineLimit(1).foregroundStyle(.tertiary)
-          }
-          Image(systemName: "chevron.right")
-            .font(.system(size: 9))
-            .rotationEffect(.degrees(expanded ? 90 : 0))
-            .frame(width: 12, alignment: .center)
-          Spacer(minLength: 0)
+    DisclosureGroup(isExpanded: $expanded) {
+      Text(text)
+        .font(.system(.caption, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "brain")
+        Text("Thinking").italic()
+        if !expanded {
+          Text(text.prefix(80)).lineLimit(1).foregroundStyle(.tertiary)
         }
-        .font(.caption).foregroundStyle(.secondary)
-        .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      if expanded {
-        // No indent: text aligns to the same leading edge as the label.
-        Text(text)
-          .font(.system(.caption, design: .monospaced))
-          .foregroundStyle(.secondary)
-          .textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .transition(.opacity.combined(with: .move(edge: .top)))
-      }
+      .font(.caption).foregroundStyle(.secondary)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .animation(.easeInOut(duration: 0.2), value: expanded)
+    .disclosureGroupStyle(.automatic)
   }
 }
 
@@ -213,55 +189,41 @@ private struct ToolCallCard: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      // Whole box (incl. padding) toggles; chevron pinned to the right edge.
-      Button {
-        expanded.toggle()
-      } label: {
-        HStack(spacing: 6) {
-          // Icon + tool name in a status-colored chip for a consistent, tidy left edge.
-          HStack(spacing: 4) {
-            Image(systemName: Theme.toolIcon(name)).font(.system(size: 10))
-            Text(name).font(.system(.caption2, design: .monospaced)).fontWeight(.medium)
-          }
-          .foregroundStyle(statusColor)
-          .padding(.horizontal, 6).padding(.vertical, 2)
-          .background(statusColor.opacity(0.12), in: Capsule())
-          Text(argSummary).font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(.secondary).lineLimit(1)
-          Spacer(minLength: 4)
-          if unknown {
-            Image(systemName: "questionmark.circle")
-              .font(.system(size: 10)).foregroundStyle(.tertiary)
-              .help("Result is outside the loaded history window")
-          } else if result != nil {
-            Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
-              .font(.system(size: 10)).foregroundStyle(statusColor)
-          }
-          Image(systemName: "chevron.right")
-            .font(.system(size: 9)).foregroundStyle(.tertiary)
-            .rotationEffect(.degrees(expanded ? 90 : 0))
-            .frame(width: 12, alignment: .center)
+    DisclosureGroup(isExpanded: $expanded) {
+      VStack(alignment: .leading, spacing: 6) {
+        if !args.isEmpty {
+          CodeText(String(describing: argsJSON).prefix(2000).description)
         }
-        .padding(.horizontal, 8).padding(.vertical, 6)
-        .contentShape(Rectangle())
+        if let result {
+          Text("result").font(.caption2).foregroundStyle(.tertiary)
+          CodeText(String(result.prefix(4000)))
+        }
       }
-      .buttonStyle(.plain)
-      if expanded {
-        VStack(alignment: .leading, spacing: 6) {
-          if !args.isEmpty {
-            CodeText(String(describing: argsJSON).prefix(2000).description)
-          }
-          if let result {
-            Text("result").font(.caption2).foregroundStyle(.tertiary)
-            CodeText(String(result.prefix(4000)))
-          }
+      .padding(.top, 4)
+    } label: {
+      HStack(spacing: 6) {
+        HStack(spacing: 4) {
+          Image(systemName: Theme.toolIcon(name)).font(.system(size: 10))
+          Text(name).font(.system(.caption2, design: .monospaced)).fontWeight(.medium)
         }
-        .padding(.horizontal, 8).padding(.bottom, 6)
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .foregroundStyle(statusColor)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(statusColor.opacity(0.12), in: Capsule())
+        Text(argSummary).font(.system(.caption2, design: .monospaced))
+          .foregroundStyle(.secondary).lineLimit(1)
+        Spacer(minLength: 4)
+        if unknown {
+          Image(systemName: "questionmark.circle")
+            .font(.system(size: 10)).foregroundStyle(.tertiary)
+            .help("Result is outside the loaded history window")
+        } else if result != nil {
+          Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+            .font(.system(size: 10)).foregroundStyle(statusColor)
+        }
       }
     }
-    .animation(.easeInOut(duration: 0.2), value: expanded)
+    .disclosureGroupStyle(.automatic)
+    .padding(.horizontal, 8).padding(.vertical, 4)
     .background(
       hovering ? Color.secondary.opacity(0.14) : Color.secondary.opacity(0.08),
       in: RoundedRectangle(cornerRadius: 8)

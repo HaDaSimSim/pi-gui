@@ -136,6 +136,9 @@ public final class RuntimeSession: ObservableObject, RpcClientDelegate {
       let r = l.tryAcquire()
       lock = l
       lockStatus = r.acquired ? .owned : .readOnly
+      #if DEBUG
+        print("[pi-gui] ensureLock: path=\(path) acquired=\(r.acquired) lockFile=\(l.lockFilePath)")
+      #endif
     }
     // Flush a prompt that was issued before the session path/lock was known.
     if pendingPrompt != nil || !pendingImages.isEmpty {
@@ -151,6 +154,11 @@ public final class RuntimeSession: ObservableObject, RpcClientDelegate {
 
   public func sendPrompt(_ text: String, images: [[String: Any]] = []) {
     guard !text.isEmpty || !images.isEmpty else { return }
+    // P1-1: optimistically show the user's own message immediately so it appears in the
+    // transcript even while the lock/session is still being acquired (queued prompt case).
+    // appendUserIfNew dedups against a re-emitted message_start(user) or a flush replay.
+    // Only for non-steer sends (steer position settles when message_start(user) arrives).
+    if !isStreaming && !text.isEmpty { appendUserIfNew(text) }
     // If the lock isn't established yet (get_state in flight), queue and send once it
     // arrives. Keying on the lock (not sessionPath) is load-bearing: a resumed/browsed
     // session has sessionPath set before start, so a sessionPath-based guard would let a
@@ -169,12 +177,6 @@ public final class RuntimeSession: ObservableObject, RpcClientDelegate {
     if isStreaming {
       rpc.prompt(text, streamingBehavior: "steer", images: images)
     } else {
-      // P1-1: optimistically show the user's own message immediately (web's send() does the
-      // same for non-steer sends). The agent_end reload replaces items with file truth, so
-      // this is just bridging the gap from submit → agent_end; appendUserIfNew dedups against
-      // a re-emitted message_start(user). Steer/followUp aren't added optimistically (their
-      // position only settles when the message_start(user) event arrives).
-      if !text.isEmpty { appendUserIfNew(text) }
       rpc.prompt(text, images: images)
     }
   }
@@ -491,7 +493,11 @@ public final class RuntimeSession: ObservableObject, RpcClientDelegate {
     if streamingIndex == nil || !indexIsStreamingAssistant(streamingIndex!) {
       openStreamingAssistant()
     }
-    guard let idx = streamingIndex, case .assistant(let aid, var am) = items[idx] else { return }
+    // Guard: validate streamingIndex is still in bounds AND points to an assistant message.
+    // A concurrent reloadFromFile could have replaced `items`, invalidating the index.
+    guard let idx = streamingIndex, items.indices.contains(idx),
+      case .assistant(let aid, var am) = items[idx]
+    else { return }
     body(&am)
     items[idx] = .assistant(id: aid, msg: am)
   }

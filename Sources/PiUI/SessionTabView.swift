@@ -9,7 +9,7 @@ struct SessionTabView: View {
   var model: AppModel?
 
   @State private var draft = ""
-  @State private var isAtBottom = true
+  @State private var isAtBottom = false
   @State private var scrolledToID: String?
 
   var body: some View {
@@ -121,6 +121,14 @@ struct SessionTabView: View {
         }
         .onChange(of: streamingTick) { oldTick, newTick in
           handleStreamingTick(proxy: proxy)
+        }
+        .onAppear {
+          // defaultScrollAnchor(.bottom) places us at the bottom on first layout,
+          // but scrollPosition(id:) may not fire onChange for the initial position.
+          // Mark isAtBottom true after a brief delay so the button doesn't flash.
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isAtBottom = true
+          }
         }
         .overlay(alignment: .bottomTrailing) {
           scrollToBottomOverlay(proxy: proxy)

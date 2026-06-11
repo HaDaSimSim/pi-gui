@@ -80,6 +80,14 @@ struct ComposerView: View {
 
         // Action buttons (right)
         if runtime.isStreaming {
+          Picker("", selection: $deliverAs) {
+            Text("Steer").tag("steer")
+            Text("Follow-up").tag("followUp")
+          }
+          .pickerStyle(.segmented)
+          .frame(width: 130)
+          .help(deliverAs == "steer" ? "Interrupt and redirect" : "Queue after current response")
+
           composerCircle(icon: "stop.fill", tint: Theme.danger, enabled: canSend) {
             runtime.abort()
           }
@@ -188,7 +196,8 @@ struct ComposerView: View {
       let cmd = String(text.dropFirst(1)).trimmingCharacters(in: .whitespaces)
       if !cmd.isEmpty { runtime.runBash(cmd, excludeFromContext: false) }
     } else {
-      runtime.sendPrompt(text, images: attachments.map { $0.rpcDict })
+      let behavior: String? = runtime.isStreaming ? deliverAs : nil
+      runtime.sendPrompt(text, images: attachments.map { $0.rpcDict }, streamingBehavior: behavior)
     }
     draft = ""
     attachments = []

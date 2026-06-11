@@ -201,7 +201,9 @@ public final class RuntimeSession: RpcClientDelegate {
 
   // MARK: - User actions (lock guard enforced here)
 
-  public func sendPrompt(_ text: String, images: [[String: Any]] = []) {
+  public func sendPrompt(
+    _ text: String, images: [[String: Any]] = [], streamingBehavior: String? = nil
+  ) {
     guard !text.isEmpty || !images.isEmpty else { return }
     // P1-1: optimistically show the user's own message immediately so it appears in the
     // transcript even while the lock/session is still being acquired (queued prompt case).
@@ -224,7 +226,8 @@ public final class RuntimeSession: RpcClientDelegate {
       return
     }
     if isStreaming {
-      rpc.prompt(text, streamingBehavior: "steer", images: images)
+      let behavior = streamingBehavior ?? "steer"
+      rpc.prompt(text, streamingBehavior: behavior, images: images)
     } else {
       rpc.prompt(text, images: images)
     }

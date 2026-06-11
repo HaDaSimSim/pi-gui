@@ -36,6 +36,12 @@ public final class RuntimeSession: RpcClientDelegate {
     return Fmt.dirBasename(cwd)
   }
   public var lockStatus: LockUIStatus = .owned
+  /// Set when pi process exits unexpectedly (not via dispose). Surfaces a persistent banner.
+  public var processExited = false
+  /// True while reloadFromFile() is in flight (loading from disk).
+  public var isLoading = false
+  /// True after ensureRuntimeStarted is called but before the first get_state response arrives.
+  public var isStartingUp = false
   public var pendingDialog: PendingDialog?
   public var questionnaire: QuestionnaireState?
   public var statusEntries: [String: String] = [:]  // statusKey -> text (ANSI stripped)
@@ -60,6 +66,7 @@ public final class RuntimeSession: RpcClientDelegate {
   private let model0: String?
   private let sessionDir: String?
   public private(set) var isStarted = false
+  private var disposed = false
 
   /// For browse-only tabs: point at an existing session file without spawning pi.
   public func setSessionPathForBrowsing(_ path: String) {
@@ -82,6 +89,7 @@ public final class RuntimeSession: RpcClientDelegate {
   /// just-finished assistant turn (the file's turn-meta lands one turn late — P0-3).
   public func reloadFromFile(localElapsed: Double? = nil) {
     guard let path = sessionPath else { return }
+    isLoading = true
     let currentHistoryBytes = historyBytes
     let currentLiveCallIds = liveCallIds
     Task.detached { [weak self] in
@@ -103,6 +111,7 @@ public final class RuntimeSession: RpcClientDelegate {
       let hasEarlier = size > currentHistoryBytes
       await MainActor.run { [weak self] in
         guard let self else { return }
+        self.isLoading = false
         // Don't clear a streamed turn if the read came back empty (truncated/racing write).
         if !rebuilt.isEmpty || self.items.isEmpty {
           var next = rebuilt
@@ -149,6 +158,7 @@ public final class RuntimeSession: RpcClientDelegate {
 
   public func start() throws {
     guard !isStarted else { return }
+    isStartingUp = true
     // If we're opening an existing session file, pass its dir so the new RPC writes there,
     // and switch_session to resume it (otherwise pi mints a brand-new session file).
     let resumePath = sessionPath
@@ -326,6 +336,7 @@ public final class RuntimeSession: RpcClientDelegate {
   }
 
   public func dispose() {
+    disposed = true
     lockWatch?.invalidate()
     lockWatch = nil
     rpc.terminate()
@@ -339,7 +350,13 @@ public final class RuntimeSession: RpcClientDelegate {
     Task { @MainActor in self.handle(incoming) }
   }
   nonisolated func rpcDidExit(_ client: RpcClient, code: Int32) {
-    Task { @MainActor in self.isStreaming = false }
+    Task { @MainActor in
+      self.isStreaming = false
+      self.isStartingUp = false
+      if !self.disposed {
+        self.processExited = true
+      }
+    }
   }
 
   private func handle(_ incoming: RpcIncoming) {
@@ -366,6 +383,7 @@ public final class RuntimeSession: RpcClientDelegate {
     switch command {
     case "get_state":
       if let data {
+        isStartingUp = false
         if let m = data["model"] as? [String: Any] { model = m["id"] as? String }
         thinkingLevel = (data["thinkingLevel"] as? String) ?? thinkingLevel
         sessionName = data["sessionName"] as? String

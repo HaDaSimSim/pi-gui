@@ -97,17 +97,8 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
   }
 
   public func windowShouldClose(_ sender: NSWindow) -> Bool {
-    // If this is the last tab, don't close the window — show empty state instead.
-    if model.openSessions.count <= 1 {
-      // Remove the session but keep the window alive by preventing close.
-      model.removeWindowController(for: runtime.id)
-      // Replace content with empty state.
-      let emptyView = SessionWindowContent()
-        .environment(model)
-      sender.contentView = NSHostingView(rootView: emptyView)
-      sender.title = "pi"
-      return false
-    }
+    // Always allow close. removeWindowController handles cleanup.
+    // When the last tab closes, the WindowGroup's SessionWindowContent shows the empty state.
     return true
   }
 }

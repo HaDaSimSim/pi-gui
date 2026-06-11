@@ -14,11 +14,30 @@ struct SessionTabView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      if runtime.lockStatus != .owned {
+      if runtime.processExited {
+        processExitedBanner
+      }
+      if runtime.lockStatus != .owned && !runtime.processExited {
         lockBanner
       }
-      scrollback
+      if runtime.isLoading && runtime.items.isEmpty {
+        Spacer()
+        ProgressView("Loading session\u{2026}")
+          .frame(maxWidth: .infinity)
+        Spacer()
+      } else {
+        scrollback
+      }
       Divider()
+      if runtime.isStartingUp {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text("Starting pi\u{2026}").font(.caption).foregroundStyle(.secondary)
+          Spacer()
+        }
+        .padding(.horizontal, 14).padding(.vertical, 6)
+        .background(Color.accentColor.opacity(0.08))
+      }
       if let banner = runtime.activityBanner {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
@@ -69,6 +88,23 @@ struct SessionTabView: View {
       runtime.lockStatus == .lost
         ? "Session taken over. Another writer holds this session."
         : "Session locked elsewhere. Another writer holds this session.")
+  }
+
+  private var processExitedBanner: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.danger)
+      VStack(alignment: .leading, spacing: 1) {
+        Text("pi process exited unexpectedly")
+          .font(.callout).fontWeight(.medium)
+        Text("Reopen this session to reconnect.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      Spacer()
+    }
+    .padding(.horizontal, 14).padding(.vertical, 8)
+    .background(Theme.danger.opacity(0.12))
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("pi process exited unexpectedly. Reopen this session to reconnect.")
   }
 
   private var scrollback: some View {
@@ -226,7 +262,13 @@ struct SessionTabView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .id(last.id)
         .task(id: last.id) {
+          // Critical errors stay persistent; non-errors auto-dismiss after 3s.
+          guard last.type != "error" else { return }
           try? await Task.sleep(for: .seconds(3))
+          runtime.notifications.removeAll { $0.id == last.id }
+        }
+        .onTapGesture {
+          // Allow manual dismissal of persistent error notifications.
           runtime.notifications.removeAll { $0.id == last.id }
         }
     }

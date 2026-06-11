@@ -44,7 +44,14 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc codesign so the WebView/AppKit + network entitlements work locally.
-codesign --force --deep --sign - "$APP" 2>/dev/null || echo "codesign skipped"
+# Codesign: use Developer ID if available, otherwise ad-hoc for local dev.
+IDENTITY="${CODESIGN_IDENTITY:-Developer ID Application: STAR BALLOON PAYMENTS SERVICE ASIA PACIFIC LIMITED (UTTXQZ2G2T)}"
+if security find-identity -v -p codesigning | grep -q "$IDENTITY"; then
+  codesign --force --deep --options runtime --sign "$IDENTITY" "$APP"
+  echo "Signed with: $IDENTITY"
+else
+  codesign --force --deep --sign - "$APP" 2>/dev/null || echo "codesign skipped"
+  echo "Ad-hoc signed (Developer ID not found)"
+fi
 
 echo "Bundled: $APP"

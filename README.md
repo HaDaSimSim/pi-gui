@@ -21,7 +21,6 @@ tabs, each session running its own `pi --mode rpc` process.
 Requires: macOS 14+, Swift 6.0+ toolchain, Node.js (for the pi binary).
 
 ```bash
-cd swift
 swift build
 ./bundle.sh debug && open build/pi.app
 ```
@@ -34,7 +33,7 @@ Or run directly from the build:
 ## Project structure
 
 ```
-swift/
+pi-gui/
 ├── Package.swift
 ├── Sources/
 │   ├── PiCore/          # Cross-platform models, protocols, parsing (Linux-safe)

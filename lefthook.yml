@@ -9,14 +9,14 @@ pre-commit:
   parallel: true
   commands:
     swift-format:
-      glob: "swift/**/*.swift"
+      glob: "Sources/**/*.swift"
       run: swift format --in-place {staged_files}
       stage_fixed: true
 
 pre-push:
   commands:
     build:
-      run: swift build --package-path swift
+      run: swift build
 
 commit-msg:
   commands:

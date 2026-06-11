@@ -63,7 +63,6 @@ Dependency: PiMac → PiUI → PiCore. PiRelay/PiPushGateway → PiCore only.
 ## Build & run
 
 ```bash
-cd swift
 swift build                              # debug build
 ./bundle.sh debug && open build/pi.app   # bundle + launch
 PISWIFT_SELFTEST=1 ./.build/debug/PiMac  # lock + parser self-test

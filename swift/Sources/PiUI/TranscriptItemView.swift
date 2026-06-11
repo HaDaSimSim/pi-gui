@@ -112,6 +112,7 @@ private struct AssistantMessageView: View {
           }
           if msg.streaming {
             ProgressView().controlSize(.small)
+              .accessibilityLabel("Working on response")
             Text("working…")
           }
         }
@@ -301,32 +302,36 @@ private struct SubagentCard: View {
     }
   }
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 7) {
-        Circle().fill(color).frame(width: 8, height: 8)
-        Text(run.title).fontWeight(.medium)
-        if let agent = run.agent {
-          Text(agent).font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(Capsule().fill(.quaternary))
+    Button {
+      showDetail = true
+    } label: {
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 7) {
+          Circle().fill(color).frame(width: 8, height: 8)
+          Text(run.title).fontWeight(.medium)
+          if let agent = run.agent {
+            Text(agent).font(.system(.caption2, design: .monospaced))
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 5).padding(.vertical, 1)
+              .background(Capsule().fill(.quaternary))
+          }
+          Spacer()
+          if run.turns.count > 1 {
+            Text("\(run.turns.count) turns").font(.caption2).foregroundStyle(.tertiary)
+          }
+          Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.caption2).foregroundStyle(.tertiary)
         }
-        Spacer()
-        if run.turns.count > 1 {
-          Text("\(run.turns.count) turns").font(.caption2).foregroundStyle(.tertiary)
+        if !run.task.isEmpty {
+          Text(run.task).font(.caption).foregroundStyle(.secondary).lineLimit(3)
         }
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
-          .font(.caption2).foregroundStyle(.tertiary)
       }
-      if !run.task.isEmpty {
-        Text(run.task).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-      }
+      .padding(10)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .padding(10)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .contentShape(Rectangle())
-    .onTapGesture { showDetail = true }
-    .help("Open the subagent conversation")
+    .buttonStyle(.plain)
+    .accessibilityLabel("\(run.title), \(run.status)")
+    .accessibilityHint("Opens subagent conversation detail")
     .sheet(isPresented: $showDetail) {
       SubagentDetailView(run: run)
     }

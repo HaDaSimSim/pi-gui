@@ -5,14 +5,15 @@ import UniformTypeIdentifiers
 
 // Composer: model/thinking controls, slash menu, IME-safe input, send/steer/stop.
 struct ComposerView: View {
-  @ObservedObject var runtime: RuntimeSession
-  @EnvironmentObject var model: AppModel
+  var runtime: RuntimeSession
+  @Environment(AppModel.self) var model
   @Binding var draft: String
   weak var controller: SessionWindowController?
   @State private var showSlashMenu = false
   @State private var deliverAs: String = "steer"  // when streaming: steer | followUp
   @State private var attachments: [AttachedImage] = []
   @State private var inputHeight: CGFloat = 34
+  @State private var isComposerFocused: Bool = false
 
   var body: some View {
     VStack(spacing: 6) {
@@ -53,11 +54,18 @@ struct ComposerView: View {
         }
         .buttonStyle(.plain).help("Attach image")
 
-        ComposerTextView(text: $draft, measuredHeight: $inputHeight, onSubmit: submit)
-          .frame(height: inputHeight)
-          .onChange(of: draft) { _, v in
-            showSlashMenu = v.hasPrefix("/") && !v.contains(" ")
-          }
+        ComposerTextView(
+          text: $draft,
+          measuredHeight: $inputHeight,
+          isFocused: isComposerFocused,
+          onFocusChange: { isComposerFocused = $0 },
+          onSubmit: submit,
+          onEscape: { isComposerFocused = false }
+        )
+        .frame(height: inputHeight)
+        .onChange(of: draft) { _, v in
+          showSlashMenu = v.hasPrefix("/") && !v.contains(" ")
+        }
 
         if runtime.isStreaming {
           circleButton(
@@ -79,9 +87,7 @@ struct ComposerView: View {
         }
       }
       .padding(.horizontal, 12).padding(.vertical, 7)
-      .background(RoundedRectangle(cornerRadius: 20).fill(Color(nsColor: .textBackgroundColor)))
-      .overlay(
-        RoundedRectangle(cornerRadius: 20).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+      .modifier(ComposerPillModifier())
 
       HStack(spacing: 10) {
         modelControls
@@ -90,6 +96,8 @@ struct ComposerView: View {
       .padding(.horizontal, 4)
     }
     .padding(12)
+    .onAppear { isComposerFocused = true }
+    .focusedSceneValue(\.activeRuntime, runtime)
   }
 
   private var modelControls: some View {
@@ -141,10 +149,7 @@ struct ComposerView: View {
   }
 
   private var latestTodo: [TodoItem]? {
-    for item in runtime.items.reversed() {
-      if case .todoList(_, let todos) = item { return todos }
-    }
-    return nil
+    runtime.latestTodo
   }
 
   private func submit() {
@@ -256,6 +261,9 @@ struct TodoWidget: View {
           .frame(width: 120)
         Text("\(done)/\(todos.count) todos").font(.caption).foregroundStyle(.secondary)
       }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("Todo progress")
+      .accessibilityValue("\(done) of \(todos.count) completed")
     }
     .padding(8)
     .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
@@ -275,6 +283,22 @@ struct TodoWidget: View {
         Image(systemName: "smallcircle.filled.circle").foregroundStyle(Theme.info).font(.caption)
       }
     default: Image(systemName: "circle").foregroundStyle(.tertiary).font(.caption)
+    }
+  }
+}
+
+// MARK: - Liquid Glass modifier for the composer pill (macOS 26+ with fallback)
+
+private struct ComposerPillModifier: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(macOS 26, *) {
+      content
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+    } else {
+      content
+        .background(RoundedRectangle(cornerRadius: 20).fill(Color(nsColor: .textBackgroundColor)))
+        .overlay(
+          RoundedRectangle(cornerRadius: 20).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
     }
   }
 }

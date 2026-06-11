@@ -7,7 +7,7 @@ import SwiftUI
 // MARK: - pi settings (settings.json)
 
 struct PiSettingsTab: View {
-  @StateObject private var store = PiSettingsStore()
+  @State private var store = PiSettingsStore()
 
   private let thinkingLevels = ["off", "minimal", "low", "medium", "high", "xhigh"]
   private let modes = ["all", "one-at-a-time"]
@@ -60,7 +60,7 @@ struct PiSettingsTab: View {
 // MARK: - Providers (models.json)
 
 struct ProvidersTab: View {
-  @StateObject private var store = ProviderStore()
+  @State private var store = ProviderStore()
   @State private var newProviderName = ""
   @State private var selected: String?
 
@@ -117,7 +117,7 @@ struct ProvidersTab: View {
 }
 
 private struct ProviderDetail: View {
-  @ObservedObject var store: ProviderStore
+  var store: ProviderStore
   let provider: ProviderStore.ProviderView
   @State private var baseUrl = ""
   @State private var api = ""

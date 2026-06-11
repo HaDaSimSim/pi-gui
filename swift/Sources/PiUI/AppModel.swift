@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import Foundation
 import PiCore
 import SwiftUI
@@ -9,11 +8,12 @@ import SwiftUI
 // NSWindow managed by SessionWindowController — the OS renders native titlebar tabs.
 
 @MainActor
-public final class AppModel: ObservableObject {
-  @Published public var directories: [DirEntry] = []
-  @Published public var sessionsByCwd: [String: [SessionSummary]] = [:]
-  @Published public var models: [ModelOption] = []
-  @Published public var locks: [LockRecord] = []
+@Observable
+public final class AppModel {
+  public var directories: [DirEntry] = []
+  public var sessionsByCwd: [String: [SessionSummary]] = [:]
+  public var models: [ModelOption] = []
+  public var locks: [LockRecord] = []
 
   public let config: PiConfig
   private let store = SessionStore()

@@ -6,8 +6,8 @@ import SwiftUI
 // selection is consistent and actually searchable (the previous flat Menu was unusable with
 // many models).
 struct ModelPicker: View {
-  @ObservedObject var runtime: RuntimeSession
-  @EnvironmentObject var model: AppModel
+  var runtime: RuntimeSession
+  @Environment(AppModel.self) var model
   @State private var showPopover = false
   @State private var query = ""
 
@@ -84,7 +84,7 @@ struct ModelPicker: View {
 
 // Effort/thinking picker as a fixed-width menu so it doesn't jump size between levels.
 struct EffortPicker: View {
-  @ObservedObject var runtime: RuntimeSession
+  var runtime: RuntimeSession
   private let levels = ["off", "minimal", "low", "medium", "high", "xhigh"]
   var body: some View {
     Menu {

@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import PiCore
 
@@ -7,7 +6,8 @@ import PiCore
 // lock.isMine() is re-checked before EVERY prompt send (pi won't enforce it under PI_WEB_HOST).
 
 @MainActor
-public final class RuntimeSession: ObservableObject, RpcClientDelegate {
+@Observable
+public final class RuntimeSession: RpcClientDelegate {
   let id = UUID()
   public let cwd: String
   public private(set) var sessionPath: String?
@@ -15,18 +15,32 @@ public final class RuntimeSession: ObservableObject, RpcClientDelegate {
   // Live transcript built from streamed events (separate from the file-read scrollback).
   // The in-progress assistant turn is committed directly into `items` like the web's
   // messages[] (no clear-then-reload), so a racing file read can never blank a live turn.
-  @Published public var items: [TranscriptItem] = []
-  @Published public var isStreaming = false
-  @Published public var footer = FooterStats()
-  @Published public var model: String?
-  @Published public var thinkingLevel: String = "off"
-  @Published public var sessionName: String?
-  @Published public var lockStatus: LockUIStatus = .owned
-  @Published public var pendingDialog: PendingDialog?
-  @Published public var questionnaire: QuestionnaireState?
-  @Published public var statusEntries: [String: String] = [:]  // statusKey -> text (ANSI stripped)
-  @Published public var notifications: [AppNotification] = []
-  @Published public var commands: [SlashCommand] = []
+  public var items: [TranscriptItem] = [] {
+    didSet { _latestTodo = Self.computeLatestTodo(items) }
+  }
+  public var isStreaming = false
+  public var footer = FooterStats()
+  public var model: String?
+  public var thinkingLevel: String = "off"
+  public var sessionName: String?
+  public var lockStatus: LockUIStatus = .owned
+  public var pendingDialog: PendingDialog?
+  public var questionnaire: QuestionnaireState?
+  public var statusEntries: [String: String] = [:]  // statusKey -> text (ANSI stripped)
+  public var notifications: [AppNotification] = []
+  public var commands: [SlashCommand] = []
+
+  /// Cached latest todo list (updated when `items` changes). Avoids repeated
+  /// O(n) scans of items.reversed() in ComposerView's body.
+  public private(set) var _latestTodo: [TodoItem]?
+  public var latestTodo: [TodoItem]? { _latestTodo }
+
+  private static func computeLatestTodo(_ items: [TranscriptItem]) -> [TodoItem]? {
+    for item in items.reversed() {
+      if case .todoList(_, let todos) = item { return todos }
+    }
+    return nil
+  }
 
   private let rpc = RpcClient()
   private var lock: SessionLock?
@@ -42,8 +56,8 @@ public final class RuntimeSession: ObservableObject, RpcClientDelegate {
 
   /// How many bytes from the end of the session file the scrollback currently covers. Grows
   /// when the user loads earlier history. Footer aggregation always uses the full file.
-  @Published public var historyBytes = 8 * 1024 * 1024
-  @Published public var hasEarlierHistory = false
+  public var historyBytes = 8 * 1024 * 1024
+  public var hasEarlierHistory = false
 
   /// Reload the committed transcript from the session file tail (OOM-safe). This is the
   /// source of truth for tool calls/results, todo/goal/subagent state, and final text.
@@ -186,9 +200,9 @@ public final class RuntimeSession: ObservableObject, RpcClientDelegate {
   private var lockWatch: Timer?
 
   /// In-flight tool calls during the current streaming turn (cleared on agent_end reload).
-  @Published public var liveTools: [LiveTool] = []
+  public var liveTools: [LiveTool] = []
   /// Transient activity banner (retry countdown / compaction), shown above the composer.
-  @Published public var activityBanner: String?
+  public var activityBanner: String?
 
   // MARK: - Streaming turn accumulation (mirrors web's streamingRef + turnStartRef)
 

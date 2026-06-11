@@ -4,7 +4,7 @@ import SwiftUI
 
 @main
 struct PiSwiftApp: App {
-  @StateObject private var model = AppModel()
+  @State private var model = AppModel()
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
   init() {

@@ -3,7 +3,7 @@ import SwiftUI
 
 // Right-side info panel: Info / Subagents / Tasks / Git tabs.
 struct InfoPanelView: View {
-  @ObservedObject var runtime: RuntimeSession
+  var runtime: RuntimeSession
   @State private var selection = 0
 
   var body: some View {
@@ -144,7 +144,7 @@ struct InfoPanelView: View {
 // MARK: - Info tab building blocks
 
 private struct InlineRename: View {
-  @ObservedObject var runtime: RuntimeSession
+  var runtime: RuntimeSession
   @State private var editing = false
   @State private var draft = ""
   var body: some View {
@@ -175,8 +175,8 @@ private struct InlineRename: View {
 }
 
 private struct ModelEffortControls: View {
-  @ObservedObject var runtime: RuntimeSession
-  @EnvironmentObject var model: AppModel
+  var runtime: RuntimeSession
+  @Environment(AppModel.self) var model
   var body: some View {
     HStack(spacing: 8) {
       ModelPicker(runtime: runtime)
@@ -204,6 +204,10 @@ private struct TokenCompositionBar: View {
       .frame(height: 6)
       .clipShape(Capsule())
     }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(
+      "Token composition: input \(Fmt.tokens(footer.inputTokens)), output \(Fmt.tokens(footer.outputTokens)), cache read \(Fmt.tokens(footer.cacheRead)), cache write \(Fmt.tokens(footer.cacheWrite))"
+    )
   }
   private func seg(_ width: CGFloat, _ value: Int, _ total: Int, _ color: Color) -> some View {
     color.frame(width: width * CGFloat(value) / CGFloat(total))

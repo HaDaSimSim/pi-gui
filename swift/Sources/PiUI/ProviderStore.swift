@@ -5,9 +5,10 @@ import PiCore
 // round-tripping the whole object. API keys are stored as written (often "$ENV_VAR" interpolation
 // or a literal); we never echo secret values in logs.
 @MainActor
-public final class ProviderStore: ObservableObject {
-  @Published var raw: [String: Any] = [:]
-  @Published var loadError: String?
+@Observable
+public final class ProviderStore {
+  var raw: [String: Any] = [:]
+  var loadError: String?
 
   private var path: String { AgentPaths.modelsPath }
 

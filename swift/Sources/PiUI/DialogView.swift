@@ -6,7 +6,7 @@ import SwiftUI
 // primitives cover everything (confirmed by PoC 2/3).
 struct DialogView: View {
   let dialog: PendingDialog
-  @ObservedObject var runtime: RuntimeSession
+  var runtime: RuntimeSession
   @State private var inputText = ""
 
   var body: some View {

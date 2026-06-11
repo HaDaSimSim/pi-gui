@@ -5,7 +5,7 @@ import SwiftUI
 // highlighting. Browsing is pure file reads; opening a session creates a tab window.
 
 struct SidebarView: View {
-  @EnvironmentObject var model: AppModel
+  @Environment(AppModel.self) var model
   @State private var expanded: [String: Bool] = [:]
   @State private var search = ""
   @State private var filter = SessionFilterCriteria()
@@ -109,6 +109,8 @@ struct SidebarView: View {
           .buttonStyle(.plain)
           .foregroundStyle(filter.isActive ? Color.accentColor : .secondary)
           .help("Filter sessions")
+          .accessibilityLabel(filter.isActive ? "Filter sessions, active" : "Filter sessions")
+          .accessibilityHint("Opens session filter options")
           Button {
             model.pickFolderAndStart()
           } label: {
@@ -127,7 +129,7 @@ struct SidebarView: View {
         .padding(.horizontal, 12).frame(height: 40)
         Divider()
       }
-      .background(.bar)
+      .modifier(GlassBarModifier())
     }
     .sheet(isPresented: $showFilter) {
       SessionFilterSheet(filter: $filter)
@@ -257,6 +259,9 @@ struct SessionRow: View {
       }
       Spacer(minLength: 4)
     }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(
+      "\(summary.name ?? summary.preview ?? "Untitled session")\(isLive ? ", live" : "")")
   }
 }
 
@@ -336,5 +341,17 @@ private struct SessionFilterSheet: View {
   private func commit() {
     filter = draft
     dismiss()
+  }
+}
+
+// MARK: - Liquid Glass modifier for control bars (macOS 26+ with fallback)
+
+private struct GlassBarModifier: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(macOS 26, *) {
+      content.glassEffect(.regular)
+    } else {
+      content.background(.bar)
+    }
   }
 }

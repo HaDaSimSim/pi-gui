@@ -5,9 +5,10 @@ import PiCore
 // typed accessors and preserve all unknown keys (round-trip the full JSON object). This is the
 // same file pi's SettingsManager reads, so changes apply to new runtimes.
 @MainActor
-public final class PiSettingsStore: ObservableObject {
-  @Published var raw: [String: Any] = [:]
-  @Published var loadError: String?
+@Observable
+public final class PiSettingsStore {
+  var raw: [String: Any] = [:]
+  var loadError: String?
 
   private var path: String { AgentPaths.settingsPath }
 

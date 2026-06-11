@@ -33,9 +33,14 @@ struct SubagentsList: View {
                 .font(.caption2).foregroundStyle(.secondary)
             }
             ForEach(batch, id: \.runId) { run in
-              SubagentListRow(run: run)
-                .contentShape(Rectangle())
-                .onTapGesture { selected = run }
+              Button {
+                selected = run
+              } label: {
+                SubagentListRow(run: run)
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel("\(run.title), \(run.status)")
+              .accessibilityHint("Opens subagent conversation detail")
             }
           }
         }

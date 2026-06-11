@@ -4,12 +4,13 @@ import SwiftUI
 // One open session: scrollback (committed items + live streaming overlay), composer, footer.
 // Extension UI dialogs surface as a sheet (native), notifications as overlay.
 struct SessionTabView: View {
-  @ObservedObject var runtime: RuntimeSession
+  @Bindable var runtime: RuntimeSession
   let cwd: String
   weak var controller: SessionWindowController?
 
   @State private var draft = ""
   @State private var isAtBottom = true
+  @State private var scrolledToID: String?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -21,11 +22,13 @@ struct SessionTabView: View {
       if let banner = runtime.activityBanner {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
+            .accessibilityLabel("Working on response")
           Text(banner).font(.caption).foregroundStyle(.secondary)
           Spacer()
         }
         .padding(.horizontal, 14).padding(.vertical, 6)
         .background(Theme.streaming.opacity(0.15))
+        .accessibilityElement(children: .combine)
       }
       ComposerView(runtime: runtime, draft: $draft, controller: controller)
       FooterView(runtime: runtime, cwd: cwd)
@@ -61,59 +64,91 @@ struct SessionTabView: View {
     }
     .padding(.horizontal, 14).padding(.vertical, 8)
     .background(Theme.streaming.opacity(0.18))
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(
+      runtime.lockStatus == .lost
+        ? "Session taken over. Another writer holds this session."
+        : "Session locked elsewhere. Another writer holds this session.")
   }
 
   private var scrollback: some View {
     ScrollViewReader { proxy in
-      ScrollView {
-        HStack(spacing: 0) {
-          Spacer(minLength: 0)
-          LazyVStack(alignment: .leading, spacing: 18) {
-            if runtime.hasEarlierHistory {
-              Button {
-                runtime.loadEarlierHistory()
-              } label: {
-                Label("Load earlier history", systemImage: "arrow.up.circle")
-                  .font(.caption)
-              }
-              .buttonStyle(.bordered)
-              .frame(maxWidth: .infinity)
-              .padding(.bottom, 4)
-            }
-            ForEach(runtime.items) { item in
-              TranscriptItemView(item: item, isStreaming: runtime.isStreaming)
-                .id(item.id)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-            Color.clear.frame(height: 1).id("__bottom__")
-              .onAppear { isAtBottom = true }
-              .onDisappear { isAtBottom = false }
-          }
-          .frame(maxWidth: 760)
-          .padding(.horizontal, 20).padding(.vertical, 16)
-          .animation(.easeOut(duration: 0.25), value: runtime.items.count)
-          .animation(.easeInOut(duration: 0.2), value: runtime.isStreaming)
-          Spacer(minLength: 0)
+      scrollContent
+        .defaultScrollAnchor(.bottom)
+        .scrollPosition(id: $scrolledToID)
+        .onChange(of: scrolledToID) { _, newID in
+          let atEnd = (newID == "__bottom__" || newID == runtime.items.last?.id)
+          isAtBottom = atEnd
         }
-      }
-      .defaultScrollAnchor(.bottom)
-      .onChange(of: runtime.items.count) { _, count in
-        if count > 0 { scrollToBottom(proxy) }
-      }
-      .onChange(of: streamingTick) { _, _ in scrollToBottom(proxy) }
-      .overlay(alignment: .bottomTrailing) {
-        if !isAtBottom {
-          Button {
-            scrollToBottom(proxy)
-          } label: {
-            Image(systemName: "arrow.down").padding(8)
-              .background(.regularMaterial, in: Circle())
-          }
-          .buttonStyle(.plain)
-          .padding(16)
-          .help("Jump to latest")
-          .transition(.opacity)
+        .onChange(of: runtime.items.count) { oldCount, newCount in
+          handleItemsCountChange(newCount: newCount, proxy: proxy)
         }
+        .onChange(of: streamingTick) { oldTick, newTick in
+          handleStreamingTick(proxy: proxy)
+        }
+        .overlay(alignment: .bottomTrailing) {
+          scrollToBottomOverlay(proxy: proxy)
+        }
+    }
+  }
+
+  private func handleItemsCountChange(newCount: Int, proxy: ScrollViewProxy) {
+    if newCount > 0 && isAtBottom {
+      scrollToBottom(proxy)
+    }
+  }
+
+  private func handleStreamingTick(proxy: ScrollViewProxy) {
+    if isAtBottom {
+      scrollToBottom(proxy)
+    }
+  }
+
+  @ViewBuilder
+  private func scrollToBottomOverlay(proxy: ScrollViewProxy) -> some View {
+    if !isAtBottom {
+      Button {
+        scrollToBottom(proxy)
+      } label: {
+        Image(systemName: "arrow.down")
+          .frame(width: 32, height: 32)
+      }
+      .buttonStyle(.plain)
+      .modifier(GlassScrollButtonModifier())
+      .padding(16)
+      .help("Jump to latest")
+      .transition(.opacity)
+    }
+  }
+
+  private var scrollContent: some View {
+    ScrollView {
+      HStack(spacing: 0) {
+        Spacer(minLength: 0)
+        LazyVStack(alignment: .leading, spacing: 18) {
+          if runtime.hasEarlierHistory {
+            Button {
+              runtime.loadEarlierHistory()
+            } label: {
+              Label("Load earlier history", systemImage: "arrow.up.circle")
+                .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 4)
+          }
+          ForEach(runtime.items) { item in
+            TranscriptItemView(item: item, isStreaming: runtime.isStreaming)
+              .id(item.id)
+              .transition(.opacity.combined(with: .move(edge: .bottom)))
+          }
+          Color.clear.frame(height: 1).id("__bottom__")
+        }
+        .frame(maxWidth: 760)
+        .padding(.horizontal, 20).padding(.vertical, 16)
+        .animation(.easeOut(duration: 0.25), value: runtime.items.count)
+        .animation(.easeInOut(duration: 0.2), value: runtime.isStreaming)
+        Spacer(minLength: 0)
       }
     }
   }
@@ -205,6 +240,20 @@ struct SessionTabView: View {
     case "error": return Theme.danger
     case "warning": return Theme.streaming
     default: return Theme.info
+    }
+  }
+}
+
+// MARK: - Liquid Glass modifier for scroll-to-bottom button (macOS 26+ with fallback)
+
+private struct GlassScrollButtonModifier: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(macOS 26, *) {
+      content.glassEffect(.regular.interactive(), in: .circle)
+    } else {
+      content
+        .padding(8)
+        .background(.regularMaterial, in: Circle())
     }
   }
 }

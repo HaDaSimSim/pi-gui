@@ -8,7 +8,10 @@ import SwiftUI
 struct ComposerTextView: NSViewRepresentable {
   @Binding var text: String
   @Binding var measuredHeight: CGFloat
+  var isFocused: Bool
+  var onFocusChange: ((Bool) -> Void)?
   var onSubmit: () -> Void
+  var onEscape: (() -> Void)?
 
   func makeNSView(context: Context) -> NSScrollView {
     let scroll = NSTextView.scrollableTextView()
@@ -42,6 +45,12 @@ struct ComposerTextView: NSViewRepresentable {
       tv.string = text
     }
     context.coordinator.recomputeHeight()
+    // Drive focus from SwiftUI state
+    if isFocused && tv.window?.firstResponder !== tv {
+      tv.window?.makeFirstResponder(tv)
+    } else if !isFocused && tv.window?.firstResponder === tv {
+      tv.window?.makeFirstResponder(nil)
+    }
   }
 
   func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -79,7 +88,19 @@ struct ComposerTextView: NSViewRepresentable {
         parent.onSubmit()
         return true
       }
+      if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+        parent.onEscape?()
+        return true
+      }
       return false
+    }
+
+    func textDidBeginEditing(_ notification: Notification) {
+      parent.onFocusChange?(true)
+    }
+
+    func textDidEndEditing(_ notification: Notification) {
+      parent.onFocusChange?(false)
     }
   }
 }

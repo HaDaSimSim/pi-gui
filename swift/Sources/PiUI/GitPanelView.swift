@@ -122,11 +122,14 @@ struct GitPanelView: View {
     VStack(alignment: .leading, spacing: 0) {
       Text("Commits").font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
       ForEach(Array(info.commits.enumerated()), id: \.element.id) { idx, c in
-        CommitRow(commit: c, isLast: idx == info.commits.count - 1)
-          .contentShape(Rectangle())
-          .onTapGesture {
-            if let d = GitInfo.commitDetail(cwd: cwd, hash: c.hash) { detail = d }
-          }
+        Button {
+          if let d = GitInfo.commitDetail(cwd: cwd, hash: c.hash) { detail = d }
+        } label: {
+          CommitRow(commit: c, isLast: idx == info.commits.count - 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Commit \(c.shortHash) by \(c.author): \(c.subject)")
+        .accessibilityHint("Shows commit details")
       }
     }
   }

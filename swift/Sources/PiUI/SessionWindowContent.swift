@@ -6,10 +6,10 @@ import SwiftUI
 // Uses HSplitView instead of NavigationSplitView to avoid toolbar/header layout issues
 // when the sidebar is shown (NavigationSplitView's detail toolbar shifts unpredictably).
 struct SessionWindowContent: View {
-  @ObservedObject var runtime: RuntimeSession
+  var runtime: RuntimeSession
   let cwd: String
   weak var controller: SessionWindowController?
-  @EnvironmentObject var model: AppModel
+  @Environment(AppModel.self) var model
   @State private var showInfo = false
   @AppStorage(AppSettingsKeys.themeMode) private var themeMode = "auto"
   @AppStorage(AppSettingsKeys.lang) private var lang = "en"
@@ -35,10 +35,14 @@ struct SessionWindowContent: View {
           } label: {
             Image(systemName: showInfo ? "sidebar.right.fill" : "sidebar.right")
               .font(.system(size: 14))
+              .frame(width: 28, height: 28)
           }
           .buttonStyle(.plain)
           .foregroundStyle(.secondary)
+          .modifier(GlassCircleButtonModifier())
           .help("Toggle info panel (\u{21e7}\u{2318}I)")
+          .accessibilityLabel(showInfo ? "Hide info panel" : "Show info panel")
+          .accessibilityHint("Toggles the right-side information panel")
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
@@ -67,4 +71,16 @@ struct SessionWindowContent: View {
 
 extension Notification.Name {
   static let toggleInfoPanel = Notification.Name("pi.toggleInfoPanel")
+}
+
+// MARK: - Liquid Glass modifier for circular toolbar buttons (macOS 26+ with fallback)
+
+private struct GlassCircleButtonModifier: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(macOS 26, *) {
+      content.glassEffect(.regular.interactive(), in: .circle)
+    } else {
+      content
+    }
+  }
 }

@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import PiCore
 import SwiftUI
 
@@ -12,8 +11,8 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
   public let runtime: RuntimeSession
   public let cwd: String
   private weak var model: AppModel?
-  private var titleObserver: AnyCancellable?
-  @Published public var showInfoPanel = false
+  private var titleObserver: Task<Void, Never>?
+  public var showInfoPanel = false
 
   /// All live session window controllers, derived from NSApp.windows.
   public static var all: [SessionWindowController] {
@@ -48,15 +47,23 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
 
     // Embed the SwiftUI content view.
     let content = SessionWindowContent(runtime: runtime, cwd: cwd, controller: self)
-      .environmentObject(model)
+      .environment(model)
     window.contentView = NSHostingView(rootView: content)
     window.contentView?.autoresizingMask = [.width, .height]
 
     // Observe runtime.sessionName to update the window title dynamically.
-    titleObserver = runtime.$sessionName.receive(on: RunLoop.main).sink { [weak self] name in
-      guard let self, let w = self.window else { return }
-      if let name, !name.isEmpty {
-        w.title = name
+    titleObserver = Task { @MainActor [weak self] in
+      var lastName: String? = nil
+      while !Task.isCancelled {
+        guard let self else { return }
+        let name = self.runtime.sessionName
+        if name != lastName {
+          lastName = name
+          if let name, !name.isEmpty {
+            self.window?.title = name
+          }
+        }
+        try? await Task.sleep(for: .milliseconds(200))
       }
     }
   }

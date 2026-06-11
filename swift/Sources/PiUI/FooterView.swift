@@ -4,7 +4,7 @@ import SwiftUI
 // Footer status bar, mirroring the TUI/web footer lines (cwd/branch/name, goal/todos,
 // token+cost+context+model, lock ownership).
 struct FooterView: View {
-  @ObservedObject var runtime: RuntimeSession
+  var runtime: RuntimeSession
   let cwd: String
 
   var body: some View {
@@ -43,6 +43,10 @@ struct FooterView: View {
         Text(runtime.model ?? "")
         Text("• \(runtime.thinkingLevel == "off" ? "thinking off" : runtime.thinkingLevel)")
       }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(
+        "Stats: input \(Fmt.tokens(runtime.footer.inputTokens)), output \(Fmt.tokens(runtime.footer.outputTokens)), cost \(Fmt.cost(runtime.footer.cost)), model \(runtime.model ?? "unknown")"
+      )
       // ownership
       HStack {
         Text(lockText).foregroundStyle(lockColor)

@@ -5,7 +5,7 @@ import SwiftUI
 // natively). Single-select uses option cards; free-text questions get a text field. The RPC
 // fallback channel only carries one value per question, so multi-select degrades to single.
 struct QuestionnaireSheet: View {
-  @ObservedObject var runtime: RuntimeSession
+  var runtime: RuntimeSession
   let state: QuestionnaireState
 
   @State private var selections: [String: String] = [:]  // questionId -> chosen value

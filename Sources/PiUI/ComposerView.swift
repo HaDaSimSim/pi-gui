@@ -12,7 +12,7 @@ struct ComposerView: View {
   @State private var showSlashMenu = false
   @State private var deliverAs: String = "steer"  // when streaming: steer | followUp
   @State private var attachments: [AttachedImage] = []
-  @State private var inputHeight: CGFloat = 34
+  @State private var inputHeight: CGFloat = 22
   @State private var isComposerFocused: Bool = false
 
   var body: some View {
@@ -92,7 +92,7 @@ struct ComposerView: View {
         }
       }
       .padding(.horizontal, 12)
-      .padding(.vertical, 9)
+      .padding(.vertical, 6)
       .background(Color(nsColor: .textBackgroundColor))
       .clipShape(RoundedRectangle(cornerRadius: 20))
       .overlay(

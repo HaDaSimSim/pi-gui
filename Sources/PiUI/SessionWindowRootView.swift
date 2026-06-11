@@ -36,7 +36,7 @@ struct SessionWindowRootView: View {
           Button {
             withAnimation(.easeInOut(duration: 0.2)) { showInfo.toggle() }
           } label: {
-            Image(systemName: showInfo ? "sidebar.trailing.badge.fullscreen" : "sidebar.right")
+            Image(systemName: showInfo ? "sidebar.right.fill" : "sidebar.right")
               .font(.system(size: 14))
               .frame(width: 30, height: 30)
               .contentShape(Rectangle())

@@ -305,7 +305,7 @@ private struct CapabilitiesSection: View {
         .foregroundStyle(.tertiary)
     } else {
       ForEach(groups, id: \.0) { group in
-        DisclosureGroup(group.0) {
+        AnimatedDisclosureGroup(title: group.0) {
           ForEach(group.1) { cmd in
             VStack(alignment: .leading, spacing: 1) {
               HStack(spacing: 4) {

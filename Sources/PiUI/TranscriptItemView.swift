@@ -149,11 +149,10 @@ private struct ThinkingBlock: View {
       }
       .font(.caption).foregroundStyle(.secondary)
       .contentShape(Rectangle())
-      .onTapGesture { expanded.toggle() }
+      .onTapGesture { withAnimation(.easeInOut(duration: 0.25)) { expanded.toggle() } }
     }
     .disclosureGroupStyle(.automatic)
     .clipped()
-    .animation(.easeInOut(duration: 0.2), value: expanded)
   }
 }
 
@@ -222,7 +221,7 @@ private struct ToolCallCard: View {
         }
       }
       .contentShape(Rectangle())
-      .onTapGesture { expanded.toggle() }
+      .onTapGesture { withAnimation(.easeInOut(duration: 0.25)) { expanded.toggle() } }
     }
     .disclosureGroupStyle(.automatic)
     .clipped()
@@ -234,7 +233,6 @@ private struct ToolCallCard: View {
     .overlay(
       RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 1)
     )
-    .animation(.easeInOut(duration: 0.2), value: expanded)
     .onHover { hovering = $0 }
     .animation(.easeOut(duration: 0.12), value: hovering)
   }
@@ -288,10 +286,9 @@ private struct BashCard: View {
         }
       }
       .contentShape(Rectangle())
-      .onTapGesture { expanded.toggle() }
+      .onTapGesture { withAnimation(.easeInOut(duration: 0.25)) { expanded.toggle() } }
     }
     .clipped()
-    .animation(.easeInOut(duration: 0.2), value: expanded)
     .padding(8)
     .background(
       hovering ? Color.secondary.opacity(0.1) : Color.secondary.opacity(0.08),

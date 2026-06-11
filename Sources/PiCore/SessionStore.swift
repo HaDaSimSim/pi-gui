@@ -23,9 +23,19 @@ public struct SessionStore {
       let files =
         (try? fm.contentsOfDirectory(atPath: full))?.filter { $0.hasSuffix(".jsonl") } ?? []
       if files.isEmpty { continue }
-      let mtime = (try? fm.attributesOfItem(atPath: full)[.modificationDate] as? Date) ?? nil
+      // Use the most recent session file's mtime (not the directory's mtime,
+      // which only updates on file add/remove, not on content writes).
+      var latestMtime: Date = .distantPast
+      for f in files {
+        let fpath = (full as NSString).appendingPathComponent(f)
+        if let ft = (try? fm.attributesOfItem(atPath: fpath)[.modificationDate] as? Date),
+          ft > latestMtime
+        {
+          latestMtime = ft
+        }
+      }
       let cwd = trueCwd(inDir: full, files: files) ?? AgentPaths.cwd(fromDirName: name)
-      out.append((cwd, name, full, mtime ?? .distantPast, files.count))
+      out.append((cwd, name, full, latestMtime, files.count))
     }
     return out.sorted { $0.3 > $1.3 }
   }

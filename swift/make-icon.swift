@@ -36,7 +36,7 @@ func render(_ px: Int) -> Data? {
     let s = NSAttributedString(string: "\u{03C0}", attributes: attrs)
     let textSize = s.size()
     let origin = NSPoint(x: (CGFloat(px) - textSize.width)/2,
-                         y: (CGFloat(px) - textSize.height)/2 - CGFloat(px) * 0.01)
+                         y: (CGFloat(px) - textSize.height)/2 + CGFloat(px) * 0.04)
     s.draw(at: origin)
 
     img.unlockFocus()

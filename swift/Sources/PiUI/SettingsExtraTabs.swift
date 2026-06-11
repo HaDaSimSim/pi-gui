@@ -21,11 +21,11 @@ struct PiSettingsTab: View {
       Section("Defaults") {
         LabeledContent("Provider") {
           TextField("provider", text: bindStr("defaultProvider"))
-            .frame(width: 180).disableAutocorrection(true)
+            .frame(width: 180).autocorrectionDisabled()
         }
         LabeledContent("Model") {
           TextField("model id", text: bindStr("defaultModel"))
-            .frame(width: 180).disableAutocorrection(true)
+            .frame(width: 180).autocorrectionDisabled()
         }
         Picker("Thinking", selection: bindStr("defaultThinkingLevel")) {
           ForEach(thinkingLevels, id: \.self) { Text($0).tag($0) }
@@ -86,7 +86,7 @@ struct ProvidersTab: View {
         HStack(spacing: 4) {
           TextField("Add provider", text: $newProviderName)
             .textFieldStyle(.roundedBorder)
-            .disableAutocorrection(true)
+            .autocorrectionDisabled()
             .onSubmit {
               guard !newProviderName.isEmpty else { return }
               store.addProvider(newProviderName)
@@ -128,7 +128,7 @@ private struct ProviderDetail: View {
       Section("Connection") {
         LabeledContent("Base URL") {
           TextField("https://api.example.com/v1", text: $baseUrl)
-            .disableAutocorrection(true)
+            .autocorrectionDisabled()
         }
         LabeledContent("API type") {
           Picker("", selection: $api) {

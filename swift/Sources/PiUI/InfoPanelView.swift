@@ -152,7 +152,7 @@ private struct InlineRename: View {
       Text("Session").font(.caption).foregroundStyle(.secondary)
       if editing {
         TextField("name", text: $draft).textFieldStyle(.roundedBorder)
-          .disableAutocorrection(true)
+          .autocorrectionDisabled()
           .onSubmit { commit() }
         Button("Save") { commit() }.font(.caption)
         Button("Cancel") { editing = false }.font(.caption)

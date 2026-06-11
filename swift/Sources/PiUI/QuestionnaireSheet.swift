@@ -58,7 +58,7 @@ struct QuestionnaireSheet: View {
       if q.options.isEmpty {
         TextField("Type your answer…", text: bindingCustom(q.id))
           .textFieldStyle(.roundedBorder)
-          .disableAutocorrection(true)
+          .autocorrectionDisabled()
           .onChange(of: customText[q.id] ?? "") { _, v in selections[q.id] = v }
       } else {
         ForEach(q.options) { opt in
@@ -70,7 +70,7 @@ struct QuestionnaireSheet: View {
         // Free-text alternative.
         TextField("Or type your own…", text: bindingCustom(q.id))
           .textFieldStyle(.roundedBorder)
-          .disableAutocorrection(true)
+          .autocorrectionDisabled()
           .onChange(of: customText[q.id] ?? "") { _, v in
             if !v.isEmpty { selections[q.id] = v }
           }

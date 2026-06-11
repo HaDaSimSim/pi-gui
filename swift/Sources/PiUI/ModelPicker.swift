@@ -47,7 +47,7 @@ struct ModelPicker: View {
       VStack(spacing: 0) {
         TextField("Search models", text: $query)
           .textFieldStyle(.roundedBorder)
-          .disableAutocorrection(true)
+          .autocorrectionDisabled()
           .padding(8)
         Divider()
         ScrollView {

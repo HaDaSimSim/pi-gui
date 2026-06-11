@@ -123,7 +123,7 @@ struct SidebarView: View {
         "Rename session",
         isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
       ) {
-        TextField("Name", text: $renameText).disableAutocorrection(true)
+        TextField("Name", text: $renameText).autocorrectionDisabled()
         Button("Cancel", role: .cancel) { renaming = nil }
         Button("Rename") {
           if let s = renaming, !renameText.isEmpty { model.renameSession(s, to: renameText) }
@@ -320,7 +320,7 @@ private struct SessionFilterSheet: View {
             Spacer()
             TextField("N", text: $daysText)
               .frame(width: 50).textFieldStyle(.roundedBorder)
-              .disableAutocorrection(true)
+              .autocorrectionDisabled()
               .onChange(of: daysText) { _, v in
                 if let n = Int(v), n > 0 {
                   draft.lastDays = n

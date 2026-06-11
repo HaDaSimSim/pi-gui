@@ -27,21 +27,36 @@ struct SessionWindowRootView: View {
   var body: some View {
     NavigationSplitView {
       SidebarView()
+        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 400)
     } detail: {
       VStack(spacing: 0) {
-        // Header bar with info panel toggle.
+        // Header bar: close session (left) + info panel toggle (right).
         HStack(spacing: 12) {
+          Button {
+            model.closeSession(id: runtime.id)
+          } label: {
+            Image(systemName: "xmark")
+              .font(.system(size: 11, weight: .medium))
+              .frame(width: 24, height: 24)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.secondary)
+          .help("Close session (\u{2318}W)")
           Spacer()
           Button {
             withAnimation(.easeInOut(duration: 0.2)) { showInfo.toggle() }
           } label: {
-            Image(systemName: showInfo ? "sidebar.right.fill" : "sidebar.right")
-              .font(.system(size: 13))
-              .frame(width: 28, height: 28)
+            Image(systemName: showInfo ? "sidebar.trailing.badge.fullscreen" : "sidebar.right")
+              .font(.system(size: 14))
+              .frame(width: 30, height: 30)
+              .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
-          .foregroundStyle(.secondary)
-          .help("Toggle info panel (\u{21e7}\u{2318}I)")
+          .foregroundStyle(showInfo ? .primary : .secondary)
+          .help(
+            showInfo ? "Hide info panel (\u{21e7}\u{2318}I)" : "Show info panel (\u{21e7}\u{2318}I)"
+          )
         }
         .padding(.horizontal, 10)
         .frame(height: 36)
@@ -54,7 +69,7 @@ struct SessionWindowRootView: View {
             .id(runtime.id)
           if showInfo {
             InfoPanelView(runtime: runtime)
-              .frame(minWidth: 200, idealWidth: 260, maxWidth: 450)
+              .frame(minWidth: 240, idealWidth: 320, maxWidth: 500)
           }
         }
       }

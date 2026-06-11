@@ -25,24 +25,6 @@ struct SidebarView: View {
         }
       )
     ) {
-      // MARK: - SESSIONS section (open sessions)
-      if !model.openSessions.isEmpty {
-        Section {
-          ForEach(model.openSessions, id: \.id) { rt in
-            openSessionRow(rt)
-              .tag(rt.sessionPath ?? "")
-              .contextMenu {
-                Button("Close") { model.closeSession(id: rt.id) }
-              }
-          }
-        } header: {
-          Text("SESSIONS")
-            .font(.caption)
-            .fontWeight(.semibold)
-            .foregroundStyle(.secondary)
-        }
-      }
-
       // MARK: - PROJECTS section (directory browser)
       ForEach(filteredDirs) { dir in
         Section(

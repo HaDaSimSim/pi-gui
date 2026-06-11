@@ -60,6 +60,7 @@ struct GitPanelView: View {
             value: loading)
       }
       .buttonStyle(.borderless)
+      .help("Refresh git status")
     }
     .font(.callout)
   }

@@ -60,10 +60,13 @@ struct ComposerView: View {
           }
 
         if runtime.isStreaming {
-          circleButton(icon: "stop.fill", tint: Theme.danger, enabled: true) { runtime.abort() }
+          circleButton(
+            icon: "stop.fill", tint: Theme.danger, enabled: true, help: "Stop generation"
+          ) { runtime.abort() }
           circleButton(
             icon: "arrow.up", tint: .accentColor,
             enabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            help: "Send message",
             action: submit)
         } else {
           circleButton(
@@ -71,6 +74,7 @@ struct ComposerView: View {
             enabled:
               !(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
               && attachments.isEmpty),
+            help: "Send message",
             action: submit)
         }
       }
@@ -95,10 +99,13 @@ struct ComposerView: View {
     }
   }
 
-  private func circleButton(icon: String, tint: Color, enabled: Bool, action: @escaping () -> Void)
+  private func circleButton(
+    icon: String, tint: Color, enabled: Bool, help helpText: String? = nil,
+    action: @escaping () -> Void
+  )
     -> some View
   {
-    CircleButtonView(icon: icon, tint: tint, enabled: enabled, action: action)
+    CircleButtonView(icon: icon, tint: tint, enabled: enabled, helpText: helpText, action: action)
   }
 
   private var slashMenu: some View {
@@ -177,6 +184,7 @@ private struct CircleButtonView: View {
   let icon: String
   let tint: Color
   let enabled: Bool
+  var helpText: String? = nil
   let action: () -> Void
   @State private var hovering = false
   var body: some View {
@@ -192,6 +200,7 @@ private struct CircleButtonView: View {
     .scaleEffect(hovering && enabled ? 1.1 : 1.0)
     .onHover { hovering = $0 }
     .animation(.easeOut(duration: 0.12), value: hovering)
+    .help(helpText ?? "")
   }
 }
 

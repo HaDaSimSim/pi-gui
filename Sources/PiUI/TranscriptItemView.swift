@@ -154,6 +154,8 @@ private struct ThinkingBlock: View {
         }
       }
       .font(.caption).foregroundStyle(.secondary)
+      .contentShape(Rectangle())
+      .onTapGesture { expanded.toggle() }
     }
     .disclosureGroupStyle(.automatic)
   }
@@ -193,11 +195,11 @@ private struct ToolCallCard: View {
     DisclosureGroup(isExpanded: $expanded) {
       VStack(alignment: .leading, spacing: 6) {
         if !args.isEmpty {
-          CodeText(String(describing: argsJSON).prefix(2000).description)
+          FullCodeBlock(text: argsJSONString, maxHeight: 300)
         }
         if let result {
           Text("result").font(.caption2).foregroundStyle(.tertiary)
-          CodeText(String(result.prefix(4000)))
+          FullCodeBlock(text: result, maxHeight: 400)
         }
       }
       .padding(.top, 4)
@@ -236,9 +238,14 @@ private struct ToolCallCard: View {
     .animation(.easeOut(duration: 0.12), value: hovering)
   }
 
-  private var argsJSON: Any {
-    (try? JSONSerialization.data(withJSONObject: args, options: [.prettyPrinted]))
-      .flatMap { String(data: $0, encoding: .utf8) } ?? "\(args)"
+  private var argsJSONString: String {
+    if let data = try? JSONSerialization.data(
+      withJSONObject: args, options: [.prettyPrinted, .sortedKeys]),
+      let str = String(data: data, encoding: .utf8)
+    {
+      return str
+    }
+    return "\(args)"
   }
 }
 
@@ -430,21 +437,50 @@ private struct GoalCard: View {
   }
 }
 
-/// Simple monospaced code box used for tool args/results (MarkdownView handles real fences).
+/// Simple monospaced code box used for bash output (limited height, horizontal scroll).
 struct CodeText: View {
   let text: String
   init(_ text: String) { self.text = text }
   var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
+    ScrollView([.horizontal, .vertical], showsIndicators: true) {
       Text(text)
         .font(.system(.caption, design: .monospaced))
         .textSelection(.enabled)
         .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     .frame(maxWidth: .infinity, maxHeight: 280, alignment: .leading)
     .background(
       Color(nsColor: .textBackgroundColor).opacity(0.5),
-      in: RoundedRectangle(cornerRadius: 8))
+      in: RoundedRectangle(cornerRadius: 6)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 6)
+        .stroke(Color.secondary.opacity(0.15), lineWidth: 1))
+  }
+}
+
+/// Full-content scrollable code block for tool call args/results. No truncation.
+private struct FullCodeBlock: View {
+  let text: String
+  let maxHeight: CGFloat
+
+  var body: some View {
+    ScrollView([.horizontal, .vertical], showsIndicators: true) {
+      Text(text)
+        .font(.system(.caption, design: .monospaced))
+        .textSelection(.enabled)
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+    .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
+    .background(
+      Color(nsColor: .textBackgroundColor),
+      in: RoundedRectangle(cornerRadius: 6)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 6)
+        .stroke(Color.secondary.opacity(0.2), lineWidth: 1))
   }
 }
 

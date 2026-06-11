@@ -2,12 +2,14 @@ import PiCore
 import SwiftUI
 
 // Right-side info panel: Info / Subagents / Tasks / Git tabs.
+// Styled like Xcode's inspector — compact, system-styled Form sections.
 struct InfoPanelView: View {
   var runtime: RuntimeSession
   @State private var selection = 0
 
   var body: some View {
     VStack(spacing: 0) {
+      // Segmented picker (Liquid Glass on macOS 26+)
       Picker("", selection: $selection.animation(.easeInOut(duration: 0.18))) {
         Text("Info").tag(0)
         Text("Subagents").tag(1)
@@ -17,88 +19,86 @@ struct InfoPanelView: View {
       .pickerStyle(.segmented)
       .labelsHidden()
       .padding(8)
+      .modifier(InspectorPickerBackground())
+
       Divider()
-      ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-          switch selection {
-          case 0: infoTab
-          case 1: subagentsTab
-          case 2: tasksTab
-          default: GitPanelView(cwd: runtime.cwd)
-          }
+
+      // Tab content
+      Group {
+        switch selection {
+        case 0: infoTab
+        case 1: subagentsTab
+        case 2: tasksTab
+        default: GitPanelView(cwd: runtime.cwd)
         }
-        .id(selection)
-        .transition(.opacity)
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .id(selection)
+      .transition(.opacity)
     }
     .background(.background)
   }
 
+  // MARK: - Info tab
+
   private var infoTab: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      // Inline rename.
-      InlineRename(runtime: runtime)
-      // Model + effort controls (shared with the composer).
-      ModelEffortControls(runtime: runtime)
-      Divider()
-      // Context window.
+    Form {
+      Section("Session") {
+        InlineRename(runtime: runtime)
+      }
+
+      Section("Model") {
+        ModelEffortControls(runtime: runtime)
+      }
+
       if runtime.footer.contextWindow > 0 {
-        let pct = Int(
-          Double(runtime.footer.contextTokens) / Double(runtime.footer.contextWindow) * 100)
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Context").font(.caption).foregroundStyle(.secondary)
+        Section("Context") {
+          let pct = Int(
+            Double(runtime.footer.contextTokens) / Double(runtime.footer.contextWindow) * 100)
+          LabeledContent("Usage") {
+            Text(
+              "\(Fmt.tokens(runtime.footer.contextTokens))/\(Fmt.tokens(runtime.footer.contextWindow)) (\(pct)%)"
+            )
+          }
           ProgressView(
             value: Double(runtime.footer.contextTokens),
             total: Double(runtime.footer.contextWindow))
-          Text(
-            "\(Fmt.tokens(runtime.footer.contextTokens))/\(Fmt.tokens(runtime.footer.contextWindow)) (\(pct)%)"
-          )
-          .font(.caption2).foregroundStyle(.secondary)
         }
       }
-      // Token composition bar.
-      TokenCompositionBar(footer: runtime.footer)
-      // Stats grid.
-      statsGrid
-      Divider()
-      // Capabilities (extensions / skills / prompts).
-      CapabilitiesSection(commands: runtime.commands)
+
+      Section("Tokens") {
+        TokenCompositionBar(footer: runtime.footer)
+        LabeledContent("Input", value: Fmt.tokens(runtime.footer.inputTokens))
+        LabeledContent("Output", value: Fmt.tokens(runtime.footer.outputTokens))
+        LabeledContent("Cache read", value: Fmt.tokens(runtime.footer.cacheRead))
+        LabeledContent("Cache write", value: Fmt.tokens(runtime.footer.cacheWrite))
+        LabeledContent("Total", value: Fmt.tokens(runtime.footer.totalTokens))
+        LabeledContent("Cost", value: Fmt.cost(runtime.footer.cost))
+      }
+
+      Section("Capabilities") {
+        CapabilitiesSection(commands: runtime.commands)
+      }
     }
+    .formStyle(.grouped)
   }
 
-  private var statsGrid: some View {
-    let f = runtime.footer
-    return LazyVGrid(
-      columns: [
-        GridItem(.flexible(), alignment: .leading),
-        GridItem(.flexible(), alignment: .leading),
-      ], spacing: 6
-    ) {
-      statCell("Cost", Fmt.cost(f.cost))
-      statCell("Tokens", Fmt.tokens(f.totalTokens))
-      statCell("Input", Fmt.tokens(f.inputTokens))
-      statCell("Output", Fmt.tokens(f.outputTokens))
-      statCell("Cache read", Fmt.tokens(f.cacheRead))
-      statCell("Cache write", Fmt.tokens(f.cacheWrite))
-    }
-  }
-
-  private func statCell(_ label: String, _ value: String) -> some View {
-    VStack(alignment: .leading, spacing: 1) {
-      Text(label).font(.caption2).foregroundStyle(.secondary)
-      Text(value).font(.caption).fontWeight(.medium)
-    }
-  }
+  // MARK: - Subagents tab
 
   private var subagentsTab: some View {
     let runs = runtime.items.compactMap { item -> SubagentRun? in
       if case .subagentRun(_, let r) = item { return r }
       return nil
     }
-    return SubagentsList(runs: runs)
+    return Group {
+      if runs.isEmpty {
+        ContentUnavailableView("No subagents", systemImage: "person.2")
+      } else {
+        SubagentsList(runs: runs)
+      }
+    }
   }
+
+  // MARK: - Tasks tab
 
   private var tasksTab: some View {
     let todos = runtime.items.reversed().compactMap { item -> [TodoItem]? in
@@ -109,65 +109,73 @@ struct InfoPanelView: View {
       if case .goalState(_, let obj, let status) = item { return (obj, status) }
       return nil
     }.first
-    return VStack(alignment: .leading, spacing: 12) {
+    return Form {
       if let goal {
-        HStack(spacing: 7) {
-          Text(Theme.goalEmoji(goal.1))
-          VStack(alignment: .leading, spacing: 1) {
-            Text(goal.0).font(.callout).fontWeight(.medium)
-            Text("goal \(goal.1)").font(.caption2).foregroundStyle(.secondary)
+        Section("Goal") {
+          LabeledContent(goal.0) {
+            Text("\(Theme.goalEmoji(goal.1)) \(goal.1)")
           }
-          Spacer()
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
       }
       if let todos, !todos.isEmpty {
-        TodoWidget(todos: todos, isStreaming: runtime.isStreaming)
+        Section("Todos") {
+          TodoWidget(todos: todos, isStreaming: runtime.isStreaming)
+        }
       }
       if goal == nil && (todos?.isEmpty ?? true) {
         ContentUnavailableView("No goal or todos yet", systemImage: "checklist")
       }
     }
+    .formStyle(.grouped)
   }
+}
 
-  private func row(_ label: String, _ value: String) -> some View {
-    HStack {
-      Text(label).font(.caption).foregroundStyle(.secondary)
-      Spacer()
-      Text(value).font(.caption).fontWeight(.medium).textSelection(.enabled)
+// MARK: - Picker background (Liquid Glass on macOS 26+)
+
+private struct InspectorPickerBackground: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(macOS 26, *) {
+      content.glassEffect(.regular)
+    } else {
+      content.background(.bar)
     }
   }
 }
 
-// MARK: - Info tab building blocks
+// MARK: - Info tab components
 
 private struct InlineRename: View {
   var runtime: RuntimeSession
   @State private var editing = false
   @State private var draft = ""
+
   var body: some View {
-    HStack(spacing: 6) {
-      Text("Session").font(.caption).foregroundStyle(.secondary)
-      if editing {
-        TextField("name", text: $draft).textFieldStyle(.roundedBorder)
+    if editing {
+      HStack(spacing: 6) {
+        TextField("Name", text: $draft)
+          .textFieldStyle(.roundedBorder)
           .autocorrectionDisabled()
           .onSubmit { commit() }
-        Button("Save") { commit() }.font(.caption)
-        Button("Cancel") { editing = false }.font(.caption)
-      } else {
-        Text(runtime.sessionName ?? "—").font(.caption).fontWeight(.medium).lineLimit(1)
-        Button {
-          draft = runtime.sessionName ?? ""
-          editing = true
-        } label: {
-          Image(systemName: "pencil").font(.caption2)
-        }.buttonStyle(.borderless)
-        Spacer()
+        Button("Save") { commit() }.controlSize(.small)
+        Button("Cancel") { editing = false }.controlSize(.small)
+      }
+    } else {
+      LabeledContent("Name") {
+        HStack(spacing: 4) {
+          Text(runtime.sessionName ?? "Untitled")
+            .lineLimit(1)
+          Button {
+            draft = runtime.sessionName ?? ""
+            editing = true
+          } label: {
+            Image(systemName: "pencil").font(.caption2)
+          }
+          .buttonStyle(.borderless)
+        }
       }
     }
   }
+
   private func commit() {
     if !draft.isEmpty { runtime.rename(draft) }
     editing = false
@@ -177,6 +185,7 @@ private struct InlineRename: View {
 private struct ModelEffortControls: View {
   var runtime: RuntimeSession
   @Environment(AppModel.self) var model
+
   var body: some View {
     HStack(spacing: 8) {
       ModelPicker(runtime: runtime)
@@ -188,89 +197,84 @@ private struct ModelEffortControls: View {
 
 private struct TokenCompositionBar: View {
   let footer: FooterStats
+
   var body: some View {
     let total = max(
       footer.inputTokens + footer.outputTokens + footer.cacheRead + footer.cacheWrite, 1)
-    return VStack(alignment: .leading, spacing: 3) {
-      Text("Token composition").font(.caption2).foregroundStyle(.secondary)
+    VStack(alignment: .leading, spacing: 4) {
       GeometryReader { geo in
         HStack(spacing: 0) {
-          seg(geo.size.width, footer.inputTokens, total, Theme.tokInput)
-          seg(geo.size.width, footer.outputTokens, total, Theme.tokOutput)
-          seg(geo.size.width, footer.cacheRead, total, Theme.tokCacheRead)
-          seg(geo.size.width, footer.cacheWrite, total, Theme.tokCacheWrite)
+          segment(geo.size.width, footer.inputTokens, total, Theme.tokInput)
+          segment(geo.size.width, footer.outputTokens, total, Theme.tokOutput)
+          segment(geo.size.width, footer.cacheRead, total, Theme.tokCacheRead)
+          segment(geo.size.width, footer.cacheWrite, total, Theme.tokCacheWrite)
         }
       }
       .frame(height: 6)
       .clipShape(Capsule())
+
+      // Legend
+      HStack(spacing: 10) {
+        legendDot("In", Theme.tokInput)
+        legendDot("Out", Theme.tokOutput)
+        legendDot("Cache R", Theme.tokCacheRead)
+        legendDot("Cache W", Theme.tokCacheWrite)
+      }
+      .font(.caption2)
+      .foregroundStyle(.secondary)
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
       "Token composition: input \(Fmt.tokens(footer.inputTokens)), output \(Fmt.tokens(footer.outputTokens)), cache read \(Fmt.tokens(footer.cacheRead)), cache write \(Fmt.tokens(footer.cacheWrite))"
     )
   }
-  private func seg(_ width: CGFloat, _ value: Int, _ total: Int, _ color: Color) -> some View {
+
+  private func segment(_ width: CGFloat, _ value: Int, _ total: Int, _ color: Color) -> some View {
     color.frame(width: width * CGFloat(value) / CGFloat(total))
+  }
+
+  private func legendDot(_ label: String, _ color: Color) -> some View {
+    HStack(spacing: 3) {
+      Circle().fill(color).frame(width: 6, height: 6)
+      Text(label)
+    }
   }
 }
 
 private struct CapabilitiesSection: View {
   let commands: [SlashCommand]
+
   var body: some View {
     let groups: [(String, [SlashCommand])] = [
       ("Extensions", commands.filter { $0.source == "extension" }),
       ("Skills", commands.filter { $0.source == "skill" }),
       ("Prompts", commands.filter { $0.source == "prompt" }),
     ].filter { !$0.1.isEmpty }
-    return VStack(alignment: .leading, spacing: 6) {
-      Text("Capabilities").font(.caption).foregroundStyle(.secondary)
-      if groups.isEmpty {
-        Text("Send a message to load commands").font(.caption2).foregroundStyle(.tertiary)
-      }
+
+    if groups.isEmpty {
+      Text("Send a message to load commands")
+        .font(.caption2)
+        .foregroundStyle(.tertiary)
+    } else {
       ForEach(groups, id: \.0) { group in
-        CapabilityGroup(title: group.0, commands: group.1)
-      }
-    }
-  }
-}
-
-private struct CapabilityGroup: View {
-  let title: String
-  let commands: [SlashCommand]
-  @State private var expanded = false
-  var body: some View {
-    DisclosureGroup(isExpanded: $expanded) {
-      ForEach(commands) { c in
-        CapabilityCommandRow(command: c)
-      }
-    } label: {
-      Text("\(title) · \(commands.count)").font(.caption2).foregroundStyle(.secondary)
-    }
-  }
-}
-
-private struct CapabilityCommandRow: View {
-  let command: SlashCommand
-  @State private var hovering = false
-  var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: 4) {
-        Text("/\(command.name.replacingOccurrences(of: "skill:", with: ""))")
-          .font(.system(.caption2, design: .monospaced)).fontWeight(.medium)
-        if let hint = command.argumentHint {
-          Text(hint).font(.caption2).foregroundStyle(.tertiary)
+        DisclosureGroup(group.0) {
+          ForEach(group.1) { cmd in
+            VStack(alignment: .leading, spacing: 1) {
+              HStack(spacing: 4) {
+                Text("/\(cmd.name.replacingOccurrences(of: "skill:", with: ""))")
+                  .font(.system(.caption2, design: .monospaced))
+                  .fontWeight(.medium)
+                if let hint = cmd.argumentHint {
+                  Text(hint).font(.caption2).foregroundStyle(.tertiary)
+                }
+              }
+              if let d = cmd.description {
+                Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+              }
+            }
+          }
         }
       }
-      if let d = command.description {
-        Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-      }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 6).padding(.vertical, 3)
-    .background(
-      hovering ? Color.secondary.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 5)
-    )
-    .onHover { hovering = $0 }
-    .animation(.easeOut(duration: 0.12), value: hovering)
   }
 }

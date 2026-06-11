@@ -65,54 +65,58 @@ struct ProvidersTab: View {
   @State private var selected: String?
 
   var body: some View {
-    NavigationSplitView {
-      List(selection: $selected) {
-        ForEach(store.providers) { p in
-          NavigationLink(value: p.name) {
-            HStack {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(p.name).font(.callout).fontWeight(.medium)
-                Text("\(p.models.count) model\(p.models.count == 1 ? "" : "s")")
-                  .font(.caption2).foregroundStyle(.secondary)
-              }
-              Spacer()
+    HSplitView {
+      // Provider list (left pane)
+      VStack(spacing: 0) {
+        List(selection: $selected) {
+          ForEach(store.providers) { p in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(p.name).font(.callout).fontWeight(.medium)
+              Text("\(p.models.count) model\(p.models.count == 1 ? "" : "s")")
+                .font(.caption2).foregroundStyle(.secondary)
             }
+            .tag(p.name)
           }
         }
-      }
-      .listStyle(.sidebar)
-      .frame(minWidth: 160)
-      .safeAreaInset(edge: .bottom) {
+        .listStyle(.sidebar)
+
+        Divider()
+
         HStack(spacing: 4) {
           TextField("Add provider", text: $newProviderName)
             .textFieldStyle(.roundedBorder)
             .autocorrectionDisabled()
-            .onSubmit {
-              guard !newProviderName.isEmpty else { return }
-              store.addProvider(newProviderName)
-              selected = newProviderName
-              newProviderName = ""
-            }
+            .onSubmit { addProvider() }
           Button {
-            store.addProvider(newProviderName)
-            selected = newProviderName
-            newProviderName = ""
+            addProvider()
           } label: {
             Image(systemName: "plus")
           }.disabled(newProviderName.isEmpty)
         }
         .padding(8)
       }
-    } detail: {
-      if let sel = selected, let p = store.providers.first(where: { $0.name == sel }) {
-        ProviderDetail(store: store, provider: p)
-      } else {
-        ContentUnavailableView(
-          "Select a provider", systemImage: "server.rack",
-          description: Text("Choose a provider from the sidebar or add a new one."))
+      .frame(minWidth: 160, idealWidth: 180, maxWidth: 220)
+
+      // Detail (right pane)
+      Group {
+        if let sel = selected, let p = store.providers.first(where: { $0.name == sel }) {
+          ProviderDetail(store: store, provider: p)
+        } else {
+          ContentUnavailableView(
+            "Select a provider", systemImage: "server.rack",
+            description: Text("Choose a provider from the list or add a new one."))
+        }
       }
+      .frame(minWidth: 340)
     }
     .onAppear { store.load() }
+  }
+
+  private func addProvider() {
+    guard !newProviderName.isEmpty else { return }
+    store.addProvider(newProviderName)
+    selected = newProviderName
+    newProviderName = ""
   }
 }
 
@@ -177,7 +181,6 @@ private struct ProviderDetail: View {
       }
     }
     .formStyle(.grouped)
-    .navigationTitle(provider.name)
     .onAppear {
       baseUrl = provider.baseUrl
       api = provider.api

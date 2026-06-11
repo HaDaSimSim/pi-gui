@@ -15,6 +15,11 @@ public final class AppModel {
   public var models: [ModelOption] = []
   public var locks: [LockRecord] = []
 
+  // Sidebar state (shared across all windows so tab switching keeps the same view).
+  public var sidebarExpanded: [String: Bool] = [:]
+  public var sidebarSearch = ""
+  public var sidebarFilter = SessionFilterCriteria()
+
   public let config: PiConfig
   private let store = SessionStore()
 

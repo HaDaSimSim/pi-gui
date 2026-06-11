@@ -46,14 +46,20 @@ struct ComposerView: View {
         }
       }
 
+      // iMessage-style pill input
       HStack(alignment: .center, spacing: 8) {
+        // Attach button (left)
         Button {
           pickImages()
         } label: {
-          Image(systemName: "paperclip").font(.system(size: 15)).foregroundStyle(.secondary)
+          Image(systemName: "plus")
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain).help("Attach image")
+        .buttonStyle(.plain)
+        .help("Attach image")
 
+        // Text input (fills available space)
         ComposerTextView(
           text: $draft,
           measuredHeight: $inputHeight,
@@ -67,29 +73,35 @@ struct ComposerView: View {
           showSlashMenu = v.hasPrefix("/") && !v.contains(" ")
         }
 
+        // Action buttons (right)
         if runtime.isStreaming {
-          circleButton(
-            icon: "stop.fill", tint: Theme.danger, enabled: true, help: "Stop generation"
-          ) { runtime.abort() }
-          circleButton(
+          composerCircle(icon: "stop.fill", tint: Theme.danger, enabled: true) {
+            runtime.abort()
+          }
+          composerCircle(
             icon: "arrow.up", tint: .accentColor,
-            enabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            help: "Send message",
-            action: submit)
+            enabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          ) { submit() }
         } else {
-          circleButton(
+          composerCircle(
             icon: "arrow.up", tint: .accentColor,
             enabled:
               !(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              && attachments.isEmpty),
-            help: "Send message",
-            action: submit)
+              && attachments.isEmpty)
+          ) { submit() }
         }
       }
-      .padding(.horizontal, 12).padding(.vertical, 7)
-      .modifier(ComposerPillModifier())
+      .padding(.horizontal, 12)
+      .padding(.vertical, 9)
+      .background(Color(nsColor: .textBackgroundColor))
+      .clipShape(RoundedRectangle(cornerRadius: 20))
+      .overlay(
+        RoundedRectangle(cornerRadius: 20)
+          .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+      )
 
-      HStack(spacing: 10) {
+      // Model/thinking controls below the pill
+      HStack(spacing: 8) {
         modelControls
         Spacer()
       }
@@ -107,13 +119,19 @@ struct ComposerView: View {
     }
   }
 
-  private func circleButton(
-    icon: String, tint: Color, enabled: Bool, help helpText: String? = nil,
+  private func composerCircle(
+    icon: String, tint: Color, enabled: Bool,
     action: @escaping () -> Void
-  )
-    -> some View
-  {
-    CircleButtonView(icon: icon, tint: tint, enabled: enabled, helpText: helpText, action: action)
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: icon)
+        .font(.system(size: 12, weight: .bold))
+        .foregroundStyle(.white)
+        .frame(width: 26, height: 26)
+        .background(Circle().fill(enabled ? tint : Color.secondary.opacity(0.4)))
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
   }
 
   private var slashMenu: some View {
@@ -181,31 +199,6 @@ struct ComposerView: View {
     if panel.runModal() == .OK {
       for url in panel.urls { if let a = AttachedImage(url: url) { attachments.append(a) } }
     }
-  }
-}
-
-/// Circle button with hover scale effect for the composer.
-private struct CircleButtonView: View {
-  let icon: String
-  let tint: Color
-  let enabled: Bool
-  var helpText: String? = nil
-  let action: () -> Void
-  @State private var hovering = false
-  var body: some View {
-    Button(action: action) {
-      Image(systemName: icon)
-        .font(.system(size: 13, weight: .bold))
-        .foregroundStyle(Color(nsColor: .alternateSelectedControlTextColor))
-        .frame(width: 26, height: 26)
-        .background(Circle().fill(enabled ? tint : Color.secondary.opacity(0.4)))
-    }
-    .buttonStyle(.plain)
-    .disabled(!enabled)
-    .scaleEffect(hovering && enabled ? 1.1 : 1.0)
-    .onHover { hovering = $0 }
-    .animation(.easeOut(duration: 0.12), value: hovering)
-    .help(helpText ?? "")
   }
 }
 
@@ -283,22 +276,6 @@ struct TodoWidget: View {
         Image(systemName: "smallcircle.filled.circle").foregroundStyle(Theme.info).font(.caption)
       }
     default: Image(systemName: "circle").foregroundStyle(.tertiary).font(.caption)
-    }
-  }
-}
-
-// MARK: - Liquid Glass modifier for the composer pill (macOS 26+ with fallback)
-
-private struct ComposerPillModifier: ViewModifier {
-  func body(content: Content) -> some View {
-    if #available(macOS 26, *) {
-      content
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
-    } else {
-      content
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color(nsColor: .textBackgroundColor)))
-        .overlay(
-          RoundedRectangle(cornerRadius: 20).stroke(Color(nsColor: .separatorColor), lineWidth: 1))
     }
   }
 }

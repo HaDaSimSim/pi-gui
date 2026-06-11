@@ -60,14 +60,13 @@ struct SessionWindowContent: View {
         .frame(height: 36)
         .background(.bar)
         Divider()
-        // Message area + optional info panel.
-        HStack(spacing: 0) {
+        // Message area + optional info panel (resizable via HSplitView).
+        HSplitView {
           SessionTabView(runtime: runtime, cwd: cwd, controller: controller)
+            .frame(minWidth: 400)
           if showInfo {
-            Divider()
             InfoPanelView(runtime: runtime)
-              .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
-              .transition(.move(edge: .trailing).combined(with: .opacity))
+              .frame(minWidth: 200, idealWidth: 260, maxWidth: 450)
           }
         }
       }

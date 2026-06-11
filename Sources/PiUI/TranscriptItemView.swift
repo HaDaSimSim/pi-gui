@@ -224,6 +224,8 @@ private struct ToolCallCard: View {
             .font(.system(size: 10)).foregroundStyle(statusColor)
         }
       }
+      .contentShape(Rectangle())
+      .onTapGesture { expanded.toggle() }
     }
     .disclosureGroupStyle(.automatic)
     .padding(.horizontal, 8).padding(.vertical, 4)
@@ -286,6 +288,8 @@ private struct BashCard: View {
           Text("cancelled").font(.caption2).foregroundStyle(Theme.danger)
         }
       }
+      .contentShape(Rectangle())
+      .onTapGesture { expanded.toggle() }
     }
     .padding(8)
     .background(

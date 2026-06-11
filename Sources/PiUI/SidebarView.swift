@@ -48,7 +48,7 @@ struct SidebarView: View {
           }
           .buttonStyle(.plain)
 
-          // Session rows from disk
+          // Session rows from disk (sorted by most recent first)
           ForEach(visibleSessions(dir.cwd)) { session in
             sessionRow(session)
               .tag(session.path)
@@ -63,11 +63,21 @@ struct SidebarView: View {
               }
           }
         } header: {
-          Text(Fmt.dirBasename(dir.cwd).uppercased())
-            .font(.caption)
-            .fontWeight(.semibold)
-            .foregroundStyle(.secondary)
-            .help(Fmt.tildePath(dir.cwd))
+          // Make the entire header row clickable to expand/collapse
+          HStack {
+            Text(Fmt.dirBasename(dir.cwd).uppercased())
+              .font(.caption)
+              .fontWeight(.semibold)
+              .foregroundStyle(.secondary)
+              .help(Fmt.tildePath(dir.cwd))
+            Spacer()
+          }
+          .contentShape(Rectangle())
+          .onTapGesture {
+            let current = expanded[dir.cwd] ?? false
+            expanded[dir.cwd] = !current
+            UserDefaults.standard.set(expanded, forKey: "piswift.sidebar.expanded")
+          }
         }
       }
     }
@@ -150,17 +160,18 @@ struct SidebarView: View {
   @ViewBuilder
   private func sessionRow(_ summary: SessionSummary) -> some View {
     Label {
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: 3) {
         Text(summary.name ?? summary.preview ?? Fmt.dirBasename(summary.cwd))
-          .font(.callout)
+          .font(.body)
           .lineLimit(1)
         Text(summary.modified, format: .relative(presentation: .named))
-          .font(.caption2)
-          .foregroundStyle(.tertiary)
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
+      .padding(.vertical, 4)
     } icon: {
       Image(systemName: model.isLive(summary.path) ? "bolt.circle.fill" : "doc.text")
-        .font(.system(size: 12))
+        .font(.system(size: 14))
         .foregroundStyle(model.isLive(summary.path) ? .green : .secondary)
     }
     .accessibilityElement(children: .combine)
@@ -217,6 +228,8 @@ struct SidebarView: View {
           || ($0.preview ?? "").localizedCaseInsensitiveContains(model.sidebarSearch)
       }
     }
+    // Sort by most recently modified first.
+    all.sort { $0.modified > $1.modified }
     return all
   }
 }

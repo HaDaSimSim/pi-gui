@@ -82,29 +82,42 @@ public final class RuntimeSession: RpcClientDelegate {
   /// just-finished assistant turn (the file's turn-meta lands one turn late — P0-3).
   public func reloadFromFile(localElapsed: Double? = nil) {
     guard let path = sessionPath else { return }
-    let sf = SessionFile(path: path)
-    guard let entries = try? sf.tailEntries(maxLines: Int.max, maxBytes: historyBytes) else {
-      return
+    let currentHistoryBytes = historyBytes
+    let currentLiveCallIds = liveCallIds
+    Task.detached { [weak self] in
+      let sf = SessionFile(path: path)
+      guard let entries = try? sf.tailEntries(maxLines: Int.max, maxBytes: currentHistoryBytes)
+      else {
+        return
+      }
+      let rebuilt = Transcript.build(
+        from: entries, hideThinking: false, liveCallIds: currentLiveCallIds)
+      let newFooter: FooterStats?
+      if let full = try? sf.fullFooter() {
+        newFooter = full
+      } else {
+        newFooter = Transcript.footer(from: entries)
+      }
+      let size =
+        ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int) ?? 0
+      let hasEarlier = size > currentHistoryBytes
+      await MainActor.run { [weak self] in
+        guard let self else { return }
+        // Don't clear a streamed turn if the read came back empty (truncated/racing write).
+        if !rebuilt.isEmpty || self.items.isEmpty {
+          var next = rebuilt
+          if let localElapsed { self.applyElapsed(localElapsed, to: &next) }
+          self.items = next
+        } else if let localElapsed {
+          self.applyElapsed(localElapsed, to: &self.items)
+        }
+        if let newFooter {
+          self.footer = newFooter
+        }
+        if self.footer.model != nil { self.model = self.footer.model }
+        self.hasEarlierHistory = hasEarlier
+      }
     }
-    let rebuilt = Transcript.build(from: entries, hideThinking: false, liveCallIds: liveCallIds)
-    // Don't clear a streamed turn if the read came back empty (truncated/racing write).
-    if !rebuilt.isEmpty || items.isEmpty {
-      var next = rebuilt
-      if let localElapsed { applyElapsed(localElapsed, to: &next) }
-      items = next
-    } else if let localElapsed {
-      applyElapsed(localElapsed, to: &items)
-    }
-    // Footer/token totals must reflect the WHOLE session, not just the loaded window.
-    if let full = try? sf.fullFooter() {
-      footer = full
-    } else {
-      footer = Transcript.footer(from: entries)
-    }
-    if footer.model != nil { model = footer.model }
-    // Detect whether earlier history exists beyond the current window.
-    let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int) ?? 0
-    hasEarlierHistory = size > historyBytes
   }
 
   /// Stamp `elapsed` onto the most recent assistant item (the just-finished turn). Mirrors

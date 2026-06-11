@@ -98,17 +98,11 @@ private struct AssistantMessageView: View {
         }
         .font(.caption)
       }
-      // Meta line below assistant text (model + elapsed), like Messages.app metadata.
+      // Meta line below assistant text (elapsed time), like Messages.app metadata.
       if msg.elapsed != nil || msg.streaming {
         HStack(spacing: 6) {
-          if msg.elapsed != nil {
-            if let m = msg.model {
-              Text(m)
-            }
-            if let e = msg.elapsed {
-              Text("·")
-              Text(Fmt.elapsed(e * 1000))
-            }
+          if let e = msg.elapsed {
+            Text(Fmt.elapsed(e * 1000))
           }
           if msg.streaming {
             ProgressView().controlSize(.small)
@@ -158,6 +152,7 @@ private struct ThinkingBlock: View {
       .onTapGesture { expanded.toggle() }
     }
     .disclosureGroupStyle(.automatic)
+    .animation(.easeInOut(duration: 0.2), value: expanded)
   }
 }
 
@@ -203,6 +198,7 @@ private struct ToolCallCard: View {
         }
       }
       .padding(.top, 4)
+      .frame(maxWidth: .infinity, alignment: .leading)
     } label: {
       HStack(spacing: 6) {
         HStack(spacing: 4) {
@@ -228,6 +224,7 @@ private struct ToolCallCard: View {
       .onTapGesture { expanded.toggle() }
     }
     .disclosureGroupStyle(.automatic)
+    .animation(.easeInOut(duration: 0.2), value: expanded)
     .padding(.horizontal, 8).padding(.vertical, 4)
     .background(
       hovering ? Color.secondary.opacity(0.14) : Color.secondary.opacity(0.08),
@@ -291,6 +288,7 @@ private struct BashCard: View {
       .contentShape(Rectangle())
       .onTapGesture { expanded.toggle() }
     }
+    .animation(.easeInOut(duration: 0.2), value: expanded)
     .padding(8)
     .background(
       hovering ? Color.secondary.opacity(0.1) : Color.secondary.opacity(0.08),

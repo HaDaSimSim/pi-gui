@@ -106,18 +106,19 @@ struct SessionTabView: View {
 
   @ViewBuilder
   private func scrollToBottomOverlay(proxy: ScrollViewProxy) -> some View {
-    if !isAtBottom {
+    if !isAtBottom && !runtime.items.isEmpty {
       Button {
         scrollToBottom(proxy)
       } label: {
         Image(systemName: "arrow.down")
+          .font(.system(size: 14, weight: .medium))
           .frame(width: 32, height: 32)
       }
       .buttonStyle(.plain)
       .modifier(GlassScrollButtonModifier())
       .padding(16)
       .help("Jump to latest")
-      .transition(.opacity)
+      .transition(.opacity.animation(.easeInOut(duration: 0.15)))
     }
   }
 
@@ -127,15 +128,10 @@ struct SessionTabView: View {
         Spacer(minLength: 0)
         LazyVStack(alignment: .leading, spacing: 18) {
           if runtime.hasEarlierHistory {
-            Button {
-              runtime.loadEarlierHistory()
-            } label: {
-              Label("Load earlier history", systemImage: "arrow.up.circle")
-                .font(.caption)
-            }
-            .buttonStyle(.bordered)
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 4)
+            Color.clear.frame(height: 1)
+              .onAppear {
+                runtime.loadEarlierHistory()
+              }
           }
           ForEach(runtime.items) { item in
             TranscriptItemView(item: item, isStreaming: runtime.isStreaming)

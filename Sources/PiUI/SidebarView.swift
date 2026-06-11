@@ -1,8 +1,9 @@
 import PiCore
 import SwiftUI
 
-// Native macOS sidebar: List with .sidebar style, always-expanded sections,
-// system selection highlighting. Browsing is pure file reads — no runtime spawned.
+// Finder-style sidebar: fixed left panel with section headers in small caps gray text,
+// SF Symbol icons, system accent selection highlighting. Sessions are switched by clicking
+// here — no native tabs needed.
 
 struct SidebarView: View {
   @Environment(AppModel.self) var model
@@ -10,25 +11,52 @@ struct SidebarView: View {
   @State private var renameText = ""
   @State private var deleting: SessionSummary?
   @State private var deleteError: String?
-  @State private var selectedSessionPath: String?
 
   var body: some View {
-    List(selection: $selectedSessionPath) {
+    List(
+      selection: Binding(
+        get: { model.activeSession?.sessionPath },
+        set: { newPath in
+          if let path = newPath {
+            selectSessionByPath(path)
+          }
+        }
+      )
+    ) {
+      // MARK: - SESSIONS section (open sessions)
+      if !model.openSessions.isEmpty {
+        Section {
+          ForEach(model.openSessions, id: \.id) { rt in
+            openSessionRow(rt)
+              .tag(rt.sessionPath ?? "")
+              .contextMenu {
+                Button("Close") { model.closeSession(id: rt.id) }
+              }
+          }
+        } header: {
+          Text("SESSIONS")
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
+        }
+      }
+
+      // MARK: - PROJECTS section (directory browser)
       ForEach(filteredDirs) { dir in
         Section {
-          // "New session" row — subtle
+          // "New session" row
           Button {
             model.newSession(cwd: dir.cwd)
           } label: {
-            Text("New session")
+            Label("New Session", systemImage: "plus.circle")
               .font(.callout)
               .foregroundStyle(.secondary)
           }
           .buttonStyle(.plain)
 
-          // Session rows
+          // Session rows from disk
           ForEach(visibleSessions(dir.cwd)) { session in
-            SessionRow(summary: session)
+            sessionRow(session)
               .tag(session.path)
               .contextMenu {
                 Button("Open") { model.openSession(session) }
@@ -41,7 +69,10 @@ struct SidebarView: View {
               }
           }
         } header: {
-          Text(Fmt.dirBasename(dir.cwd))
+          Text(Fmt.dirBasename(dir.cwd).uppercased())
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundStyle(.secondary)
             .help(Fmt.tildePath(dir.cwd))
         }
       }
@@ -59,20 +90,7 @@ struct SidebarView: View {
         }
       }
     }
-    .onChange(of: selectedSessionPath) { _, newPath in
-      guard let path = newPath else { return }
-      for dir in model.directories {
-        if let sessions = model.sessionsByCwd[dir.cwd],
-          let session = sessions.first(where: { $0.path == path })
-        {
-          model.openSession(session)
-          break
-        }
-      }
-      DispatchQueue.main.async { selectedSessionPath = nil }
-    }
     .onAppear {
-      // Ensure all directories have sessions loaded so they show immediately
       for dir in model.directories where model.sessionsByCwd[dir.cwd] == nil {
         model.loadSessions(forCwd: dir.cwd)
       }
@@ -107,6 +125,70 @@ struct SidebarView: View {
       Button("OK") { deleteError = nil }
     } message: {
       Text(deleteError ?? "")
+    }
+  }
+
+  // MARK: - Row views
+
+  /// Row for an open (live) session in the SESSIONS section.
+  @ViewBuilder
+  private func openSessionRow(_ rt: RuntimeSession) -> some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(rt.sessionName ?? "Untitled session")
+          .font(.callout)
+          .lineLimit(1)
+        Text(Fmt.tildePath(rt.cwd))
+          .font(.caption2)
+          .foregroundStyle(.tertiary)
+          .lineLimit(1)
+      }
+    } icon: {
+      Image(systemName: rt.isStarted ? "circle.fill" : "circle")
+        .font(.system(size: 8))
+        .foregroundStyle(rt.isStarted ? .green : .secondary)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(rt.sessionName ?? "Untitled session")
+  }
+
+  /// Row for a session from disk in the PROJECTS section.
+  @ViewBuilder
+  private func sessionRow(_ summary: SessionSummary) -> some View {
+    Label {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(summary.name ?? summary.preview ?? "Untitled session")
+          .font(.callout)
+          .lineLimit(1)
+        Text(summary.modified, format: .relative(presentation: .named))
+          .font(.caption2)
+          .foregroundStyle(.tertiary)
+      }
+    } icon: {
+      Image(systemName: model.isLive(summary.path) ? "bolt.circle.fill" : "doc.text")
+        .font(.system(size: 12))
+        .foregroundStyle(model.isLive(summary.path) ? .green : .secondary)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(summary.name ?? summary.preview ?? "Untitled session")
+  }
+
+  // MARK: - Selection
+
+  private func selectSessionByPath(_ path: String) {
+    // Check open sessions first.
+    if let rt = model.openSessions.first(where: { $0.sessionPath == path }) {
+      model.activeSessionId = rt.id
+      return
+    }
+    // Otherwise open from disk.
+    for dir in model.directories {
+      if let sessions = model.sessionsByCwd[dir.cwd],
+        let session = sessions.first(where: { $0.path == path })
+      {
+        model.openSession(session)
+        return
+      }
     }
   }
 
@@ -145,25 +227,7 @@ struct SidebarView: View {
   }
 }
 
-// Session row: title + relative date. No icons, no badges — List handles selection highlighting.
-private struct SessionRow: View {
-  let summary: SessionSummary
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(summary.name ?? summary.preview ?? "Untitled session")
-        .font(.callout)
-        .lineLimit(1)
-      Text(summary.modified, format: .relative(presentation: .named))
-        .font(.caption2)
-        .foregroundStyle(.tertiary)
-    }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel(summary.name ?? summary.preview ?? "Untitled session")
-  }
-}
-
-// Filter conditions applied to session list. Kept as a model but no UI shown for it.
+// Filter conditions applied to session list.
 public struct SessionFilterCriteria: Equatable {
   public var liveOnly = false
   public var largeOnly = false

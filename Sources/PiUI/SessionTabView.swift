@@ -6,7 +6,7 @@ import SwiftUI
 struct SessionTabView: View {
   @Bindable var runtime: RuntimeSession
   let cwd: String
-  weak var controller: SessionWindowController?
+  var model: AppModel?
 
   @State private var draft = ""
   @State private var isAtBottom = true
@@ -30,7 +30,7 @@ struct SessionTabView: View {
         .background(Theme.streaming.opacity(0.15))
         .accessibilityElement(children: .combine)
       }
-      ComposerView(runtime: runtime, draft: $draft, controller: controller)
+      ComposerView(runtime: runtime, draft: $draft, appModel: model)
       FooterView(runtime: runtime, cwd: cwd)
     }
     .sheet(item: $runtime.pendingDialog) { dialog in

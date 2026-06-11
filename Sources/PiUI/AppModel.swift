@@ -4,8 +4,10 @@ import PiCore
 import SwiftUI
 
 // Top-level app state: browsing (directories/sessions) + shared config.
-// Browsing is pure file reads (never spawns pi). Each open session lives in its own
-// NSWindow managed by SessionWindowController — the OS renders native titlebar tabs.
+// Single-window Finder-style architecture: one persistent window with a fixed sidebar.
+// Switching sessions happens via sidebar clicks — no native tab groups.
+// Multiple sessions can be OPEN simultaneously (each with their own RuntimeSession/lock),
+// but only ONE is shown at a time in the right content panel.
 
 @MainActor
 @Observable
@@ -15,10 +17,25 @@ public final class AppModel {
   public var models: [ModelOption] = []
   public var locks: [LockRecord] = []
 
-  // Sidebar state (shared across all windows so tab switching keeps the same view).
+  // Sidebar state.
   public var sidebarExpanded: [String: Bool] = [:]
   public var sidebarSearch = ""
   public var sidebarFilter = SessionFilterCriteria()
+
+  // MARK: - Single-window session management
+
+  /// All currently open sessions (each owns its own RuntimeSession/lock).
+  /// Clicking a session in the sidebar sets `activeSessionId`.
+  public var openSessions: [RuntimeSession] = []
+
+  /// The ID of the session currently displayed in the right content panel.
+  public var activeSessionId: UUID?
+
+  /// The currently active (displayed) runtime session.
+  public var activeSession: RuntimeSession? {
+    guard let id = activeSessionId else { return nil }
+    return openSessions.first { $0.id == id }
+  }
 
   public let config: PiConfig
   private let store = SessionStore()
@@ -47,39 +64,49 @@ public final class AppModel {
     sessionsByCwd[cwd] = store.sessions(forCwd: cwd)
   }
 
-  /// Whether a session path is currently open as a live (started) runtime window.
+  /// Whether a session path is currently open as a live (started) runtime.
   public func isLive(_ path: String) -> Bool {
-    SessionWindowController.all.contains { $0.sessionPath == path && $0.runtime.isStarted }
+    openSessions.contains { $0.sessionPath == path && $0.isStarted }
   }
 
-  // MARK: - Window/tab management (delegates to SessionWindowController)
+  // MARK: - Session management (single-window, sidebar-driven)
 
-  /// Open an existing session in a native tab (or activate its existing window).
+  /// Open an existing session (or activate it if already open).
   public func openSession(_ summary: SessionSummary) {
-    // If already open, bring its window to front.
-    if let existing = SessionWindowController.all.first(where: { $0.sessionPath == summary.path }) {
-      existing.window?.makeKeyAndOrderFront(nil)
+    // If already open, just switch to it.
+    if let existing = openSessions.first(where: { $0.sessionPath == summary.path }) {
+      activeSessionId = existing.id
       return
     }
     let rt = RuntimeSession(
       cwd: summary.cwd, piPath: config.piPath,
       model: config.defaultModelSpec, sessionDir: nil)
     rt.setSessionPathForBrowsing(summary.path)
-    let title = summary.name ?? summary.preview.map { String($0.prefix(40)) } ?? "Untitled session"
-    let ctrl = SessionWindowController(runtime: rt, cwd: summary.cwd, title: title, model: self)
     rt.reloadFromFile()
-    ctrl.showAsTab()
+    openSessions.append(rt)
+    activeSessionId = rt.id
     persistTabs()
   }
 
-  /// Create a brand-new session in a native tab.
+  /// Create a brand-new session and make it active.
   public func newSession(cwd: String) {
     let rt = RuntimeSession(
       cwd: cwd, piPath: config.piPath,
       model: config.defaultModelSpec, sessionDir: nil)
-    let ctrl = SessionWindowController(
-      runtime: rt, cwd: cwd, title: "Untitled session", model: self)
-    ctrl.showAsTab()
+    openSessions.append(rt)
+    activeSessionId = rt.id
+  }
+
+  /// Close (dispose) a session by its runtime id.
+  public func closeSession(id: UUID) {
+    guard let idx = openSessions.firstIndex(where: { $0.id == id }) else { return }
+    openSessions[idx].dispose()
+    openSessions.remove(at: idx)
+    // If the closed session was active, switch to another.
+    if activeSessionId == id {
+      activeSessionId = openSessions.last?.id
+    }
+    persistTabs()
   }
 
   // MARK: - Tab persistence
@@ -87,11 +114,11 @@ public final class AppModel {
   private let openTabsKey = "piswift.open-tabs"
 
   public func persistTabs() {
-    let paths = SessionWindowController.all.compactMap { $0.sessionPath }
+    let paths = openSessions.compactMap { $0.sessionPath }
     UserDefaults.standard.set(paths, forKey: openTabsKey)
   }
 
-  /// Restore previously-open session tabs (by path). Only existing files are restored;
+  /// Restore previously-open sessions (by path). Only existing files are restored;
   /// each is loaded via the cheap browse path (no runtime spawned).
   public func restoreTabs() {
     guard let paths = UserDefaults.standard.stringArray(forKey: openTabsKey) else { return }
@@ -110,22 +137,23 @@ public final class AppModel {
 
   /// Tear down every runtime (releases each session lock + terminates pi). Called on app quit.
   public func disposeAll() {
-    for ctrl in SessionWindowController.all { ctrl.runtime.dispose() }
+    for rt in openSessions { rt.dispose() }
+    openSessions.removeAll()
   }
 
   /// Rename a session via the live runtime if open, else just trigger the rename.
   public func renameSession(_ summary: SessionSummary, to name: String) {
-    if let ctrl = SessionWindowController.all.first(where: { $0.sessionPath == summary.path }) {
-      ctrl.ensureRuntimeStarted()
-      ctrl.runtime.rename(name)
+    if let rt = openSessions.first(where: { $0.sessionPath == summary.path }) {
+      ensureRuntimeStarted(rt)
+      rt.rename(name)
     }
     loadSessions(forCwd: summary.cwd)
   }
 
   /// Delete a session file. Refuses if a live/locked runtime holds it.
   public func deleteSession(_ summary: SessionSummary) -> String? {
-    if SessionWindowController.all.contains(where: { $0.sessionPath == summary.path }) {
-      return "Session is open \u{2014} close its window first."
+    if openSessions.contains(where: { $0.sessionPath == summary.path }) {
+      return "Session is open \u{2014} close it first."
     }
     if listLocks().contains(where: { $0.sessionPath == summary.path }) {
       return "Session is locked by another writer."
@@ -152,6 +180,17 @@ public final class AppModel {
     openSession(summary)
   }
 
+  /// Start the runtime lazily (on first prompt). Browse-only sessions stay idle until this.
+  public func ensureRuntimeStarted(_ runtime: RuntimeSession) {
+    if !runtime.isStarted {
+      do {
+        try runtime.start()
+      } catch {
+        runtime.notify("Failed to start pi: \(error.localizedDescription)", type: "error")
+      }
+    }
+  }
+
   /// Open a native folder picker and start a NEW session in the chosen directory.
   public func pickFolderAndStart() {
     let panel = NSOpenPanel()
@@ -172,10 +211,10 @@ public final class AppModel {
       directories.first(where: { $0.cwd.contains(cwdSubstring) })?.cwd
       ?? FileManager.default.temporaryDirectory.path
     newSession(cwd: cwd)
-    guard let ctrl = SessionWindowController.all.last else { return }
-    ctrl.ensureRuntimeStarted()
+    guard let rt = openSessions.last else { return }
+    ensureRuntimeStarted(rt)
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-      ctrl.runtime.sendPrompt("Reply with exactly: NATIVE-OK")
+      rt.sendPrompt("Reply with exactly: NATIVE-OK")
     }
   }
 }

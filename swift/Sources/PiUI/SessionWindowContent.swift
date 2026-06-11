@@ -36,15 +36,19 @@ struct SessionWindowContent: View {
           }
         }
       }
-      .toolbar {
-        ToolbarItem(placement: .primaryAction) {
-          Button {
-            controller?.toggleInfoPanel()
-          } label: {
-            Image(systemName: "sidebar.right")
-          }
-          .help("Toggle info panel")
+    }
+    .toolbar {
+      ToolbarItem(placement: .navigation) {
+        // Spacer to not collide with the system sidebar toggle.
+        Color.clear.frame(width: 0)
+      }
+      ToolbarItem(placement: .primaryAction) {
+        Button {
+          controller?.toggleInfoPanel()
+        } label: {
+          Image(systemName: showInfo ? "sidebar.right.fill" : "sidebar.right")
         }
+        .help("Toggle info panel (⇧⌘I)")
       }
     }
     .preferredColorScheme(colorScheme)

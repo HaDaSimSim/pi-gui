@@ -27,6 +27,26 @@ struct SidebarView: View {
         }
       )
     ) {
+      // MARK: - Open sessions (for switching between them)
+      if !model.openSessions.isEmpty {
+        Section("OPEN") {
+          ForEach(model.openSessions, id: \.id) { rt in
+            HStack(spacing: 8) {
+              Circle()
+                .fill(rt.isStarted ? Color.green : Color.secondary.opacity(0.3))
+                .frame(width: 7, height: 7)
+              Text(rt.displayTitle)
+                .font(.body)
+                .lineLimit(1)
+            }
+            .tag(rt.sessionPath ?? "")
+            .contextMenu {
+              Button("Close") { model.closeSession(id: rt.id) }
+            }
+          }
+        }
+      }
+
       // MARK: - PROJECTS section (directory browser)
       ForEach(filteredDirs) { dir in
         Section(

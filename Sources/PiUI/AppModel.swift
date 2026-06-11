@@ -90,6 +90,8 @@ public final class AppModel {
     openSessions.append(rt)
     activeSessionId = rt.id
     showAsNativeTab(rt)
+    // Start pi eagerly so metadata (model/effort/name) loads immediately and lock is acquired.
+    try? rt.start()
     persistTabs()
   }
 

@@ -176,13 +176,22 @@ public struct ModelOption: Identifiable, Hashable {
   }
 
   public static func loadAll() -> [ModelOption] {
-    guard let data = FileManager.default.contents(atPath: AgentPaths.modelsPath),
+    let path = AgentPaths.modelsPath
+    guard let data = FileManager.default.contents(atPath: path),
       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       let providers = obj["providers"] as? [String: Any]
-    else { return [] }
+    else {
+      #if DEBUG
+        print("[pi-gui] ModelOption.loadAll: failed to read or parse \(path)")
+      #endif
+      return []
+    }
     var out: [ModelOption] = []
     for (provider, val) in providers {
       guard let p = val as? [String: Any], let models = p["models"] as? [[String: Any]] else {
+        #if DEBUG
+          print("[pi-gui] ModelOption.loadAll: skipping provider '\(provider)' — no 'models' array")
+        #endif
         continue
       }
       for m in models {
@@ -190,6 +199,11 @@ public struct ModelOption: Identifiable, Hashable {
         out.append(ModelOption(provider: provider, id: id, name: (m["name"] as? String) ?? id))
       }
     }
+    #if DEBUG
+      print(
+        "[pi-gui] ModelOption.loadAll: loaded \(out.count) models from \(providers.count) providers (\(providers.keys.sorted().joined(separator: ", ")))"
+      )
+    #endif
     return out.sorted { $0.spec < $1.spec }
   }
 }

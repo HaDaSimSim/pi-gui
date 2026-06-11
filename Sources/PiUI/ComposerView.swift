@@ -15,6 +15,11 @@ struct ComposerView: View {
   @State private var inputHeight: CGFloat = 22
   @State private var isComposerFocused: Bool = false
 
+  /// Whether the composer can send (lock must be owned or not yet acquired for queued prompt).
+  private var canSend: Bool {
+    runtime.lockStatus == .owned
+  }
+
   var body: some View {
     VStack(spacing: 6) {
       // Todo widget (above editor) when todos exist.
@@ -75,19 +80,20 @@ struct ComposerView: View {
 
         // Action buttons (right)
         if runtime.isStreaming {
-          composerCircle(icon: "stop.fill", tint: Theme.danger, enabled: true) {
+          composerCircle(icon: "stop.fill", tint: Theme.danger, enabled: canSend) {
             runtime.abort()
           }
           composerCircle(
             icon: "arrow.up", tint: .accentColor,
-            enabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            enabled: canSend && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           ) { submit() }
         } else {
           composerCircle(
             icon: "arrow.up", tint: .accentColor,
             enabled:
-              !(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-              && attachments.isEmpty)
+              canSend
+              && !(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && attachments.isEmpty)
           ) { submit() }
         }
       }

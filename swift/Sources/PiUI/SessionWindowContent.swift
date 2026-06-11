@@ -8,9 +8,10 @@ struct SessionWindowContent: View {
   let cwd: String
   weak var controller: SessionWindowController?
   @EnvironmentObject var model: AppModel
-  @State private var showInfo = false
   @AppStorage(AppSettingsKeys.themeMode) private var themeMode = "auto"
   @AppStorage(AppSettingsKeys.lang) private var lang = "en"
+
+  private var showInfo: Bool { controller?.showInfoPanel ?? false }
 
   private var colorScheme: ColorScheme? {
     switch themeMode {
@@ -38,7 +39,7 @@ struct SessionWindowContent: View {
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
           Button {
-            showInfo.toggle()
+            controller?.toggleInfoPanel()
           } label: {
             Image(systemName: "sidebar.right")
           }

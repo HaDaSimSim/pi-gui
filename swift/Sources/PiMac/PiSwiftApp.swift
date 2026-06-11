@@ -67,6 +67,16 @@ struct PiSwiftApp: App {
         Button("Refresh Sessions") { model.refresh() }
           .keyboardShortcut("r", modifiers: [.command, .shift])
       }
+      // View menu: toggle sidebar + info panel.
+      CommandGroup(after: .sidebar) {
+        Button("Toggle Info Panel") { appDelegate.toggleInfoPanel() }
+          .keyboardShortcut("i", modifiers: [.command, .shift])
+      }
+      // Session commands.
+      CommandGroup(after: .textEditing) {
+        Button("Compact Context") { appDelegate.compactCurrentSession() }
+          .keyboardShortcut("k", modifiers: [.command])
+      }
       // Cmd+1…9 jump to tab N (⌘9 = last tab).
       CommandGroup(after: .toolbar) {
         ForEach(1...9, id: \.self) { n in
@@ -122,5 +132,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let model else { return }
     let cwd = FileManager.default.homeDirectoryForCurrentUser.path
     model.newSession(cwd: cwd)
+  }
+
+  /// Toggle the info panel on the key window's session.
+  func toggleInfoPanel() {
+    guard let controller = NSApp.keyWindow?.windowController as? SessionWindowController else {
+      return
+    }
+    controller.toggleInfoPanel()
+  }
+
+  /// Compact the active session's context (Cmd+K).
+  func compactCurrentSession() {
+    guard let controller = NSApp.keyWindow?.windowController as? SessionWindowController else {
+      return
+    }
+    controller.runtime.compact()
   }
 }

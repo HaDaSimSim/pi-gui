@@ -13,6 +13,7 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
   public let cwd: String
   private weak var model: AppModel?
   private var titleObserver: AnyCancellable?
+  @Published public var showInfoPanel = false
 
   /// All live session window controllers, derived from NSApp.windows.
   public static var all: [SessionWindowController] {
@@ -93,6 +94,11 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
   public func windowWillClose(_ notification: Notification) {
     runtime.dispose()
     model?.persistTabs()
+  }
+
+  /// Toggle the info panel visibility (bridged from menu Cmd+Shift+I).
+  public func toggleInfoPanel() {
+    showInfoPanel.toggle()
   }
 
   // Shows the "+" button in the tab bar and responds to its click.

@@ -96,9 +96,9 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
     model?.persistTabs()
   }
 
-  /// Toggle the info panel visibility (bridged from menu Cmd+Shift+I).
+  /// Toggle the info panel visibility (bridged from menu Cmd+Shift+I via notification).
   public func toggleInfoPanel() {
-    showInfoPanel.toggle()
+    NotificationCenter.default.post(name: .toggleInfoPanel, object: window)
   }
 
   // Shows the "+" button in the tab bar and responds to its click.

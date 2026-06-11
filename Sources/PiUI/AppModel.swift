@@ -76,10 +76,9 @@ public final class AppModel {
 
   /// Open an existing session (or activate it if already open).
   public func openSession(_ summary: SessionSummary) {
-    // If already open, just switch to it (select the native tab).
+    // If already open, just switch to it.
     if let existing = openSessions.first(where: { $0.sessionPath == summary.path }) {
       activeSessionId = existing.id
-      activateWindowController(for: existing.id)
       return
     }
     let rt = RuntimeSession(
@@ -89,7 +88,6 @@ public final class AppModel {
     rt.reloadFromFile()
     openSessions.append(rt)
     activeSessionId = rt.id
-    showAsNativeTab(rt)
     persistTabs()
   }
 
@@ -100,7 +98,6 @@ public final class AppModel {
       model: config.defaultModelSpec, sessionDir: nil)
     openSessions.append(rt)
     activeSessionId = rt.id
-    showAsNativeTab(rt)
   }
 
   /// Close (dispose) a session by its runtime id.

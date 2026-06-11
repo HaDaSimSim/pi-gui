@@ -29,7 +29,7 @@ struct SidebarView: View {
       ForEach(filteredDirs) { dir in
         Section(
           isExpanded: Binding(
-            get: { expanded[dir.cwd] ?? true },
+            get: { expanded[dir.cwd] ?? false },
             set: { expanded[dir.cwd] = $0 }
           )
         ) {

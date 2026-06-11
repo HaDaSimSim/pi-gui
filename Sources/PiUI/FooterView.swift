@@ -63,6 +63,7 @@ struct FooterView: View {
 
   private var lockText: String {
     switch runtime.lockStatus {
+    case .pending: return "connecting…"
     case .owned: return "owned"
     case .readOnly: return "read-only (locked elsewhere)"
     case .lost: return "lost (taken over)"
@@ -70,6 +71,7 @@ struct FooterView: View {
   }
   private var lockColor: Color {
     switch runtime.lockStatus {
+    case .pending: return .secondary
     case .owned: return .secondary
     case .readOnly, .lost: return Theme.streaming
     }

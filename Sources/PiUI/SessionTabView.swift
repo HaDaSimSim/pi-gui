@@ -70,19 +70,25 @@ struct SessionTabView: View {
 
   private var lockBanner: some View {
     HStack(spacing: 10) {
-      Image(systemName: "lock.fill").foregroundStyle(Theme.streaming)
-      VStack(alignment: .leading, spacing: 1) {
-        Text(runtime.lockStatus == .lost ? "Session taken over" : "Locked elsewhere")
+      if runtime.lockStatus == .pending {
+        ProgressView().controlSize(.small)
+        Text("Connecting…")
           .font(.callout).fontWeight(.medium)
-        Text("Another writer holds this session. Take over to send messages.")
-          .font(.caption).foregroundStyle(.secondary)
+      } else {
+        Image(systemName: "lock.fill").foregroundStyle(Theme.streaming)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(runtime.lockStatus == .lost ? "Session taken over" : "Locked elsewhere")
+            .font(.callout).fontWeight(.medium)
+          Text("Another writer holds this session. Take over to send messages.")
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        Spacer()
+        Button("Force takeover") { runtime.takeover() }
+          .buttonStyle(.borderedProminent)
       }
-      Spacer()
-      Button("Force takeover") { runtime.takeover() }
-        .buttonStyle(.borderedProminent)
     }
     .padding(.horizontal, 14).padding(.vertical, 8)
-    .background(Theme.streaming.opacity(0.18))
+    .background(runtime.lockStatus == .pending ? Color.clear : Theme.streaming.opacity(0.18))
     .accessibilityElement(children: .combine)
     .accessibilityLabel(
       runtime.lockStatus == .lost

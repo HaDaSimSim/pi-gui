@@ -35,7 +35,7 @@ public final class RuntimeSession: RpcClientDelegate {
     }
     return Fmt.dirBasename(cwd)
   }
-  public var lockStatus: LockUIStatus = .owned
+  public var lockStatus: LockUIStatus = .pending
   /// Set when pi process exits unexpectedly (not via dispose). Surfaces a persistent banner.
   public var processExited = false
   /// True while reloadFromFile() is in flight (loading from disk).
@@ -147,7 +147,7 @@ public final class RuntimeSession: RpcClientDelegate {
     reloadFromFile()
   }
 
-  public enum LockUIStatus: Equatable { case owned, readOnly, lost }
+  public enum LockUIStatus: Equatable { case pending, owned, readOnly, lost }
 
   public init(cwd: String, piPath: String, model: String?, sessionDir: String?) {
     self.cwd = cwd

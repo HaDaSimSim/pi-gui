@@ -56,6 +56,14 @@ struct SidebarView: View {
               .tag(session.path)
               .contextMenu {
                 Button("Open") { model.openSession(session) }
+                if model.openSessions.contains(where: { $0.sessionPath == session.path }) {
+                  Button("Close") {
+                    if let rt = model.openSessions.first(where: { $0.sessionPath == session.path })
+                    {
+                      model.closeSession(id: rt.id)
+                    }
+                  }
+                }
                 Button("Rename…") {
                   renaming = session
                   renameText = session.name ?? ""

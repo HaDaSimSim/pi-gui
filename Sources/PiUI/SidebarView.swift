@@ -11,6 +11,8 @@ struct SidebarView: View {
   @State private var renameText = ""
   @State private var deleting: SessionSummary?
   @State private var deleteError: String?
+  /// Local expansion state for directory sections, defaulting to expanded.
+  @State private var expanded: [String: Bool] = [:]
 
   var body: some View {
     List(
@@ -43,7 +45,12 @@ struct SidebarView: View {
 
       // MARK: - PROJECTS section (directory browser)
       ForEach(filteredDirs) { dir in
-        Section {
+        Section(
+          isExpanded: Binding(
+            get: { expanded[dir.cwd] ?? true },
+            set: { expanded[dir.cwd] = $0 }
+          )
+        ) {
           // "New session" row
           Button {
             model.newSession(cwd: dir.cwd)

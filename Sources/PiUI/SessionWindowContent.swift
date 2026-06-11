@@ -1,10 +1,9 @@
 import PiCore
 import SwiftUI
 
-// Single-window NavigationSplitView root: Finder-style sidebar (system sourceList)
-// + detail panel showing the active session. Sidebar selection drives which session
-// is displayed. The NavigationSplitView gives us the standard sidebar toggle button
-// in the toolbar automatically.
+// Fallback view for the SwiftUI WindowGroup. When sessions are opened, they
+// get their own NSWindow via SessionWindowController (native titlebar tabs).
+// This view provides the sidebar for browse-only use and shows the active session.
 
 public struct SessionWindowContent: View {
   @Environment(AppModel.self) var model
@@ -45,11 +44,6 @@ public struct SessionWindowContent: View {
           .padding(.horizontal, 10)
           .frame(height: 36)
           .background(.bar)
-          // Tab bar for open sessions.
-          if model.openSessions.count > 1 {
-            Divider()
-            SessionTabBar()
-          }
           Divider()
           // Session content + optional info panel.
           HSplitView {
@@ -63,13 +57,6 @@ public struct SessionWindowContent: View {
           }
         }
         .animation(.easeInOut(duration: 0.2), value: showInfo)
-      } else if !model.openSessions.isEmpty {
-        // Open sessions exist but none is active (shouldn't happen, but recover).
-        VStack(spacing: 0) {
-          SessionTabBar()
-          Divider()
-          emptyState
-        }
       } else {
         emptyState
       }

@@ -28,6 +28,9 @@ public final class AppModel {
   /// Clicking a session in the sidebar sets `activeSessionId`.
   public var openSessions: [RuntimeSession] = []
 
+  /// Window controllers keyed by runtime ID. Each native tab = one controller.
+  public var windowControllers: [UUID: SessionWindowController] = [:]
+
   /// The ID of the session currently displayed in the right content panel.
   public var activeSessionId: UUID?
 
@@ -73,9 +76,10 @@ public final class AppModel {
 
   /// Open an existing session (or activate it if already open).
   public func openSession(_ summary: SessionSummary) {
-    // If already open, just switch to it.
+    // If already open, just switch to it (select the native tab).
     if let existing = openSessions.first(where: { $0.sessionPath == summary.path }) {
       activeSessionId = existing.id
+      activateWindowController(for: existing.id)
       return
     }
     let rt = RuntimeSession(
@@ -85,6 +89,7 @@ public final class AppModel {
     rt.reloadFromFile()
     openSessions.append(rt)
     activeSessionId = rt.id
+    showAsNativeTab(rt)
     persistTabs()
   }
 
@@ -95,6 +100,7 @@ public final class AppModel {
       model: config.defaultModelSpec, sessionDir: nil)
     openSessions.append(rt)
     activeSessionId = rt.id
+    showAsNativeTab(rt)
   }
 
   /// Close (dispose) a session by its runtime id.
@@ -102,11 +108,40 @@ public final class AppModel {
     guard let idx = openSessions.firstIndex(where: { $0.id == id }) else { return }
     openSessions[idx].dispose()
     openSessions.remove(at: idx)
+    windowControllers.removeValue(forKey: id)
     // If the closed session was active, switch to another.
     if activeSessionId == id {
       activeSessionId = openSessions.last?.id
     }
     persistTabs()
+  }
+
+  /// Called by SessionWindowController.windowWillClose — removes the controller
+  /// and disposes the runtime without closing the NSWindow again.
+  public func removeWindowController(for id: UUID) {
+    guard let idx = openSessions.firstIndex(where: { $0.id == id }) else { return }
+    openSessions[idx].dispose()
+    openSessions.remove(at: idx)
+    windowControllers.removeValue(forKey: id)
+    if activeSessionId == id {
+      activeSessionId = openSessions.last?.id
+    }
+    persistTabs()
+  }
+
+  // MARK: - Native tab helpers
+
+  /// Create a SessionWindowController for the runtime and show it as a native titlebar tab.
+  private func showAsNativeTab(_ rt: RuntimeSession) {
+    let wc = SessionWindowController(runtime: rt, model: self)
+    windowControllers[rt.id] = wc
+    wc.showAsTab()
+  }
+
+  /// Activate the window/tab for a given runtime ID.
+  private func activateWindowController(for id: UUID) {
+    guard let wc = windowControllers[id] else { return }
+    wc.window?.makeKeyAndOrderFront(nil)
   }
 
   // MARK: - Tab persistence

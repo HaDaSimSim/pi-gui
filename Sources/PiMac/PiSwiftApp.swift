@@ -15,7 +15,9 @@ struct PiSwiftApp: App {
   }
 
   var body: some Scene {
-    // Single persistent window with NavigationSplitView (sidebar + detail).
+    // Single WindowGroup — native titlebar tabs are achieved by setting
+    // tabbingMode = .preferred on the NSWindow (via NativeTabConfigurator).
+    // Each window in the tab group shows a different session from openSessions.
     WindowGroup {
       SessionWindowContent()
         .environment(model)
@@ -40,10 +42,16 @@ struct PiSwiftApp: App {
     .defaultSize(width: 1100, height: 750)
     .commands {
       CommandGroup(replacing: .newItem) {
+        Button("New Tab") { appDelegate.newTab() }
+          .keyboardShortcut("t", modifiers: [.command])
         Button("New Session") { appDelegate.newSession() }
           .keyboardShortcut("n", modifiers: [.command])
         Button("Open Folder…") { model.pickFolderAndStart() }
           .keyboardShortcut("o", modifiers: [.command])
+        Divider()
+        Button("Close Tab") { appDelegate.closeActiveTab() }
+          .keyboardShortcut("w", modifiers: [.command])
+        Divider()
         Button("Refresh Sessions") { model.refresh() }
           .keyboardShortcut("r", modifiers: [.command, .shift])
       }
@@ -57,12 +65,8 @@ struct PiSwiftApp: App {
         Button("Compact Context") { appDelegate.compactCurrentSession() }
           .keyboardShortcut("k", modifiers: [.command])
       }
-      // Tab management commands.
-      CommandGroup(after: .newItem) {
-        Divider()
-        Button("Close Tab") { appDelegate.closeActiveTab() }
-          .keyboardShortcut("w", modifiers: [.command])
-        Divider()
+      // Tab switching via Cmd+1-9.
+      CommandGroup(after: .windowList) {
         ForEach(1...9, id: \.self) { idx in
           Button("Tab \(idx)") { appDelegate.switchToTab(idx - 1) }
             .keyboardShortcut(KeyEquivalent(Character("\(idx)")), modifiers: [.command])
@@ -76,28 +80,47 @@ struct PiSwiftApp: App {
   }
 }
 
-// MARK: - AppDelegate (minimal — handles menu actions + lifecycle)
+// MARK: - AppDelegate (handles menu actions + native tab lifecycle)
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
   var model: AppModel?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    // No automatic tab bar — sidebar is the navigation.
+    // Disable automatic window tabbing globally — this prevents the "+" button
+    // from appearing in the tab bar. We manage tabs manually via SessionWindowController.
     NSWindow.allowsAutomaticWindowTabbing = false
+
+    // Configure the main WindowGroup window to join the session tab group.
+    DispatchQueue.main.async {
+      if let window = NSApp.windows.first {
+        window.tabbingMode = .preferred
+        window.tabbingIdentifier = SessionWindowController.tabbingId
+        window.title = "pi"
+        // Force tab bar visible even with no session tabs.
+        if let tabGroup = window.tabGroup, !tabGroup.isTabBarVisible {
+          window.toggleTabBar(nil)
+        }
+      }
+    }
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
     return false
   }
 
-  /// Create a new session in the active session's cwd (or home directory).
-  func newSession() {
+  /// Create a new tab (Cmd+T): new session in the active session's cwd.
+  func newTab() {
     guard let model else { return }
     let cwd =
       model.activeSession?.cwd
       ?? FileManager.default.homeDirectoryForCurrentUser.path
     model.newSession(cwd: cwd)
+  }
+
+  /// Create a new session (Cmd+N): same as new tab.
+  func newSession() {
+    newTab()
   }
 
   /// Toggle the info panel on the active session.
@@ -112,16 +135,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     rt.compact()
   }
 
-  /// Close the active tab (Cmd+W).
+  /// Close the active tab (Cmd+W). Closes the key window, triggering windowWillClose -> dispose.
   func closeActiveTab() {
-    guard let model, let id = model.activeSessionId else { return }
-    model.closeSession(id: id)
+    if let window = NSApp.keyWindow {
+      window.performClose(nil)
+    }
   }
 
   /// Switch to the Nth open tab (0-indexed). Cmd+1 = index 0, etc.
   func switchToTab(_ index: Int) {
     guard let model, index >= 0, index < model.openSessions.count else { return }
-    model.activeSessionId = model.openSessions[index].id
+    let targetId = model.openSessions[index].id
+    model.activeSessionId = targetId
+    if let wc = model.windowControllers[targetId] {
+      wc.window?.makeKeyAndOrderFront(nil)
+    }
   }
 
   /// Re-show the main window when the dock icon is clicked with no visible windows.

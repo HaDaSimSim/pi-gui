@@ -20,6 +20,7 @@ struct SidebarView: View {
       // edge is often dragged off-screen). Browse actions + filter live up top.
       HStack(spacing: 10) {
         Text("π").font(.system(size: 15, weight: .semibold, design: .serif))
+          .baselineOffset(2)
           .foregroundStyle(.secondary)
         Spacer()
         Button {

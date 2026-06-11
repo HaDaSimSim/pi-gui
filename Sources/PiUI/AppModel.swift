@@ -176,13 +176,38 @@ public final class AppModel {
     openSessions.removeAll()
   }
 
-  /// Rename a session via the live runtime if open, else just trigger the rename.
+  /// Rename a session via the live runtime if open, else write directly to the session file.
   public func renameSession(_ summary: SessionSummary, to name: String) {
     if let rt = openSessions.first(where: { $0.sessionPath == summary.path }) {
-      ensureRuntimeStarted(rt)
-      rt.rename(name)
+      // Live session: if runtime is started use RPC, else rename directly on file.
+      if rt.isStarted {
+        rt.rename(name)
+      } else {
+        Self.writeNameEntry(path: summary.path, name: name)
+        rt.sessionName = name
+      }
+    } else {
+      // Browse-only: append a session-info entry with the new name directly to the file.
+      Self.writeNameEntry(path: summary.path, name: name)
     }
     loadSessions(forCwd: summary.cwd)
+  }
+
+  /// Append a session-info JSON line to the session file to persist a display name.
+  private static func writeNameEntry(path: String, name: String) {
+    let ts = ISO8601DateFormatter().string(from: Date())
+    let entry: [String: Any] = [
+      "type": "session-info",
+      "name": name,
+      "timestamp": ts,
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]),
+      let line = String(data: data, encoding: .utf8)
+    else { return }
+    guard let fh = FileHandle(forWritingAtPath: path) else { return }
+    defer { try? fh.close() }
+    fh.seekToEndOfFile()
+    fh.write(Data(("\n" + line).utf8))
   }
 
   /// Delete a session file. Refuses if a live/locked runtime holds it.

@@ -19,8 +19,8 @@ struct PiSwiftApp: App {
     // tabbingMode = .preferred on the NSWindow (via NativeTabConfigurator).
     // Each window in the tab group shows a different session from openSessions.
     WindowGroup {
-      SessionWindowContent()
-        .environment(model)
+      Color.clear.frame(width: 0, height: 0)
+        .background(WindowHider())
         .onAppear {
           appDelegate.model = model
           model.refresh()
@@ -29,17 +29,30 @@ struct PiSwiftApp: App {
           NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
           ) { _ in MainActor.assumeIsolated { model.disposeAll() } }
-          // UI smoke hook: PISWIFT_UITEST=<cwd substr> auto-opens a session and sends a prompt.
+          // UI smoke hook
           if let probe = ProcessInfo.processInfo.environment["PISWIFT_UITEST"] {
             model.runUITest(cwdSubstring: probe)
           }
-          // Open a specific session file (read-only browse) for visual verification.
           if let openPath = ProcessInfo.processInfo.environment["PISWIFT_OPEN"] {
             model.openSessionByPath(openPath)
           }
+          // Hide the dummy WindowGroup window — real UI is SessionWindowController.
+          DispatchQueue.main.async {
+            for w in NSApp.windows
+            where w.contentView?.subviews.isEmpty ?? true
+              || w.frame.size == .zero
+            {
+              w.orderOut(nil)
+            }
+            // If no sessions were restored, show a welcome window.
+            if model.openSessions.isEmpty {
+              appDelegate.showWelcomeWindow()
+            }
+          }
         }
     }
-    .defaultSize(width: 1100, height: 750)
+    .defaultSize(width: 0, height: 0)
+    .windowStyle(.hiddenTitleBar)
     .commands {
       CommandGroup(replacing: .newItem) {
         Button("New Tab") { appDelegate.newTab() }
@@ -156,8 +169,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
   {
     if !flag {
-      NSApp.windows.first?.makeKeyAndOrderFront(nil)
+      showWelcomeWindow()
     }
     return true
   }
+
+  /// Show a welcome window when no sessions are restored.
+  func showWelcomeWindow() {
+    guard let model else { return }
+    model.newSession(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
+  }
+}
+
+// MARK: - WindowHider (hides the dummy WindowGroup NSWindow immediately)
+
+/// An NSViewRepresentable that finds and hides its hosting window on appear.
+/// This ensures the zero-size Color.clear WindowGroup window never flashes.
+private struct WindowHider: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSView {
+    let v = NSView()
+    DispatchQueue.main.async {
+      if let window = v.window {
+        window.orderOut(nil)
+        window.setFrame(.zero, display: false)
+      }
+    }
+    return v
+  }
+  func updateNSView(_ nsView: NSView, context: Context) {}
 }

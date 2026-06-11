@@ -226,7 +226,6 @@ private struct ToolCallCard: View {
     }
     .disclosureGroupStyle(.automatic)
     .clipped()
-    .animation(.easeInOut(duration: 0.2), value: expanded)
     .padding(.horizontal, 8).padding(.vertical, 4)
     .background(
       hovering ? Color.secondary.opacity(0.14) : Color.secondary.opacity(0.08),
@@ -235,6 +234,7 @@ private struct ToolCallCard: View {
     .overlay(
       RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor), lineWidth: 1)
     )
+    .animation(.easeInOut(duration: 0.2), value: expanded)
     .onHover { hovering = $0 }
     .animation(.easeOut(duration: 0.12), value: hovering)
   }

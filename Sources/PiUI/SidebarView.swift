@@ -32,8 +32,10 @@ struct SidebarView: View {
         Section(
           isExpanded: Binding(
             get: { expanded[dir.cwd] ?? false },
-            set: {
-              expanded[dir.cwd] = $0
+            set: { newValue in
+              withAnimation(.easeInOut(duration: 0.2)) {
+                expanded[dir.cwd] = newValue
+              }
               UserDefaults.standard.set(expanded, forKey: "piswift.sidebar.expanded")
             }
           )
@@ -74,8 +76,10 @@ struct SidebarView: View {
           }
           .contentShape(Rectangle())
           .onTapGesture {
-            let current = expanded[dir.cwd] ?? false
-            expanded[dir.cwd] = !current
+            withAnimation(.easeInOut(duration: 0.2)) {
+              let current = expanded[dir.cwd] ?? false
+              expanded[dir.cwd] = !current
+            }
             UserDefaults.standard.set(expanded, forKey: "piswift.sidebar.expanded")
           }
         }

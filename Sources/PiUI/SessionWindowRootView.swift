@@ -30,19 +30,8 @@ struct SessionWindowRootView: View {
         .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 400)
     } detail: {
       VStack(spacing: 0) {
-        // Header bar: close session (left) + info panel toggle (right).
+        // Header bar: info panel toggle (right only).
         HStack(spacing: 12) {
-          Button {
-            model.closeSession(id: runtime.id)
-          } label: {
-            Image(systemName: "xmark")
-              .font(.system(size: 11, weight: .medium))
-              .frame(width: 24, height: 24)
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .foregroundStyle(.secondary)
-          .help("Close session (\u{2318}W)")
           Spacer()
           Button {
             withAnimation(.easeInOut(duration: 0.2)) { showInfo.toggle() }

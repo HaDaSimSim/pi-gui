@@ -2,14 +2,14 @@ import PiCore
 import SwiftUI
 
 // Right-side info panel: Info / Subagents / Tasks / Git tabs.
-// Styled like Xcode's inspector — compact, system-styled Form sections.
+// Fixed-height panel that never collapses when switching tabs.
 struct InfoPanelView: View {
   var runtime: RuntimeSession
   @State private var selection = 0
 
   var body: some View {
     VStack(spacing: 0) {
-      // Segmented picker (Liquid Glass on macOS 26+)
+      // Segmented picker at the top
       Picker("", selection: $selection.animation(.easeInOut(duration: 0.18))) {
         Text("Info").tag(0)
         Text("Subagents").tag(1)
@@ -23,73 +23,74 @@ struct InfoPanelView: View {
 
       Divider()
 
-      // Tab content
-      Group {
-        switch selection {
-        case 0: infoTab
-        case 1: subagentsTab
-        case 2: tasksTab
-        default: GitPanelView(cwd: runtime.cwd)
-        }
-      }
-      .id(selection)
-      .transition(.opacity)
+      // Tab content — each fills all available vertical space
+      tabContent
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(nsColor: .controlBackgroundColor))
+  }
+
+  @ViewBuilder
+  private var tabContent: some View {
+    switch selection {
+    case 0: infoTab
+    case 1: subagentsTab
+    case 2: tasksTab
+    default: GitPanelView(cwd: runtime.cwd)
+    }
   }
 
   // MARK: - Info tab
 
   private var infoTab: some View {
-    List {
-      Section {
-        InlineRename(runtime: runtime)
-      } header: {
-        InfoSectionHeader("SESSION")
-      }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 16) {
+        // Session section
+        InfoSection("SESSION") {
+          InlineRename(runtime: runtime)
+        }
 
-      Section {
-        ModelEffortControls(runtime: runtime)
-      } header: {
-        InfoSectionHeader("MODEL")
-      }
+        // Model section
+        InfoSection("MODEL") {
+          ModelEffortControls(runtime: runtime)
+        }
 
-      if runtime.footer.contextWindow > 0 {
-        Section {
-          let pct = Int(
-            Double(runtime.footer.contextTokens) / Double(runtime.footer.contextWindow) * 100)
-          LabeledContent("Usage") {
-            Text(
-              "\(Fmt.tokens(runtime.footer.contextTokens))/\(Fmt.tokens(runtime.footer.contextWindow)) (\(pct)%)"
-            )
+        // Context section
+        if runtime.footer.contextWindow > 0 {
+          InfoSection("CONTEXT") {
+            let pct = Int(
+              Double(runtime.footer.contextTokens) / Double(runtime.footer.contextWindow) * 100)
+            LabeledContent("Usage") {
+              Text(
+                "\(Fmt.tokens(runtime.footer.contextTokens))/\(Fmt.tokens(runtime.footer.contextWindow)) (\(pct)%)"
+              )
+            }
+            ProgressView(
+              value: Double(runtime.footer.contextTokens),
+              total: Double(runtime.footer.contextWindow))
           }
-          ProgressView(
-            value: Double(runtime.footer.contextTokens),
-            total: Double(runtime.footer.contextWindow))
-        } header: {
-          InfoSectionHeader("CONTEXT")
+        }
+
+        // Tokens section
+        InfoSection("TOKENS") {
+          TokenCompositionBar(footer: runtime.footer)
+          LabeledContent("Input", value: Fmt.tokens(runtime.footer.inputTokens))
+          LabeledContent("Output", value: Fmt.tokens(runtime.footer.outputTokens))
+          LabeledContent("Cache read", value: Fmt.tokens(runtime.footer.cacheRead))
+          LabeledContent("Cache write", value: Fmt.tokens(runtime.footer.cacheWrite))
+          LabeledContent("Total", value: Fmt.tokens(runtime.footer.totalTokens))
+          LabeledContent("Cost", value: Fmt.cost(runtime.footer.cost))
+        }
+
+        // Capabilities section
+        InfoSection("CAPABILITIES") {
+          CapabilitiesSection(commands: runtime.commands)
         }
       }
-
-      Section {
-        TokenCompositionBar(footer: runtime.footer)
-        LabeledContent("Input", value: Fmt.tokens(runtime.footer.inputTokens))
-        LabeledContent("Output", value: Fmt.tokens(runtime.footer.outputTokens))
-        LabeledContent("Cache read", value: Fmt.tokens(runtime.footer.cacheRead))
-        LabeledContent("Cache write", value: Fmt.tokens(runtime.footer.cacheWrite))
-        LabeledContent("Total", value: Fmt.tokens(runtime.footer.totalTokens))
-        LabeledContent("Cost", value: Fmt.cost(runtime.footer.cost))
-      } header: {
-        InfoSectionHeader("TOKENS")
-      }
-
-      Section {
-        CapabilitiesSection(commands: runtime.commands)
-      } header: {
-        InfoSectionHeader("CAPABILITIES")
-      }
+      .padding(12)
     }
-    .listStyle(.sidebar)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   // MARK: - Subagents tab
@@ -102,8 +103,15 @@ struct InfoPanelView: View {
     return Group {
       if runs.isEmpty {
         ContentUnavailableView("No subagents", systemImage: "person.2")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        SubagentsList(runs: runs)
+        ScrollView {
+          VStack(alignment: .leading, spacing: 0) {
+            SubagentsList(runs: runs)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
   }
@@ -119,28 +127,32 @@ struct InfoPanelView: View {
       if case .goalState(_, let obj, let status) = item { return (obj, status) }
       return nil
     }.first
-    return List {
-      if let goal {
-        Section {
-          LabeledContent(goal.0) {
-            Text("\(Theme.goalEmoji(goal.1)) \(goal.1)")
-          }
-        } header: {
-          InfoSectionHeader("GOAL")
-        }
-      }
-      if let todos, !todos.isEmpty {
-        Section {
-          TodoWidget(todos: todos, isStreaming: runtime.isStreaming)
-        } header: {
-          InfoSectionHeader("TODOS")
-        }
-      }
+
+    return Group {
       if goal == nil && (todos?.isEmpty ?? true) {
         ContentUnavailableView("No goal or todos yet", systemImage: "checklist")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        ScrollView {
+          VStack(alignment: .leading, spacing: 16) {
+            if let goal {
+              InfoSection("GOAL") {
+                LabeledContent(goal.0) {
+                  Text("\(Theme.goalEmoji(goal.1)) \(goal.1)")
+                }
+              }
+            }
+            if let todos, !todos.isEmpty {
+              InfoSection("TODOS") {
+                TodoWidget(todos: todos, isStreaming: runtime.isStreaming)
+              }
+            }
+          }
+          .padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
-    .listStyle(.sidebar)
   }
 }
 
@@ -156,16 +168,25 @@ private struct InspectorPickerBackground: ViewModifier {
   }
 }
 
-// MARK: - Section header matching left sidebar style
+// MARK: - Reusable section container
 
-private struct InfoSectionHeader: View {
+private struct InfoSection<Content: View>: View {
   let title: String
-  init(_ title: String) { self.title = title }
+  @ViewBuilder let content: Content
+
+  init(_ title: String, @ViewBuilder content: () -> Content) {
+    self.title = title
+    self.content = content()
+  }
+
   var body: some View {
-    Text(title)
-      .font(.caption)
-      .fontWeight(.semibold)
-      .foregroundStyle(.secondary)
+    VStack(alignment: .leading, spacing: 8) {
+      Text(title)
+        .font(.caption)
+        .fontWeight(.semibold)
+        .foregroundStyle(.secondary)
+      content
+    }
   }
 }
 

@@ -43,6 +43,17 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
     let rootView = SessionWindowRootView(runtime: runtime, model: model)
     let hostingView = NSHostingView(rootView: rootView)
     window.contentView = hostingView
+
+    // Observe displayTitle changes and sync the native tab title.
+    Task { @MainActor [weak self] in
+      while let self, self.window != nil {
+        let title = self.runtime.displayTitle
+        if self.window?.title != title {
+          self.window?.title = title
+        }
+        try? await Task.sleep(for: .milliseconds(500))
+      }
+    }
   }
 
   @available(*, unavailable)
@@ -71,17 +82,19 @@ public final class SessionWindowController: NSWindowController, NSWindowDelegate
   /// Force the tab bar to stay visible (even with one tab).
   public func forceTabBarVisible() {
     guard let window else { return }
-    DispatchQueue.main.async {
-      // toggleTabBar shows/hides the tab bar. Only toggle if currently hidden.
+    // Delay slightly — tabGroup isn't always available immediately after window creation.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
       if let tabGroup = window.tabGroup, !tabGroup.isTabBarVisible {
+        window.toggleTabBar(nil)
+      } else if window.tabGroup == nil {
+        // No tab group yet (single window) — toggle creates one and shows the bar.
         window.toggleTabBar(nil)
       }
     }
   }
 
   private static func windowTitle(for rt: RuntimeSession) -> String {
-    if let name = rt.sessionName, !name.isEmpty { return name }
-    return (rt.cwd as NSString).lastPathComponent
+    return rt.displayTitle
   }
 
   // MARK: - NSWindowDelegate

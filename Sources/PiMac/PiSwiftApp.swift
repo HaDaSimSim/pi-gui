@@ -102,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
     // Disable automatic window tabbing globally — this prevents the "+" button
     // from appearing in the tab bar. We manage tabs manually via SessionWindowController.
-    NSWindow.allowsAutomaticWindowTabbing = false
+    NSWindow.allowsAutomaticWindowTabbing = true
 
     // Configure the main WindowGroup window to join the session tab group.
     DispatchQueue.main.async {

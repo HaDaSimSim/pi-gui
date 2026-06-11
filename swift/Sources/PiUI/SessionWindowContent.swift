@@ -1,8 +1,10 @@
 import PiCore
 import SwiftUI
 
-// Per-window SwiftUI root: NavigationSplitView with sidebar + session detail + info panel.
+// Per-window SwiftUI root: HSplitView with sidebar + session detail + info panel.
 // Each window has its own sidebar instance so you can browse/open sessions from any tab.
+// Uses HSplitView instead of NavigationSplitView to avoid toolbar/header layout issues
+// when the sidebar is shown (NavigationSplitView's detail toolbar shifts unpredictably).
 struct SessionWindowContent: View {
   @ObservedObject var runtime: RuntimeSession
   let cwd: String
@@ -21,30 +23,38 @@ struct SessionWindowContent: View {
   }
 
   var body: some View {
-    NavigationSplitView {
+    HSplitView {
       SidebarView()
-        .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 480)
-    } detail: {
-      HStack(spacing: 0) {
-        SessionTabView(runtime: runtime, cwd: cwd, controller: controller)
-          .frame(minWidth: 420)
-        if showInfo {
-          Divider()
-          InfoPanelView(runtime: runtime)
-            .frame(minWidth: 260, idealWidth: 340, maxWidth: 560)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
+        .frame(minWidth: 220, idealWidth: 280, maxWidth: 480)
+      VStack(spacing: 0) {
+        // Fixed header bar that always covers content below (never shifts with sidebar).
+        HStack {
+          Spacer()
+          Button {
+            showInfo.toggle()
+          } label: {
+            Image(systemName: showInfo ? "sidebar.right.fill" : "sidebar.right")
+              .font(.system(size: 14))
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.secondary)
+          .help("Toggle info panel (\u{21e7}\u{2318}I)")
         }
-      }
-      .animation(.easeInOut(duration: 0.2), value: showInfo)
-    }
-    .toolbar {
-      ToolbarItem(placement: .primaryAction) {
-        Button {
-          showInfo.toggle()
-        } label: {
-          Image(systemName: showInfo ? "sidebar.trailing.badge.fullscreen" : "sidebar.right")
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .background(.bar)
+        Divider()
+        HStack(spacing: 0) {
+          SessionTabView(runtime: runtime, cwd: cwd, controller: controller)
+            .frame(minWidth: 420)
+          if showInfo {
+            Divider()
+            InfoPanelView(runtime: runtime)
+              .frame(minWidth: 260, idealWidth: 340, maxWidth: 560)
+              .transition(.move(edge: .trailing).combined(with: .opacity))
+          }
         }
-        .help("Toggle info panel (⇧⌘I)")
+        .animation(.easeInOut(duration: 0.2), value: showInfo)
       }
     }
     .onReceive(NotificationCenter.default.publisher(for: .toggleInfoPanel)) { _ in

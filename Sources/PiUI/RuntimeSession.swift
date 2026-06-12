@@ -159,12 +159,29 @@ public final class RuntimeSession: RpcClientDelegate {
   public func start() throws {
     guard !isStarted else { return }
     isStartingUp = true
-    // If we're opening an existing session file, pass its dir so the new RPC writes there,
-    // and switch_session to resume it (otherwise pi mints a brand-new session file).
     let resumePath = sessionPath
     let dir = resumePath.map { ($0 as NSString).deletingLastPathComponent } ?? sessionDir
-    // When resuming an existing session, don't pass --model — let pi use the session's
-    // persisted model. Only pass --model for brand-new sessions.
+
+    // Acquire the lock BEFORE spawning pi. If another owner holds it, open read-only
+    // (don't spawn pi at all — just show the transcript from file).
+    if let resumePath {
+      let l = SessionLock(
+        sessionPath: resumePath, owner: "pi-web",
+        label: sessionName.map { "pi-gui: \($0)" } ?? "pi-gui")
+      let r = l.tryAcquire()
+      lock = l
+      lockStatus = r.acquired ? .owned : .readOnly
+      #if DEBUG
+        print("[pi-gui] ensureLock (pre-start): path=\(resumePath) acquired=\(r.acquired)")
+      #endif
+      if !r.acquired {
+        // Can't write — don't spawn pi. Just show the file transcript read-only.
+        isStartingUp = false
+        return
+      }
+    }
+
+    // Lock acquired (or new session with no file yet). Spawn pi.
     let modelArg = resumePath == nil ? model0 : nil
     try rpc.start(piPath: piPath, cwd: cwd, model: modelArg, sessionDir: dir)
     rpc.delegate = self
